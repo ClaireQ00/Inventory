@@ -27,7 +27,8 @@ inventory/
 ├── db/                        # 数据库连接配置（预留）
 ├── docs/                      # 项目文档
 │   ├── README.md              # 本文档
-│   └── AGENT_GUIDE.md         # Agent/Skill/Hook 协作指南
+│   ├── AGENT_GUIDE.md         # Agent/Skill/Hook 协作指南
+│   └── PRIVATE_DATA_GUIDELINES.md  # 真实数据与敏感信息处理指南
 └── sample/                    # 示例代码（预留）
 ```
 

@@ -52,6 +52,13 @@ bash scripts/ci.sh
 
 确认没有错误之后，再执行远程推送。
 
+另外请务必确认仓库中不包含真实客户信息或敏感业务数据：
+
+- 真实数据应放在 `data/` 或 `private/` 目录，并通过 `.gitignore` 忽略。
+- 推送前请执行 `git status --short`，确认没有敏感文件处于暂存区。
+- 可运行 `bash scripts/check-sensitive-data.sh` 检查是否存在 `.env` 或其他常见敏感文件。
+- 如有需要，可阅读 `docs/PRIVATE_DATA_GUIDELINES.md` 了解更详细的处理规范。
+
 ## 5. 后续建议
 
 - 私有仓库发布后，可在 GitHub Settings 中启用 `Actions`。

@@ -44,7 +44,24 @@
 - `customize-cloud-agent`
   - 安装依赖、配置运行环境。
 
-## 3. Git Hooks 建议
+## 3. 敏感数据处理原则
+
+真实客户数据、供应商信息、合同明细等敏感信息不应直接提交到仓库。请遵循以下做法：
+
+- 使用 `data/` 或 `private/` 目录保存本地测试数据，这些目录已被加入 `.gitignore`。
+- 真实数据只在本地分析和验证，不要将真实文件加入 git 版本控制。
+- 推送前务必运行 `git status --short`，确认没有敏感文件出现在暂存区。
+- 若需要共享测试数据，使用脱敏后数据或安全渠道，避免通过 GitHub 传输原始敏感信息。
+
+更多细则请参见 `docs/PRIVATE_DATA_GUIDELINES.md`。
+
+在提交和推送前，可以使用以下脚本检查是否存在敏感配置文件：
+
+```bash
+bash scripts/check-sensitive-data.sh
+```
+
+## 4. Git Hooks 建议
 
 本项目推荐使用以下钩子：
 
