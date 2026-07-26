@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+topdir="$(git rev-parse --show-toplevel)"
+cd "$topdir"
+
+echo "Running pre-push checks..."
+
+if [[ -f sql/01_schema.sql ]]; then
+  echo "- Found sql/01_schema.sql"
+else
+  echo "- Missing sql/01_schema.sql"
+  exit 1
+fi
+
+echo "Pre-push checks passed."

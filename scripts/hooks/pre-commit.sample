@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+topdir="$(git rev-parse --show-toplevel)"
+cd "$topdir"
+
+echo "Running pre-commit checks..."
+
+if [[ -f sample/import_products.py ]]; then
+  echo "- Checking Python syntax for sample/import_products.py"
+  python3 -m py_compile sample/import_products.py
+fi
+
+echo "Pre-commit checks passed."

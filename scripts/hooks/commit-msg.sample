@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if [[ $# -eq 0 ]]; then
+  echo "Usage: $0 <commit-msg-file>"
+  exit 1
+fi
+
+commit_msg_file="$1"
+if [[ ! -f "$commit_msg_file" ]]; then
+  echo "Commit message file not found: $commit_msg_file"
+  exit 1
+fi
+
+first_line="$(head -n 1 "$commit_msg_file")"
+if [[ ! "$first_line" =~ ^(feat|fix|docs|chore|refactor|test|perf)(\(.+\))?:[[:space:]]+.+$ ]]; then
+  echo "Commit message must follow conventional format: type(scope): description"
+  echo "Example: feat(inventory): add new stock log field"
+  exit 1
+fi
+
+echo "Commit message format OK."
