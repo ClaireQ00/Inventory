@@ -1,0 +1,2 @@
+in_no,in_type,warehouse_id,po_id,operator,in_date,status,remark
+IN20240731001,purchase,1,1,张三,2024-07-31,confirmed,采购到货入库

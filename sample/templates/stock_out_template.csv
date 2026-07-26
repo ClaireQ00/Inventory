@@ -1,0 +1,2 @@
+out_no,out_type,warehouse_id,delivery_id,operator,out_date,status,remark
+OUT20240731001,sale,1,1,王五,2024-08-01,confirmed,示例出库单

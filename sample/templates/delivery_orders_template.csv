@@ -1,0 +1,2 @@
+delivery_no,customer_id,delivery_date,receiver,receiver_phone,receiver_address,transport_no,status,remark
+DN20240731001,1,2024-08-01,李四,13800000011,马来西亚 吉隆坡,TRANS001,draft,示例发货单

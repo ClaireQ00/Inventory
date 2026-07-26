@@ -28,7 +28,8 @@ inventory/
 ├── docs/                      # 项目文档
 │   ├── README.md              # 本文档
 │   ├── AGENT_GUIDE.md         # Agent/Skill/Hook 协作指南
-│   └── PRIVATE_DATA_GUIDELINES.md  # 真实数据与敏感信息处理指南
+│   ├── PRIVATE_DATA_GUIDELINES.md  # 真实数据与敏感信息处理指南
+│   └── IMPORT_TEMPLATES.md    # 导入模板说明
 └── sample/                    # 示例代码（预留）
 ```
 

@@ -101,6 +101,8 @@ bash scripts/ci.sh
   - 针对模块或全局运行审查检查。
 - `scripts/setup-git-hooks.sh`
   - 安装仓库内的 Git 钩子示例。
+- `bash scripts/check-sensitive-data.sh`
+  - 检查是否存在常见敏感文件或配置。
 
 ## 5. 工作建议
 

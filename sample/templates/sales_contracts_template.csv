@@ -1,0 +1,2 @@
+contract_no,customer_id,sign_date,delivery_deadline,total_amount,status,remark
+SC20240731001,1,2024-07-31,2024-08-15,15000.00,draft,示例销售合同

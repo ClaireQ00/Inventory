@@ -1,0 +1,2 @@
+po_no,supplier_id,order_date,expected_date,total_amount,status,remark
+PO20240731001,1,2024-07-31,2024-08-10,10000.00,draft,示例采购单
