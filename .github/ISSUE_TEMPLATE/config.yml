@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 提问与建议
+    url: https://github.com/<your-org>/<your-repo>/issues/new/choose
+    about: 使用本项目的 Issue 模板提交需求或问题
