@@ -1,0 +1,2 @@
+cn_no,shipping_id,contract_item_id,product_id,diff_qty,currency,diff_amount,exchange_rate,diff_amount_cny,resolution,resolved_at,remark
+CN20260726001,1,1,1,5,USD,1000.00,7.15,7150.00,replenish,2026-08-15,示例贷记单 (currency 默认 USD; diff_amount_cny=diff_amount×rate; resolution: pending/replenish/refund/writeoff; diff_qty 正=短装 负=超装)

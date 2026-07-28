@@ -1,2 +1,2 @@
-delivery_id,contract_item_id,product_id,quantity,remark
-1,1,1,5,示例发货明细
+delivery_id,contract_item_id,product_id,quantity,actual_quantity,short_qty,volume_subtotal,remark
+1,1,1,5,5,0,0.223,示例发货明细 (满发)

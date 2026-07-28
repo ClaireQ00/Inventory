@@ -132,6 +132,8 @@ CREATE TABLE suppliers (
     phone           VARCHAR(32)  DEFAULT ''         COMMENT '电话',
     address         VARCHAR(255) DEFAULT ''         COMMENT '地址',
     bank_account    VARCHAR(64)  DEFAULT ''         COMMENT '银行账号',
+    company_profiles TEXT         DEFAULT NULL      COMMENT '供应商公司资料全文 (合同模板调取, 可多行, 含中文开票信息)',
+    billing_profiles TEXT         DEFAULT NULL      COMMENT '供应商开票/收款资料全文 (合同模板调取, 可多行, 含外币账户信息)',
     is_active       TINYINT(1)   NOT NULL DEFAULT 1 COMMENT '是否启用',
     remark          VARCHAR(512) DEFAULT ''         COMMENT '备注',
     created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
@@ -152,6 +154,9 @@ CREATE TABLE customers (
     phone           VARCHAR(32)  DEFAULT ''         COMMENT '电话',
     address         VARCHAR(255) DEFAULT ''         COMMENT '收货地址',
     bank_account    VARCHAR(64)  DEFAULT ''         COMMENT '银行账号',
+    brand_name      VARCHAR(64)  DEFAULT ''         COMMENT '客户品牌名 (如 PAGODA), 用于产品/包装标识',
+    company_profiles TEXT         DEFAULT NULL      COMMENT '客户公司资料全文 (合同模板调取, 可多行)',
+    billing_profiles TEXT         DEFAULT NULL      COMMENT '客户开票/收款资料全文 (合同模板调取, 可多行)',
     is_active       TINYINT(1)   NOT NULL DEFAULT 1 COMMENT '是否启用',
     remark          VARCHAR(512) DEFAULT ''         COMMENT '备注',
     created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
@@ -176,8 +181,8 @@ CREATE TABLE purchase_orders (
     order_date      DATE         NOT NULL           COMMENT '下单日期',
     expected_date   DATE         DEFAULT NULL       COMMENT '预计到货日期',
     total_amount    DECIMAL(14,2) NOT NULL DEFAULT 0.00 COMMENT '采购总金额(CNY)',
-    status          ENUM('draft','confirmed','received','cancelled')
-                                NOT NULL DEFAULT 'draft' COMMENT '状态: 草稿/已确认/已收货/已取消',
+    status          ENUM('draft','confirmed','partial_received','received','cancelled')
+                                NOT NULL DEFAULT 'draft' COMMENT '状态: 草稿/已确认/部分到货/已全部到货/已取消',
     remark          VARCHAR(512) DEFAULT ''         COMMENT '备注',
     created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -202,6 +207,7 @@ CREATE TABLE purchase_order_items (
     quantity        INT          NOT NULL           COMMENT '采购数量(件/卷)',
     unit_price      DECIMAL(12,2) NOT NULL          COMMENT '采购单价(CNY/件)',
     subtotal        DECIMAL(14,2) NOT NULL          COMMENT '小计金额(CNY) = quantity*unit_price',
+    volume_subtotal DECIMAL(10,4) DEFAULT 0.0000    COMMENT '体积小计(CBM) = 单件体积 × quantity',
     received_qty    INT          NOT NULL DEFAULT 0 COMMENT '已收货数量',
     remark          VARCHAR(255) DEFAULT ''         COMMENT '备注',
 
@@ -230,7 +236,18 @@ CREATE TABLE sales_contracts (
     customer_id     INT          NOT NULL           COMMENT '客户ID',
     sign_date       DATE         NOT NULL           COMMENT '签订日期',
     delivery_deadline DATE       DEFAULT NULL       COMMENT '交货截止日期',
-    total_amount    DECIMAL(14,2) NOT NULL DEFAULT 0.00 COMMENT '合同总金额(CNY)',
+    -- 金额 (外贸默认外币计价, 记账本位币 CNY)
+    total_amount    DECIMAL(14,2) NOT NULL DEFAULT 0.00 COMMENT '合同总金额(原币种)',
+    currency        VARCHAR(3)   NOT NULL DEFAULT 'USD' COMMENT '币种(ISO 4217 三字母): USD/EUR/IDR...',
+    exchange_rate   DECIMAL(10,4) NOT NULL DEFAULT 0 COMMENT '签约日汇率(原币种→CNY)',
+    total_amount_cny DECIMAL(14,2) NOT NULL DEFAULT 0.00 COMMENT '合同总金额(折算CNY) = total_amount × exchange_rate',
+    -- 贸易术语 (Incoterms 2020)
+    trade_terms     ENUM('FOB','CIF','CFR','EXW') NOT NULL DEFAULT 'FOB' COMMENT '贸易术语: FOB/CIF/CFR/EXW',
+    port_loading    VARCHAR(64)  DEFAULT ''         COMMENT '装运港(如 Qingdao)',
+    port_discharge  VARCHAR(64)  DEFAULT ''         COMMENT '卸货港(如 Jakarta)',
+    freight         DECIMAL(12,2) NOT NULL DEFAULT 0.00 COMMENT '运费(CNY, 仅 CIF/CFR 有)',
+    insurance       DECIMAL(12,2) NOT NULL DEFAULT 0.00 COMMENT '保险费(CNY, 仅 CIF 有)',
+    -- 状态
     status          ENUM('draft','confirmed','delivering','completed','cancelled')
                                 NOT NULL DEFAULT 'draft' COMMENT '状态: 草稿/已确认/发货中/已完成/已取消',
     remark          VARCHAR(512) DEFAULT ''         COMMENT '备注',
@@ -258,6 +275,7 @@ CREATE TABLE sales_contract_items (
     quantity        INT          NOT NULL           COMMENT '合同数量(件/卷)',
     unit_price      DECIMAL(12,2) NOT NULL          COMMENT '合同单价(CNY/件)',
     subtotal        DECIMAL(14,2) NOT NULL          COMMENT '小计金额(CNY) = quantity*unit_price',
+    volume_subtotal DECIMAL(10,4) DEFAULT 0.0000    COMMENT '体积小计(CBM) = 单件体积 × quantity',
     delivered_qty   INT          NOT NULL DEFAULT 0 COMMENT '已发货数量(由发货单回写)',
     remark          VARCHAR(255) DEFAULT ''         COMMENT '备注',
 
@@ -439,8 +457,8 @@ CREATE TABLE delivery_orders (
     receiver_phone  VARCHAR(32)  DEFAULT ''         COMMENT '收货电话',
     receiver_address VARCHAR(255) DEFAULT ''        COMMENT '收货地址',
     transport_no    VARCHAR(64)  DEFAULT ''         COMMENT '物流单号',
-    status          ENUM('draft','confirmed','cancelled')
-                                NOT NULL DEFAULT 'draft' COMMENT '状态: 草稿/已确认/已取消',
+    status          ENUM('draft','confirmed','shipped','delivered','cancelled')
+                                NOT NULL DEFAULT 'draft' COMMENT '状态: 草稿/已确认/已装船/客户已签收/已取消',
     remark          VARCHAR(512) DEFAULT ''         COMMENT '备注',
     created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -457,6 +475,13 @@ CREATE INDEX idx_do_status   ON delivery_orders(status);
 -- 5.2 发货单明细表 delivery_order_items
 -- 类比: 发货单的"商品行"
 -- 每行关联一个合同明细, 发货后回写合同明细的 delivered_qty
+--
+-- ⚠️ 短装/超装设计 (2026-07 升级):
+--   quantity         = 商务承诺数 (合同数, 不改)
+--   actual_quantity  = 实际装柜数 (装柜后填, 默认=quantity)
+--   short_qty        = 数据库自动算 (quantity - actual_quantity)
+--
+-- 两套账机制详见 .claude/skills/trade-documents/SKILL.md
 -- ------------------------------------------------------------
 DROP TABLE IF EXISTS delivery_order_items;
 CREATE TABLE delivery_order_items (
@@ -464,7 +489,10 @@ CREATE TABLE delivery_order_items (
     delivery_id         INT          NOT NULL           COMMENT '发货单ID',
     contract_item_id    INT          DEFAULT NULL       COMMENT '关联合同明细ID(回写已发数量用)',
     product_id          INT          NOT NULL           COMMENT '物料ID',
-    quantity            INT          NOT NULL           COMMENT '发货数量(件/卷)',
+    quantity            INT          NOT NULL           COMMENT '计划发货数量(件/卷, 商务承诺)',
+    actual_quantity     INT          NOT NULL DEFAULT 0 COMMENT '实际发货数量(装柜后填, 默认=quantity, 短装时<quantity)',
+    short_qty           INT          GENERATED ALWAYS AS (quantity - actual_quantity) STORED COMMENT '短装数(自动算=计划-实际, 正=短装, 负=超装)',
+    volume_subtotal     DECIMAL(10,4) DEFAULT 0.0000    COMMENT '体积小计(CBM) = 单件体积 × actual_quantity',
     remark              VARCHAR(255) DEFAULT ''         COMMENT '备注',
 
     CONSTRAINT fk_doi_delivery     FOREIGN KEY (delivery_id)      REFERENCES delivery_orders(id) ON DELETE CASCADE,
@@ -475,3 +503,209 @@ CREATE TABLE delivery_order_items (
 CREATE INDEX idx_doi_delivery      ON delivery_order_items(delivery_id);
 CREATE INDEX idx_doi_contract_item ON delivery_order_items(contract_item_id);
 CREATE INDEX idx_doi_product       ON delivery_order_items(product_id);
+
+-- ============================================================
+-- 模块六: 报关 (外贸出口专用)
+-- ============================================================
+-- 设计原则: "两套并行账"
+--   合同账 (delivery_orders): 承诺值, 给客户/财务看
+--   报关账 (shipping_records): 实际值, 给海关/银行看
+-- 两套账允许 ±5% 差异 (UCP600 国际惯例), 用 credit_notes 衔接
+-- 详见 .claude/skills/trade-documents/SKILL.md
+-- ------------------------------------------------------------
+
+-- ------------------------------------------------------------
+-- 6.1 报关单据主表 shipping_records
+-- 用途: 装柜后记录实际报关数据, 跟发货单解耦
+-- 一张发货单可以分多次装船 (partial shipment), 每次一条 shipping_record
+-- 数据源: 装柜后仓管/报关员按实际填, 是 Packing List + Commercial Invoice 的数据源
+-- ------------------------------------------------------------
+DROP TABLE IF EXISTS shipping_records;
+CREATE TABLE shipping_records (
+    id               INT AUTO_INCREMENT PRIMARY KEY COMMENT 'ID',
+    shipping_no      VARCHAR(32)   NOT NULL UNIQUE  COMMENT '报关单号(SH2026-001)',
+    delivery_id      INT           NOT NULL         COMMENT '关联发货单ID',
+    shipping_date    DATE          NOT NULL         COMMENT '装船日期',
+    container_no     VARCHAR(32)   DEFAULT ''       COMMENT '集装箱号',
+    seal_no          VARCHAR(32)   DEFAULT ''       COMMENT '封条号',
+    vessel           VARCHAR(64)   DEFAULT ''       COMMENT '船名/航次',
+    -- 报关核心数据 (按实际装柜填)
+    total_pkgs       INT           NOT NULL DEFAULT 0  COMMENT '实际总件数',
+    total_gross_wt   DECIMAL(10,2) NOT NULL DEFAULT 0  COMMENT '总毛重(kg)',
+    total_net_wt     DECIMAL(10,2) NOT NULL DEFAULT 0  COMMENT '总净重(kg)',
+    total_cbm        DECIMAL(10,4) NOT NULL DEFAULT 0  COMMENT '总体积(CBM)',
+    -- CI 金额四件套 (原币种 + 当期汇率 + 折算 CNY)
+    total_amount     DECIMAL(12,2) NOT NULL DEFAULT 0  COMMENT 'CI总额(原币种, 一般与合同同币种)',
+    currency         VARCHAR(3)   NOT NULL DEFAULT 'USD' COMMENT '币种(ISO 4217): USD/EUR/IDR...',
+    exchange_rate    DECIMAL(10,4) NOT NULL DEFAULT 0  COMMENT '当期汇率(按 shipping_date 所在月查 exchange_rates)',
+    total_amount_cny DECIMAL(12,2) NOT NULL DEFAULT 0  COMMENT 'CI总额(折算CNY) = total_amount × exchange_rate',
+    -- 状态
+    status           ENUM('draft','customs_cleared','closed','cancelled')
+                     NOT NULL DEFAULT 'draft'         COMMENT '状态: 草稿/已报关/已结关/已取消',
+    remark           VARCHAR(512)  DEFAULT ''       COMMENT '备注',
+    created_at       DATETIME      DEFAULT CURRENT_TIMESTAMP,
+    updated_at       DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_sr_delivery FOREIGN KEY (delivery_id) REFERENCES delivery_orders(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='报关单据主表(实际装柜数据)';
+
+CREATE INDEX idx_sr_no       ON shipping_records(shipping_no);
+CREATE INDEX idx_sr_delivery ON shipping_records(delivery_id);
+CREATE INDEX idx_sr_status   ON shipping_records(status);
+
+-- ------------------------------------------------------------
+-- 6.2 报关单据明细表 shipping_record_items
+-- 用途: 报关清单 (Packing List + Commercial Invoice 数据源)
+-- 关键字段: 唛头/毛重/净重/件数/体积/单价 - 报关必备
+-- ------------------------------------------------------------
+DROP TABLE IF EXISTS shipping_record_items;
+CREATE TABLE shipping_record_items (
+    id               INT AUTO_INCREMENT PRIMARY KEY COMMENT '明细ID',
+    shipping_id      INT          NOT NULL          COMMENT '报关单ID',
+    product_id       INT          NOT NULL          COMMENT '物料ID',
+    -- 计划 vs 实际
+    planned_qty      INT          NOT NULL DEFAULT 0 COMMENT '计划数量(从发货单带过来)',
+    actual_qty       INT          NOT NULL DEFAULT 0 COMMENT '实际装柜数量(必填)',
+    -- 报关必备字段
+    shipping_mark    VARCHAR(128) DEFAULT ''        COMMENT '唛头(包装外标识)',
+    gross_weight_per DECIMAL(8,2) DEFAULT 0         COMMENT '单件毛重(kg, 含包装)',
+    net_weight_per   DECIMAL(8,2) DEFAULT 0         COMMENT '单件净重(kg, 不含包装)',
+    unit_volume      DECIMAL(10,4) DEFAULT 0        COMMENT '单件体积(CBM)',
+    -- 金额 (Commercial Invoice 需要)
+    unit_price_usd   DECIMAL(10,2) DEFAULT 0        COMMENT '单价(USD/件)',
+    subtotal_usd     DECIMAL(12,2) DEFAULT 0        COMMENT '小计(USD) = actual_qty × unit_price_usd',
+    remark           VARCHAR(255) DEFAULT ''        COMMENT '备注',
+
+    CONSTRAINT fk_sri_shipping FOREIGN KEY (shipping_id) REFERENCES shipping_records(id) ON DELETE CASCADE,
+    CONSTRAINT fk_sri_product  FOREIGN KEY (product_id)  REFERENCES products(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='报关单据明细(Packing List + CI 数据源)';
+
+CREATE INDEX idx_sri_shipping ON shipping_record_items(shipping_id);
+CREATE INDEX idx_sri_product  ON shipping_record_items(product_id);
+
+-- ------------------------------------------------------------
+-- 6.3 贷记单/差异处理主表 credit_notes
+-- 用途: 处理短装/超装差异, 衔接"合同账"与"报关账"
+-- 4 种 resolution: pending(待定) / replenish(下次补发) / refund(退款) / writeoff(注销)
+-- ------------------------------------------------------------
+DROP TABLE IF EXISTS credit_notes;
+CREATE TABLE credit_notes (
+    id               INT AUTO_INCREMENT PRIMARY KEY COMMENT 'ID',
+    cn_no            VARCHAR(32)   NOT NULL UNIQUE  COMMENT '贷记单号(CN2026-001)',
+    shipping_id      INT           NOT NULL         COMMENT '关联报关单',
+    contract_item_id INT           NOT NULL         COMMENT '关联合同明细',
+    product_id       INT           NOT NULL         COMMENT '物料ID',
+    -- 差异金额四件套
+    diff_qty         INT           NOT NULL         COMMENT '差异数量(正=短装, 负=超装)',
+    diff_amount      DECIMAL(12,2) NOT NULL         COMMENT '差异金额(原币种)',
+    currency         VARCHAR(3)   NOT NULL DEFAULT 'USD' COMMENT '币种(跟合同一致)',
+    exchange_rate    DECIMAL(10,4) NOT NULL DEFAULT 0 COMMENT '当期汇率(按报关单 shipping_date 所在月)',
+    diff_amount_cny  DECIMAL(12,2) NOT NULL DEFAULT 0 COMMENT '差异金额(折算CNY) = diff_amount × exchange_rate',
+    -- 处理方式
+    resolution       ENUM('pending','replenish','refund','writeoff')
+                     NOT NULL DEFAULT 'pending'     COMMENT '处理: 待定/补发/退款/注销',
+    resolved_at      DATE          DEFAULT NULL     COMMENT '处理日期',
+    remark           VARCHAR(512)  DEFAULT ''       COMMENT '备注',
+    created_at       DATETIME      DEFAULT CURRENT_TIMESTAMP,
+    updated_at       DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_cn_shipping      FOREIGN KEY (shipping_id)      REFERENCES shipping_records(id),
+    CONSTRAINT fk_cn_contract_item FOREIGN KEY (contract_item_id) REFERENCES sales_contract_items(id),
+    CONSTRAINT fk_cn_product       FOREIGN KEY (product_id)       REFERENCES products(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='贷记单/差异处理单';
+
+CREATE INDEX idx_cn_no         ON credit_notes(cn_no);
+CREATE INDEX idx_cn_shipping   ON credit_notes(shipping_id);
+CREATE INDEX idx_cn_resolution ON credit_notes(resolution);
+
+-- ============================================================
+-- 模块七: 应收账款 (外贸财务阶段一 - 最小可用骨架)
+-- ============================================================
+-- 设计原则:
+--   1. 记账本位币 CNY, 业务发生按原币种记, 系统自动折算 CNY
+--   2. 汇率按月固定 (月初录入一条, 整月用同一汇率)
+--   3. 当前只做"客户收款", 对供应商付款留阶段二
+-- 详见 .claude/skills/payment-receivable/SKILL.md
+-- ------------------------------------------------------------
+
+-- 7.1 汇率表 exchange_rates
+-- 用途: 每月初录入一次, 整月用同一汇率折算外币
+-- 规则: 1 原币种 = rate_to_cny 人民币 (如 USD=7.20 表示 1 USD = 7.20 CNY)
+-- ------------------------------------------------------------
+DROP TABLE IF EXISTS exchange_rates;
+CREATE TABLE exchange_rates (
+    id              INT AUTO_INCREMENT PRIMARY KEY COMMENT 'ID',
+    currency        VARCHAR(3)   NOT NULL          COMMENT '币种(ISO 4217): USD/EUR/IDR...',
+    rate_to_cny     DECIMAL(10,4) NOT NULL         COMMENT '汇率(1 原币种 = ? CNY)',
+    effective_date  DATE         NOT NULL          COMMENT '生效日期(每月1号)',
+    source          VARCHAR(32)  DEFAULT 'manual'  COMMENT '来源: 中国银行中间价/manual',
+    remark          VARCHAR(255) DEFAULT ''        COMMENT '备注',
+    created_at      DATETIME     DEFAULT CURRENT_TIMESTAMP,
+
+    UNIQUE KEY uk_currency_effective (currency, effective_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='汇率表(按月维护)';
+
+CREATE INDEX idx_er_currency_date ON exchange_rates(currency, effective_date);
+
+-- 7.2 收款单 receipts
+-- 用途: 客户每次付款记一笔, 系统按 paid_date 自动查汇率折算 CNY
+-- 关联: 可关联合同/报关单/发货单 (按业务场景选)
+-- ------------------------------------------------------------
+DROP TABLE IF EXISTS receipts;
+CREATE TABLE receipts (
+    id              INT AUTO_INCREMENT PRIMARY KEY COMMENT 'ID',
+    receipt_no      VARCHAR(32)  NOT NULL UNIQUE   COMMENT '收款单号(如 RC20260815001)',
+    customer_id     INT          NOT NULL          COMMENT '客户ID',
+    contract_id     INT          DEFAULT NULL      COMMENT '关联合同ID(可空, 预收款时无合同)',
+    shipping_id     INT          DEFAULT NULL      COMMENT '关联报关单ID(可空)',
+    delivery_id     INT          DEFAULT NULL      COMMENT '关联发货单ID(可空)',
+    -- 金额
+    amount          DECIMAL(14,2) NOT NULL         COMMENT '收款金额(原币种)',
+    currency        VARCHAR(3)   NOT NULL DEFAULT 'USD' COMMENT '币种',
+    exchange_rate   DECIMAL(10,4) NOT NULL DEFAULT 0 COMMENT '汇率(按 paid_date 查表自动填)',
+    amount_cny      DECIMAL(14,2) NOT NULL DEFAULT 0 COMMENT '折算CNY = amount × exchange_rate',
+    -- 收款信息
+    paid_date       DATE         NOT NULL          COMMENT '实际到账日期',
+    pay_method      ENUM('T/T','L/C','D/P','D/A','other')
+                    NOT NULL DEFAULT 'T/T'         COMMENT '付款方式',
+    bank_ref        VARCHAR(64)  DEFAULT ''        COMMENT '银行水单号/参考号',
+    -- 状态
+    status          ENUM('draft','confirmed','cancelled')
+                    NOT NULL DEFAULT 'draft'       COMMENT '状态: 草稿/已确认/已取消',
+    remark          VARCHAR(512) DEFAULT ''        COMMENT '备注',
+    created_at      DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    updated_at      DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_rc_customer  FOREIGN KEY (customer_id) REFERENCES customers(id),
+    CONSTRAINT fk_rc_contract  FOREIGN KEY (contract_id) REFERENCES sales_contracts(id),
+    CONSTRAINT fk_rc_shipping  FOREIGN KEY (shipping_id) REFERENCES shipping_records(id),
+    CONSTRAINT fk_rc_delivery  FOREIGN KEY (delivery_id) REFERENCES delivery_orders(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='收款单(客户付款)';
+
+CREATE INDEX idx_rc_no         ON receipts(receipt_no);
+CREATE INDEX idx_rc_customer   ON receipts(customer_id);
+CREATE INDEX idx_rc_contract   ON receipts(contract_id);
+CREATE INDEX idx_rc_paid_date  ON receipts(paid_date);
+CREATE INDEX idx_rc_status     ON receipts(status);
+
+-- ============================================================
+-- 模块八: 审计日志 (阶段一空壳, 阶段二接业务)
+-- ============================================================
+-- 用途: 追溯谁在什么时候改了什么数据
+-- 阶段一: 只建表, 不写入 (业务逻辑后期补)
+-- 阶段二: 给所有敏感表加 INSERT/UPDATE/DELETE 拦截, 写入本表
+-- ------------------------------------------------------------
+DROP TABLE IF EXISTS audit_logs;
+CREATE TABLE audit_logs (
+    id              BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '日志ID',
+    table_name      VARCHAR(64) NOT NULL              COMMENT '被改的表名',
+    record_id       INT         NOT NULL              COMMENT '被改的记录ID',
+    action          ENUM('INSERT','UPDATE','DELETE') NOT NULL COMMENT '操作类型',
+    old_values      TEXT        DEFAULT NULL          COMMENT '旧值(JSON)',
+    new_values      TEXT        DEFAULT NULL          COMMENT '新值(JSON)',
+    operator        VARCHAR(32) DEFAULT ''            COMMENT '操作人',
+    created_at      DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '操作时间',
+
+    INDEX idx_audit_table_record (table_name, record_id),
+    INDEX idx_audit_operator_time (operator, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='审计日志(阶段一空壳)';

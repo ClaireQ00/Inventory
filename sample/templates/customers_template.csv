@@ -1,2 +1,9 @@
 code,name,contact_person,phone,address,bank_account,is_active,remark
-W158,W158 客户(海外),Mr. Lee,+86-13800000158,马来西亚 吉隆坡,6220000015815815,1,海外客户，出口线管主客户
+W158,W158 客户(海外),Mr. Lee,-13800000072,马来西亚 吉隆坡,6220000015815815,1,海外客户，出口线管主客户
+Q025,印尼大雄,邱先生,,印度尼西亚 雅加达,"CV INDO CHINA SUKSES
+RUKO TOHO BLOK J NOMOR 16, JALAN PANTAI INDAH BARAT DESA/KELURAHAN, KAMAL MUARA,KEC. PENJARINGAN, KOTA ADM. JAKARTA UTARA.PROVINSI DKI, JAKARTA, INDONESIA. KODE POS:14470.
+NPWP: 039 849.993.9-047.000 TEL:081297100933
+Email: CVINDOCHINASUKSES@GMAIL.COM",1,自有品牌老板
+Q026,润通,,,,,0,
+Q027,尤利娅,Yuliya,,俄罗斯 圣彼得堡,"Politeсh-Instrument Co. LTD                                                                                                                                                                                                                                                                                                                                            WeChat +79657970607 
+Email: yu.berger@ptech.ru",1,线管花园管采购经理

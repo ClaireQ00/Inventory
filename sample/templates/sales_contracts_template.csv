@@ -1,2 +1,2 @@
-contract_no,customer_id,sign_date,delivery_deadline,total_amount,status,remark
-SC20240731001,1,2024-07-31,2024-08-15,15000.00,draft,示例销售合同
+contract_no,customer_id,sign_date,delivery_deadline,currency,total_amount,exchange_rate,total_amount_cny,trade_terms,port_loading,port_discharge,freight,insurance,status,remark
+SC20240731001,1,2024-07-31,2024-08-15,USD,15000.00,7.15,107250.00,FOB,Qingdao,Jakarta,0,0,draft,示例销售合同 (currency 默认 USD; exchange_rate 当期月汇率; total_amount_cny=amount×rate; trade_terms: FOB/CIF/CFR/EXW)

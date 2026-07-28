@@ -1,0 +1,2 @@
+receipt_no,customer_id,contract_id,shipping_id,delivery_id,amount,currency,exchange_rate,amount_cny,paid_date,pay_method,bank_ref,status,remark
+RC20260726001,1,1,1,1,4500.00,USD,7.15,32175.00,2026-07-26,T/T,BK-DEMO-001,confirmed,示例收款 (currency 默认 USD; amount_cny=amount×rate; pay_method: T/T/L/C/D/P/D/A/other; status: draft/confirmed/cancelled)

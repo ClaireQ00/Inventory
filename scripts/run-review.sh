@@ -61,4 +61,33 @@ if [[ "$MODULE" == "all" || "$MODULE" == "scripts" ]]; then
   fi
 fi
 
+# 校验本地验证工具链
+if [[ "$MODULE" == "all" || "$MODULE" == "tools" ]]; then
+  for tool in csv_to_sql.py local_validator.py make_demo_data.py; do
+    if [[ -f "$ROOT_DIR/tools/$tool" ]]; then
+      print_check 0 "Found tools/$tool"
+    else
+      print_check 1 "Missing tools/$tool"
+    fi
+    # Python 语法检查
+    if python3 -m py_compile "$ROOT_DIR/tools/$tool" 2>/dev/null; then
+      print_check 0 "tools/$tool syntax OK"
+    else
+      print_check 1 "tools/$tool syntax FAILED"
+    fi
+  done
+
+  if [[ -x "$ROOT_DIR/scripts/run_local_validation.sh" ]]; then
+    print_check 0 "run_local_validation.sh is executable"
+  else
+    print_check 1 "run_local_validation.sh is not executable"
+  fi
+
+  if [[ -f "$ROOT_DIR/docs/VALIDATION_GUIDE.md" ]]; then
+    print_check 0 "Found docs/VALIDATION_GUIDE.md"
+  else
+    print_check 1 "Missing docs/VALIDATION_GUIDE.md"
+  fi
+fi
+
 printf "Review completed. Use scripts/launch-module-workflow.sh or scripts/run-review.sh for more details.\n"

@@ -1,0 +1,3 @@
+currency,rate_to_cny,effective_date,source,remark
+USD,7.15,2026-07-01,manual,2026年7月美元汇率 (每月1日记录一次; source: manual/boc/pboc)
+EUR,7.85,2026-07-01,manual,2026年7月欧元汇率

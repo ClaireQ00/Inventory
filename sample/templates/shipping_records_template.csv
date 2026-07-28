@@ -1,0 +1,2 @@
+shipping_no,delivery_id,shipping_date,container_no,seal_no,vessel,total_pkgs,total_gross_wt,total_net_wt,total_cbm,currency,total_amount,exchange_rate,total_amount_cny,status,remark
+SH20260726001,1,2026-07-26,MSCU-DEMO-1234,SEAL-001,OOCL DEMO / V.001,15,320.50,289.50,0.476,USD,4500.00,7.15,32175.00,draft,示例报关单 (status: draft/customs_cleared/closed/cancelled; currency 默认 USD; total_amount_cny=total_amount×rate)
