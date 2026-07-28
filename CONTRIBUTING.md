@@ -1,17 +1,18 @@
 # CONTRIBUTING
 
-欢迎参与本项目！本仓库目前以进销存系统为核心，未来会向外贸标准化工作流扩展。
+欢迎参与本项目！这是一个面向外贸出口企业的进销存 + 报关 + 应收收款系统，业务范围覆盖采购 → 入库 → 库存 → 销售 → 发货 → 报关 → 收款的完整闭环。
 
 ## 1. 贡献流程
 
-1. 先阅读 `docs/README.md` 和 `docs/AGENT_GUIDE.md`。
-2. 使用 `issue` 记录需求或问题，优先选择合适的模板（Feature request / Bug report）。
-3. 创建 feature 分支，格式建议：
+1. 先阅读 `docs/README.md` 和 `docs/BUSINESS_FLOW.md`（业务流程全景图）。
+2. 协作规范请参考 `docs/AGENT_GUIDE.md`（Part 1 现状 / Part 2 蓝图）。
+3. 使用 `issue` 记录需求或问题，优先选择合适的模板（Feature request / Bug report）。
+4. 创建 feature 分支，格式建议：
    - `feature/<模块>-<简短说明>`
    - `fix/<问题>-<简短说明>`
-4. 开发时，优先使用 `general-purpose`、`task`、`explore`、`code-review` 等 agent。
-5. 变更完成后，提交 PR 并附上变更说明。
-6. PR 通过后，再使用 `commit` / `create-pr` / `update-pr` 进行交付。
+5. 开发时，优先使用 Claude Code 自带的 `general-purpose`、`task`、`explore`、`code-review` 等内置 agent（详见 AGENT_GUIDE.md Part 1）。
+6. 变更完成后，提交 PR 并附上变更说明。
+7. PR 通过后，再使用 `commit` / `create-pr` / `update-pr` 进行交付。
 
 ## 2. Agent / Skill 使用建议
 
@@ -77,7 +78,7 @@ bash scripts/check-sensitive-data.sh
 
 如果你希望，可以使用 `scripts/setup-git-hooks.sh` 来安装示例钩子。
 
-## 4. CI / GitHub 流程
+## 5. CI / GitHub 流程
 
 本仓库含有 GitHub Actions CI，可自动执行 `scripts/ci.sh`。
 
@@ -91,7 +92,7 @@ bash scripts/check-sensitive-data.sh
 bash scripts/ci.sh
 ```
 
-## 5. 脚本入口
+## 6. 脚本入口
 
 仓库中提供了一组 helper 脚本，用于规范化工作流：
 
@@ -104,9 +105,9 @@ bash scripts/ci.sh
 - `bash scripts/check-sensitive-data.sh`
   - 检查是否存在常见敏感文件或配置。
 
-## 5. 工作建议
+## 7. 工作建议
 
-### 5.1 新增模块
+### 7.1 新增模块
 
 1. 先进行 `explore` / `research`，梳理业务边界。
 2. 设计主数据、字典、接口、公用流程。
@@ -114,7 +115,7 @@ bash scripts/ci.sh
 4. 实现 schema 和示例数据。
 5. 在 PR 中明确说明与现有模块的对接点。
 
-### 5.2 修改数据模型
+### 7.2 修改数据模型
 
 1. 明确变更影响范围。
 2. 先更新文档，再改 schema。
