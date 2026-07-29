@@ -62,7 +62,7 @@ amount + currency + exchange_rate + amount_cny
 
 ### 校验
 
-`tools/local_validator.py::check_exchange_rates`(步骤 11/13):对每个用外币的业务记录,查其当月币种汇率,缺则报 ERROR "缺 X 月 Y 币种汇率,请补录"。
+`tools/local_validator.py::check_exchange_rates`(步骤 11/14):对每个用外币的业务记录,查其当月币种汇率,缺则报 ERROR "缺 X 月 Y 币种汇率,请补录"。
 
 ---
 
@@ -118,14 +118,14 @@ stock_in  (in_type='transfer',  transfer_ref='TR20260729001', warehouse=目标�
 
 ### 校验
 
-`tools/local_validator.py::check_transfer_pairs`(步骤 13/13):
+`tools/local_validator.py::check_transfer_pairs`(步骤 13/14):
 
 - 出库总量 ≠ 入库总量 → **ERROR**(差额、漏录或调拨在途)
 - 只有一边(只有出库没入库,或反之)→ **WARN**(在途、漏录或方向录错)
 
 ### 配套规则(本次新增的其他改动)
 
-- **负库存允许但报警**:`check_stock_out_vs_inventory`(步骤 6/13)从 ERROR 降级为 WARN。理由:外贸调拨常"先做后补",允许 source 仓暂时透支,后续补货即可。
+- **负库存允许但报警**:`check_stock_out_vs_inventory`(步骤 6/14)从 ERROR 降级为 WARN。理由:外贸调拨常"先做后补",允许 source 仓暂时透支,后续补货即可。
 - **调拨不走外贸单据流程**:不产生报关单、不触发 UCP600、不涉及收款/汇率/credit_note。`trade-documents` / `payment-receivable` skill 不管调拨。
 
 ---
@@ -222,7 +222,7 @@ stock_in  (in_type='transfer',  transfer_ref='TR20260729001', warehouse=目标�
 
 ## R9. 自检门禁规则
 
-**规则**:任何改动,13 步自检全过才算改对。
+**规则**:任何改动,14 步自检全过才算改对。
 
 ```bash
 bash scripts/run_local_validation.sh           # 真实数据
@@ -260,4 +260,4 @@ CI 同样以此为门禁(`scripts/ci.sh` / `.github/workflows/ci.yml`)。
 | 2026-07-28 | R2 汇率月固定 | 客户确认 |
 | 2026-07-29 | 本规则库 | 从 CLAUDE.md / skills 反向提炼,结构化集中 |
 | 2026-07-29 | R3.5 调拨配对 | 新增 `transfer_ref` 字段 + `check_transfer_pairs` 第 13 步;负库存校验由 ERROR 降级为 WARN。自检从 12 步增至 13 步 |
-| 2026-07-29 | R10 报价定价 | 新增报价模块,KG×系数定价 + 简要报价→QT form→PI 派生 |
+| 2026-07-29 | R10 报价定价 | 新增报价模块,KG×系数定价 + 简要报价→QT form→PI 派生。新增 `check_quotations` 第 14 步,自检从 13 步增至 14 步 |

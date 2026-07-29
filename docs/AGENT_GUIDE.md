@@ -50,7 +50,7 @@
 ### 1.3 真实可用的自检命令
 
 ```bash
-bash scripts/run_local_validation.sh           # 真实数据模式（13 步全过才算对）
+bash scripts/run_local_validation.sh           # 真实数据模式（14 步全过才算对）
 bash scripts/run_local_validation.sh --demo    # demo 假数据模式（联调流程长啥样）
 bash scripts/ci.sh                              # CI 一键检查（含敏感数据扫描）
 bash scripts/check-sensitive-data.sh           # 单独扫敏感数据
@@ -178,5 +178,5 @@ Claude Code 里的 "agent" 本质是**带专属工具权限和系统提示的子
 
 - `CLAUDE.md` — 4 个 skill 路由表 + 金额四件套铁律 + 改 schema 必须 sync 的三处
 - `docs/BUSINESS_FLOW.md` — 一笔订单从询盘到收款的完整流程（**看这个比看 agent 更有用**）
-- `docs/VALIDATION_GUIDE.md` — 13 步校验详解
+- `docs/VALIDATION_GUIDE.md` — 14 步校验详解
 - `CONTRIBUTING.md` — 贡献流程
