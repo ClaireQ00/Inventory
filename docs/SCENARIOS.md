@@ -1,8 +1,8 @@
 # 端到端验收场景 (End-to-End Acceptance Scenarios)
 
-> 每个**场景**对应 13 步校验里的一步或几步，给出**可复现的输入 + 明确的预期结果**（ERROR / WARN / 通过）。所有数据基于 `tools/make_demo_data.py` 真实生成的 demo 数据（物料号 `DEMO-*`、客户"客户A/B"、汇率 7.15），不臆造。
+> 每个**场景**对应 14 步校验里的一步或几步，给出**可复现的输入 + 明确的预期结果**（ERROR / WARN / 通过）。所有数据基于 `tools/make_demo_data.py` 真实生成的 demo 数据（物料号 `DEMO-*`、客户"客户A/B"、汇率 7.15），不臆造。
 >
-> 验收口径：跑完每个场景的"操作步骤"后，执行 `bash scripts/run_local_validation.sh --demo`，对照"预期结果"列逐条核对。13 步含义见 `docs/VALIDATION_GUIDE.md §3`，校验代码逻辑见 `tools/local_validator.py`。
+> 验收口径：跑完每个场景的"操作步骤"后，执行 `bash scripts/run_local_validation.sh --demo`，对照"预期结果"列逐条核对。14 步含义见 `docs/VALIDATION_GUIDE.md §3`，校验代码逻辑见 `tools/local_validator.py`。
 
 ---
 
@@ -16,7 +16,7 @@
 | **WARN** | 黄灯，提醒但不阻断流程 | `report.warn(...)`；最终 `exit 0`（除非同时有别的 ERROR） |
 | **ERROR** | 红灯，必须修；最终 `exit 1` | `report.error(...)`；`ValidationReport.ok == False` |
 
-### 0.2 13 步速查（详细见 VALIDATION_GUIDE §3）
+### 0.2 14 步速查（详细见 VALIDATION_GUIDE §3）
 
 | 步 | 校验函数 | 一句话 |
 | --- | --- | --- |
@@ -33,6 +33,7 @@
 | 11 | `check_exchange_rates` | 汇率完整性（每月每币种至少一条） |
 | 12 | `check_receipts_vs_contract` | 收款 vs 合同金额 |
 | 13 | `check_transfer_pairs` | 调拨配对 |
+| 14 | `check_quotations` | 报价金额 + 派生关系 + subtotal 公式 |
 
 ### 0.3 数据来源
 
@@ -44,7 +45,7 @@
 
 ### A.1 业务背景
 
-一笔完整的外贸订单从询盘到收款的全流程（`BUSINESS_FLOW.md §2` 的 9 个节点）。demo 用"客户A / SC20260720001 / 4500 USD / T/T 全款"作为样本，覆盖 13 步全流程。
+一笔完整的外贸订单从询盘到收款的全流程（`BUSINESS_FLOW.md §2` 的 9 个节点）。demo 用"客户A / SC20260720001 / 4500 USD / T/T 全款"作为样本，覆盖 14 步全流程。
 
 > **类比**：这是体检的"全项套餐"，从头到脚扫一遍，任何一步亮红灯都说明流程断了。
 
@@ -75,23 +76,24 @@ bash scripts/run_local_validation.sh --demo
 
 （无任何数据改动，直接跑全套 demo）
 
-### A.4 预期结果（13 步对照）
+### A.4 预期结果（14 步对照）
 
 | 步骤 | 预期 | 依据（代码行号 + 数据） |
 | --- | --- | --- |
-| 1/13 | **通过** | products/warehouses/suppliers/customers 四表非空（`check_master_data:513-539`） |
-| 2/13 | **通过** | PO total_amount=20000 = Σ明细 10000+10000（`check_purchase_orders:555-559`） |
-| 3/13 | **通过**（恰好到货，无 WARN） | 入库 10+10 = 采购 10+10，不触发 `received < ordered` 的 WARN（`check_stock_in_vs_purchase:579-587`） |
-| 4/13 | **通过** | 合同 total_amount=30000 = Σ明细 16000+14000（`check_sales_contracts:603-607`） |
-| 5/13 | **WARN**：「合同 SC20260720001 / 物料 DEMO-M-001: 已发 5 < 合同 8（未发完）」「物料 DEMO-M-002: 已发 10 < 合同 14（未发完）」 | 发货 5/10 < 合同 8/14（`check_delivery_vs_contract:641-644`） |
-| 6/13 | **通过** | 物料1仓1：入10 出5+3调拨=8 ≤ 10；物料2仓1：入10 出10 恰好平衡（`check_stock_out_vs_inventory:689-694`） |
-| 7/13 | **通过** | 流水累加 = inventory（10-5-3=2；10-10=0；调拨入=3）（`check_reconciliation:776-788`） |
-| 8/13 | **通过** | DEMO-M-001 单件体积 40²×30×0.93/1e6=0.04464，PO 填 0.446（10件），偏差 0.0004 ≤ 0.01（`check_volume_subtotals:836-840`） |
-| 9/13 | **通过**（不触发任何 WARN/ERROR） | 报关 actual_qty = planned_qty（5/5, 10/10），偏差 0%（`check_shipping_vs_delivery:870-884`，`ratio>0` 才进 WARN 分支） |
-| 10/13 | **通过**（跳过） | credit_notes 空表，`SELECT ... WHERE resolution='pending'` 返回 0 行（`check_credit_notes_balance:900-905`） |
-| 11/13 | **通过** | MAX(effective_date)=2026-07-01，不早于本月1号 2026-07-01（`check_exchange_rates:973-987`） |
-| 12/13 | **通过**（注意：不报"未收齐"WARN） | 收款 4500 USD ≤ 合同 30000 USD；`total_received==0` 才报"未收款"WARN，4500≠0 不触发（`check_receipts_vs_contract:1016-1036`） |
-| 13/13 | **通过** | TR20260729001 出库3/物料1 = 入库3/物料1（`check_transfer_pairs:1080-1088`） |
+| 1/14 | **通过** | products/warehouses/suppliers/customers 四表非空（`check_master_data:513-539`） |
+| 2/14 | **通过** | PO total_amount=20000 = Σ明细 10000+10000（`check_purchase_orders:555-559`） |
+| 3/14 | **通过**（恰好到货，无 WARN） | 入库 10+10 = 采购 10+10，不触发 `received < ordered` 的 WARN（`check_stock_in_vs_purchase:579-587`） |
+| 4/14 | **通过** | 合同 total_amount=30000 = Σ明细 16000+14000（`check_sales_contracts:603-607`） |
+| 5/14 | **WARN**：「合同 SC20260720001 / 物料 DEMO-M-001: 已发 5 < 合同 8（未发完）」「物料 DEMO-M-002: 已发 10 < 合同 14（未发完）」 | 发货 5/10 < 合同 8/14（`check_delivery_vs_contract:641-644`） |
+| 6/14 | **通过** | 物料1仓1：入10 出5+3调拨=8 ≤ 10；物料2仓1：入10 出10 恰好平衡（`check_stock_out_vs_inventory:689-694`） |
+| 7/14 | **通过** | 流水累加 = inventory（10-5-3=2；10-10=0；调拨入=3）（`check_reconciliation:776-788`） |
+| 8/14 | **通过** | DEMO-M-001 单件体积 40²×30×0.93/1e6=0.04464，PO 填 0.446（10件），偏差 0.0004 ≤ 0.01（`check_volume_subtotals:836-840`） |
+| 9/14 | **通过**（不触发任何 WARN/ERROR） | 报关 actual_qty = planned_qty（5/5, 10/10），偏差 0%（`check_shipping_vs_delivery:870-884`，`ratio>0` 才进 WARN 分支） |
+| 10/14 | **通过**（跳过） | credit_notes 空表，`SELECT ... WHERE resolution='pending'` 返回 0 行（`check_credit_notes_balance:900-905`） |
+| 11/14 | **通过** | MAX(effective_date)=2026-07-01，不早于本月1号 2026-07-01（`check_exchange_rates:973-987`） |
+| 12/14 | **通过**（注意：不报"未收齐"WARN） | 收款 4500 USD ≤ 合同 30000 USD；`total_received==0` 才报"未收款"WARN，4500≠0 不触发（`check_receipts_vs_contract:1016-1036`） |
+| 13/14 | **通过** | TR20260729001 出库3/物料1 = 入库3/物料1（`check_transfer_pairs:1080-1088`） |
+| 14/14 | **通过** | 报价 QT001 total_amount=1167.60 = Σ明细 711.68+455.92；QT002 formal 的 parent=1 指向 brief（`check_quotations:1174-1220`，详见场景 F） |
 
 **最终退出码**：`0`（`report.ok == True`，虽然第 5 步有 WARN 但 WARN 不影响 ok 判定，见 `ValidationReport.ok:449-451`）
 
@@ -327,15 +329,100 @@ bash scripts/run_local_validation.sh --demo
 
 ---
 
+## 场景 F：简要报价 → 正式 QT → PI 转换（check_quotations 第 14 步）
+
+### F.1 业务背景
+
+签合同前的报价环节：业务员先给客户一份**简要报价（brief）**，确认后派生**正式 QT（formal）**，客户最终确认后转成**销售合同（PI）**。定价走 KG × 系数（R10），不走绝对价。`check_quotations`（步骤 14/14）一次性校验：主表金额 = 明细之和、formal 的 parent 指向 brief、converted 的合同 ID 存在、明细 subtotal 公式正确（`BUSINESS_RULES.md R10`、`BUSINESS_FLOW.md` 节点 1 询盘报价）。
+
+> **类比**：这像买房的"意向金 → 正式报价单 → 购房合同"三步走。每一步都是上一步的细化，靠编号串起来追溯，任何一步算错了（比如总价跟分项加起来对不上）都要立刻发现。
+
+### F.2 前置条件
+
+demo 数据已内置完整报价链（无需改动）：
+
+| 实体 | demo 数据 | 出处 |
+| --- | --- | --- |
+| 报价参数 | `exchange_rate=7.25` / `default_currency=USD` / `valid_days=7` | `make_demo_data.py:294-302` |
+| 简要报价 | QT20260729001，brief，客户A(id=1)，1167.60 USD × 7.25 = 8465.10 CNY | `make_demo_data.py:314-329` |
+| 正式 QT | QT20260729002，formal，`parent_quote_id=1`（指向 QT001），暂无明细故 total_amount=0 | `make_demo_data.py:325-327` |
+| 报价明细 | QT001 两行：DEMO-M-001(64kg) + DEMO-M-002(41kg)，同组系数 1.112，各 10 卷 | `make_demo_data.py:346-356` |
+
+### F.3 操作步骤
+
+```bash
+bash scripts/run_local_validation.sh --demo
+# 关注末尾第 14 步输出
+```
+
+（无任何数据改动，直接跑全套 demo）
+
+### F.4 预期结果（第 14 步对照）
+
+第 14 步 `check_quotations`（`tools/local_validator.py:1174-1220`）跑 4 个子校验：
+
+| 子校验 | 预期 | 依据 |
+| --- | --- | --- |
+| ① 主表金额 = Σ 明细 subtotal | **通过** | QT001 `total_amount=1167.60` = 711.68 + 455.92（`check_quotations:1186-1188`，差额 ≤ 0.01）；QT002 无明细，`total_amount=0 = COALESCE(SUM,0)=0` 也通过 |
+| ② formal 的 parent 指向 brief | **通过** | QT002 是 formal，`parent_quote_id=1` 非空，且 id=1 的 QT001 是 brief（`check_quotations:1197-1201`） |
+| ③ converted 合同 ID 存在 | **跳过**（无 converted 状态报价） | demo 两单都是 `draft`，不进 `WHERE status='converted'` 分支（`check_quotations:1204-1207`） |
+| ④ 明细 subtotal 公式正确 | **通过** | 明细1：64 × 1.112 × 10 = 711.68 ✓；明细2：41 × 1.112 × 10 = 455.92 ✓（`check_quotations:1216-1220`，容差 0.01） |
+
+**对账明细**（重点）：
+```
+明细1 (DEMO-M-001, 64kg, A组-1.112, 10卷):
+  total_weight = 64 × 10        = 640
+  unit_price   = 64 × 1.112     = 71.168
+  subtotal     = 64 × 1.112 × 10 = 711.68
+  total_volume = 0.0446 × 10    = 0.446
+
+明细2 (DEMO-M-002, 41kg, A组-1.112, 10卷):
+  total_weight = 41 × 10        = 410
+  unit_price   = 41 × 1.112     = 45.592
+  subtotal     = 41 × 1.112 × 10 = 455.92
+  total_volume = 0.0253 × 10    = 0.253
+
+主表 QT001:
+  total_amount     = 711.68 + 455.92 = 1167.60  (= Σ subtotal ✓)
+  total_amount_cny = 1167.60 × 7.25  = 8465.10  (DERIVED_RULES 派生 ✓)
+```
+
+**最终退出码**：`0`（第 14 步全过，前 13 步同场景 A）
+
+### F.5 异常分支（可选验证）
+
+如果想看第 14 步子校验①报 ERROR，把 `data/csv/demo_runtime/quotation_items.csv` 第 1 行的 `subtotal` 从 `711.68` 改成 `700.00`，重跑：
+
+```
+[ERROR] 报价 QT20260729001: total_amount=1167.6 与明细小计之和=1155.92 不一致
+[ERROR] 报价明细 id=1: subtotal=700.0 与 算711.68(重量64×系数1.112×数量10) 不一致
+```
+（主表 1167.6 是按"正确 subtotal 之和"填的，改了一个明细subtotal 后两边都报错——主表对不上、明细公式也对不上）
+
+如果想看子校验②报 ERROR，把 `data/csv/demo_runtime/quotations.csv` 第 3 行（QT002）的 `parent_quote_id` 从 `1` 改成空，重跑：
+
+```
+[ERROR] 正式报价 QT20260729002: 缺少 parent_quote_id, 必须从简要报价派生
+```
+
+### F.6 验证命令
+
+```bash
+bash scripts/run_local_validation.sh --demo
+```
+
+---
+
 ## 附录 A：场景 × 步骤覆盖矩阵
 
-| 场景 \ 步骤 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| A 端到端 | ✓ | ✓ | ✓ | ✓ | **W** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| B 调拨配对 | ✓ | ✓ | ✓ | ✓ | W | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | **✓**（重点） |
-| C 跨月汇率 | ✓ | ✓ | ✓ | ✓ | W | ✓ | ✓ | ✓ | ✓ | ✓ | **E** | ✓ | ✓ |
-| D 短装超装 | ✓ | ✓ | ✓ | ✓ | W | ✓ | ✓ | ✓ | **E** | ✓/W | ✓ | ✓ | ✓ |
-| E 负库存容忍 | ✓ | ✓ | ✓ | ✓ | W | **W** | **E** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| 场景 \ 步骤 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| A 端到端 | ✓ | ✓ | ✓ | ✓ | **W** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| B 调拨配对 | ✓ | ✓ | ✓ | ✓ | W | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | **✓**（重点） | ✓ |
+| C 跨月汇率 | ✓ | ✓ | ✓ | ✓ | W | ✓ | ✓ | ✓ | ✓ | ✓ | **E** | ✓ | ✓ | ✓ |
+| D 短装超装 | ✓ | ✓ | ✓ | ✓ | W | ✓ | ✓ | ✓ | **E** | ✓/W | ✓ | ✓ | ✓ | ✓ |
+| E 负库存容忍 | ✓ | ✓ | ✓ | ✓ | W | **W** | **E** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| F 报价派生 | ✓ | ✓ | ✓ | ✓ | W | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | **✓**（重点） |
 
 > 图例：✓=通过 / **W**=WARN / **E**=ERROR / 加粗=本场景重点验证的步骤。
 >
@@ -348,7 +435,7 @@ bash scripts/run_local_validation.sh --demo
 - **加新场景**：必须基于 `tools/make_demo_data.py` 的真实数据起步，"操作步骤"里改动的字段值要明确写出（"把 X 从 A 改成 B"），不依赖任何真实客户数据（`BUSINESS_RULES.md R8`）
 - **改 demo 数据**：如果改了 `make_demo_data.py`，同步回头检查所有场景的"前置条件"和"预期结果"是否仍然成立
 - **ERROR/WARN 判定**：必须引用 `tools/local_validator.py` 的真实代码行号 + 真实分支条件，不能凭业务感觉臆测。改了 validator 代码要回头校准本文件
-- **13 步步骤号**：以 `docs/VALIDATION_GUIDE.md §3` 为准，跟 `local_validator.py::run_validation` 的调用顺序一致
+- **14 步步骤号**：以 `docs/VALIDATION_GUIDE.md §3` 为准，跟 `local_validator.py::run_validation` 的调用顺序一致
 
 ---
 
@@ -356,12 +443,12 @@ bash scripts/run_local_validation.sh --demo
 
 | 文档 | 作用 |
 | --- | --- |
-| `docs/VALIDATION_GUIDE.md` | 13 步校验流程 + 错误排查（本文件的"教科书"） |
+| `docs/VALIDATION_GUIDE.md` | 14 步校验流程 + 错误排查（本文件的"教科书"） |
 | `docs/TASKS.md` | 任务分解清单（场景驱动的待办） |
 | `docs/SPECS.md` | 功能需求规格（验收标准的源头） |
 | `docs/BUSINESS_FLOW.md` | 9 节点业务流程（场景的业务依据） |
-| `docs/BUSINESS_RULES.md` | R1~R9 业务规则（场景的规则依据） |
+| `docs/BUSINESS_RULES.md` | R1~R10 业务规则（场景的规则依据，R10 报价） |
 | `tools/make_demo_data.py` | demo 数据生成器（所有场景的数据源） |
-| `tools/local_validator.py` | 13 步校验引擎（所有预期结果的判定依据） |
+| `tools/local_validator.py` | 14 步校验引擎（所有预期结果的判定依据） |
 
 DONE

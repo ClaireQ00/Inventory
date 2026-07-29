@@ -19,6 +19,7 @@
 | 为什么校验放在导入时、ERROR/WARN 怎么分 | §6 |
 | 为什么客户/币种/品类都是数据不硬编码 | §7 |
 | 为什么 schema 要三处同步 | §8 |
+| 为什么报价 brief/formal 共用表、subtotal 用直接公式 | §9 |
 
 ---
 
@@ -339,12 +340,73 @@
 
 ---
 
+## 9. 报价派生关系设计(关键决策)
+
+> 业务规则权威源:`BUSINESS_RULES.md R10`(报价定价铁律)。本节讲"为什么这么建表",单页决策摘要见 `docs/adr/0003-quotation-derive-from-brief.md`。
+
+### 9.1 决策一:简要报价 brief 与正式 QT formal 共用 `quotations` 表
+
+**决策**:brief 和 formal 两种报价类型共用 `quotations` 一张表,靠 `quote_type` ENUM(`brief`/`formal`)区分,**不建独立表**。派生关系用 `parent_quote_id` 自引用软关联(formal 指向其 brief 来源)。
+
+**理由(代码证据)**:
+
+1. **复用主表结构 + 金额四件套**。brief 和 formal 的字段几乎一致(都有 `quote_no`/`customer_id`/金额四件套/状态机),只是 formal 多一个"从哪派生来"的语义。共用表等于复用 `R1` 金额四件套约束和状态机,不为派生单独建一套。证据:`quotations` 表同时承载两种类型(`sql/01_schema.sql:746-770`,`quote_type` ENUM 在第 750 行)。
+
+2. **派生关系用软关联,类似调拨 `transfer_ref`**。`parent_quote_id` 是**自引用外键**(`FOREIGN KEY (parent_quote_id) REFERENCES quotations(id) ON DELETE SET NULL`,`sql/01_schema.sql:769`),靠应用层校验(formal 的 parent 必须是 brief)而非 DB 强约束。这跟调拨复用 `stock_in`/`stock_out` + `transfer_ref` 软关联(ADR-0002)是同一个思路——核心约束(出=入 / formal 来自 brief)外键保证不了,必须靠应用层聚合校验,那为了"强外键"多背一张表就不划算。
+
+3. **被否决的备选**:独立 `brief_quotes` 表 + `formal_quotes` 表。否决理由:字段重复维护两份;派生时要跨表 JOIN;金额四件套校验要写两遍。共用表零增量,靠 `quote_type` 一个枚举区分。
+
+**校验落点**:`check_quotations`(步骤 14/14)子校验 2——formal 的 `parent_quote_id` 必须非空且指向 brief(`local_validator.py:1190-1201`)。
+
+### 9.2 决策二:`subtotal` 用直接公式,不走派生 `unit_price` 依赖链
+
+**决策**:`quotation_items.subtotal` 直接写成 `weight_per_unit × price_coefficient × quantity`(三个原始字段相乘),**不**写成 `unit_price × quantity`(不依赖派生的 `unit_price`)。
+
+**理由(代码证据)**:
+
+`apply_derived_rules` 是**单轮遍历**——对每行只扫一遍派生规则,不做多轮依赖链计算。如果 `subtotal` 声明 `depends_on: ["unit_price", "quantity"]`,而 `unit_price` 本身也是派生字段,那么遍历到 `subtotal` 时 `unit_price` 可能**尚未加算**,导致 `subtotal` 因依赖缺失被跳过(算出 0 或 None)。
+
+证据在代码注释里直接写明(`tools/csv_to_sql.py:343-346`):
+
+```
+# 注意: subtotal 不依赖派生的 unit_price, 而是直接展开成原始字段
+#       乘积 (weight_per_unit × price_coefficient × quantity)。
+#       原因: apply_derived_rules 是单轮遍历, 不做多轮依赖链计算,
+#       若 subtotal 依赖 unit_price 会在 unit_price 尚未加算前就跳过。
+```
+
+实现上 `subtotal` 的 `depends_on` 是 `["weight_per_unit", "price_coefficient", "quantity"]`(`csv_to_sql.py:381`),全部是**原始输入字段**,不碰任何派生字段。`unit_price` 仍然单独派生(`csv_to_sql.py:361-369`),供查询/展示用,但不作为 `subtotal` 的输入。
+
+**被否决的备选**:`subtotal = unit_price × quantity`(依赖链)。否决理由:单轮遍历失效。要支持依赖链得引入"多轮迭代直到收敛"的机制,复杂度暴涨,且其他表(subtotal=数量×单价)的依赖恰好都是原始字段,不需要多轮——为报价一个字段引入多轮机制不划算。
+
+> 这条决策也呼应 §2(派生字段走应用层):正因为应用层 `apply_derived_rules` 是单轮的,所以设计派生规则时要**显式避免依赖链**,把派生字段都挂在原始字段上。
+
+### 9.3 决策三:报价系数 `price_coefficient` 放明细,不放主表
+
+**决策**:`price_coefficient`(报价系数 USD/KG)放在 `quotation_items` 明细表,**不放 `quotations` 主表**。
+
+**理由(代码证据)**:
+
+一张报价单里**可以有多个管径组,每组用不同系数**。例如 demo 数据里 QT20260729001 的两行明细都用 `A组-1.112`(`data/csv/demo_runtime/quotation_items.csv`),但实际业务中一张单可能同时有 `A组-1.112`、`B组-1.065`、`C组-1.075` 三组系数。如果系数放主表,只能存一个值,无法承载"一单多组"。
+
+证据:`quotation_items` 有 `group_code VARCHAR(32)`(分组码)+ `price_coefficient DECIMAL(10,4)`(系数)两个字段(`sql/01_schema.sql:786-787`),`group_code` 上还建了索引 `idx_qi_group`(`sql/01_schema.sql:805`)加速按组聚合查询。主表 `quotations` 没有系数字段。
+
+**被否决的备选**:主表加一个 `default_coefficient`。否决理由:无法表达一单多组;若强行按主表系数算,不同管径的报价会算错。
+
+### 9.4 衔接销售合同:`converted_contract_id` 回填
+
+**决策**:报价转销售合同后,`quotations.status` 推进到 `'converted'`,`converted_contract_id` 回填对应的 `sales_contracts.id`,形成"报价→合同"链路。
+
+**理由**:报价是合同的前置环节(R10),转单后需要可追溯(这份合同从哪份报价来)。`converted_contract_id` 是可空字段(未转单时为 NULL),不建强外键(因为销售合同生命周期独立于报价),靠 `check_quotations` 子校验 3 兜底:converted 状态的报价若填了 `converted_contract_id`,该 ID 必须在 `sales_contracts` 存在(`local_validator.py:1203-1212`)。
+
+---
+
 ## 附录:文档维护约定
 
 - **本文档只记录"为什么"**:表结构看 `DATA_MODEL.md`,功能看 `SPECS.md`,规则看 `BUSINESS_RULES.md`,校验步骤看 `VALIDATION_GUIDE.md`。本文档大量引用,不复制。
 - **加新设计决策**:在对应章节加"决策 + 理由 + 代码证据"三段式结构,代码符号必须真实存在(可在 `sql/` / `tools/` / `scripts/` 里 grep 到)。
 - **代码符号变更**:如果引用的函数/常量改名(如 `check_transfer_pairs` 重命名),必须同步更新本文档引用。
 - **真实数据不进仓库**(`BUSINESS_RULES.md R8`):本文档不引用任何真实客户/供应商/合同数据,示例编号均为格式示例。
-- **自检**:`bash scripts/run_local_validation.sh`,13 步全过才算改对(`BUSINESS_RULES.md R9`)。
+- **自检**:`bash scripts/run_local_validation.sh`,14 步全过才算改对(`BUSINESS_RULES.md R9`)。
 
 DONE

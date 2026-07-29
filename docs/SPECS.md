@@ -1,7 +1,7 @@
 # 功能需求规格说明书 (Software Requirements Specification)
 
 > 本文件是**功能规格视角的统一叙述层**,回答"系统能干什么"。
-> **不重复造文档**——业务流程细节见 `docs/BUSINESS_FLOW.md`,业务规则事实源见 `docs/BUSINESS_RULES.md`,数据怎么落表见 `docs/DATA_MODEL.md`,13 步校验怎么跑见 `docs/VALIDATION_GUIDE.md`。本文件大量引用以上文档,只补一层"用户故事 + 输入输出 + 可测验收标准"的叙述。
+> **不重复造文档**——业务流程细节见 `docs/BUSINESS_FLOW.md`,业务规则事实源见 `docs/BUSINESS_RULES.md`,数据怎么落表见 `docs/DATA_MODEL.md`,14 步校验怎么跑见 `docs/VALIDATION_GUIDE.md`。本文件大量引用以上文档,只补一层"用户故事 + 输入输出 + 可测验收标准"的叙述。
 >
 > 本文档**只描述系统真实已有的能力**,不臆造未来功能。涉及阶段二规划的功能会明确标注"阶段二,本阶段不做"(规划清单见 `.claude/skills/payment-receivable/SKILL.md §7`)。
 
@@ -14,16 +14,16 @@
 | 你想找什么 | 看哪份文档 |
 | --- | --- |
 | 业务怎么走(9 个节点、3 个角色) | `docs/BUSINESS_FLOW.md` |
-| 业务硬性规则 R1~R9(事实源) | `docs/BUSINESS_RULES.md` |
+| 业务硬性规则 R1~R10(事实源) | `docs/BUSINESS_RULES.md` |
 | 每张表的字段、外键、派生规则 | `docs/DATA_MODEL.md` |
-| 13 步校验怎么跑、错误怎么排查 | `docs/VALIDATION_GUIDE.md` |
+| 14 步校验怎么跑、错误怎么排查 | `docs/VALIDATION_GUIDE.md` |
 | **每个功能点要满足什么才算做完(本文)** | `docs/SPECS.md` |
 | 单个领域的深度规则(密度/外径/单据/汇率) | `.claude/skills/*/SKILL.md` |
 
 ### 0.2 验收标准的可测写法
 
 每个功能点的"验收标准"都满足:
-- **可测**:能被 `scripts/run_local_validation.sh` 13 步校验之一覆盖,或能在 `data/db/validation.db` 里用 SQL 验证
+- **可测**:能被 `scripts/run_local_validation.sh` 14 步校验之一覆盖,或能在 `data/db/validation.db` 里用 SQL 验证
 - **可引用**:引用 `VALIDATION_GUIDE.md` 的步骤号(如"见 VALIDATION_GUIDE 第 9 步"),不复制内容
 - **真实**:涉及的表名/字段名源自 `sql/01_schema.sql`,不臆造
 
@@ -35,8 +35,9 @@
 
 | 约束 | 出处 | 影响 |
 | --- | --- | --- |
-| **金额四件套铁律** | `BUSINESS_RULES.md R1` | 外币金额必须 `amount + currency + exchange_rate + amount_cny` 齐全,影响 `sales_contracts` / `shipping_records` / `credit_notes` / `receipts` 四张表 |
+| **金额四件套铁律** | `BUSINESS_RULES.md R1` | 外币金额必须 `amount + currency + exchange_rate + amount_cny` 齐全,影响 `sales_contracts` / `shipping_records` / `credit_notes` / `receipts` / `quotations` 五张表 |
 | **汇率月固定** | `BUSINESS_RULES.md R2` | 每月 1 日录一次 `exchange_rates`,跨月交易用各自月份的汇率 |
+| **报价 KG×系数定价** | `BUSINESS_RULES.md R10` | 报价单价 = 单卷重量 × 报价系数,影响 `quotation_params` / `quotations` / `quotation_items`(见 §9) |
 | **数据即数据,不硬编码** | `BUSINESS_RULES.md R6` | 客户/币种/口岸/产品品类都是数据,不是代码分支 |
 | **Schema 三处同步** | `BUSINESS_RULES.md R7` | 改 schema 同步 `01_schema.sql` + `SQLITE_SCHEMA` + `DERIVED_RULES` |
 | **真实数据不进仓库** | `BUSINESS_RULES.md R8` | 真实业务数据只放 `data/` / `private/` |
@@ -829,11 +830,108 @@
 
 ---
 
-## 9. 跨模块功能点(贯穿多模块)
+## 9. 报价模块
+
+### 9.1 模块概述
+
+**一句话职责**:签合同前的报价环节,**KG × 系数定价**(不走绝对价),承载 简要报价(brief)→ 正式 QT(formal)→ 销售合同(PI) 的派生链。
+
+**涉及表**:`quotation_params`(全局参数) + `quotations`(主表,brief/formal 共用) + `quotation_items`(明细)。表结构详见 `DATA_MODEL.md §4.9`。
+
+**核心校验**:见 VALIDATION_GUIDE 第 14 步(`check_quotations`)。
+
+**业务规则**:定价铁律见 `BUSINESS_RULES.md R10`;设计取舍(为何 brief/formal 共用表、subtotal 为何用直接公式)见 `docs/adr/0003-quotation-derive-from-brief.md`。
+
+### 9.2 功能点清单
+
+| # | 功能点 | 主负责角色 | 涉及表 |
+| --- | --- | --- | --- |
+| F9.1 | 简要报价录入(brief) | 业务经理 | `quotations` + `quotation_items` |
+| F9.2 | 正式 QT 生成(formal,从 brief 派生) | 业务经理 | `quotations`(`parent_quote_id` 软关联) |
+| F9.3 | 报价转销售合同(converted) | 业务经理 | `quotations.converted_contract_id` + `sales_contracts` |
+| F9.4 | 报价金额计算(KG × 系数定价,subtotal 派生) | 系统(自动) | `quotation_items` + `quotations` |
+
+---
+
+### F9.1 简要报价录入(brief)
+
+**用户故事**:作为业务经理,我想在正式签合同前先给客户一份简要报价,只录"每卷重量 × 报价系数 × 数量"就能算出单价和小计,不用手工套公式,以便快速回应客户询盘。
+
+**输入**:
+- 主表 `quotations`:`quote_no`(如 `QT20260729001`)、`customer_id`、`quote_type='brief'`、`quote_date`、`valid_until`、金额四件套(`total_amount` + `currency`(默认 USD) + `exchange_rate` + `total_amount_cny`(派生))、`status`(`draft`/`sent`/`confirmed`/`converted`/`cancelled`)
+- 明细 `quotation_items`:每行 `product_id`(关联 `products` 带出 `weight`/`volume`)、`group_code`(分组码,如 `A组-1.112`)、`price_coefficient`(报价系数 USD/KG)、`weight_per_unit`(单卷重量 KG,从 `products.weight` 带出可覆盖)、`quantity`(卷数)、派生字段(`total_weight`/`unit_price`/`subtotal`/`total_volume`)
+
+**输出**:1 张简要报价主表 + N 行明细。主表 `total_amount = Σ quotation_items.subtotal`(应用层汇总,非 `DERIVED_RULES`)。
+
+**验收标准**:
+- AC1:**定价铁律 R10** —— `unit_price = weight_per_unit × price_coefficient`,`subtotal = weight_per_unit × price_coefficient × quantity`(直接公式,不依赖派生 `unit_price`,见 `BUSINESS_RULES.md R10` + ADR-0003)
+- AC2:派生字段(4 个)走 `tools/csv_to_sql.py::DERIVED_RULES["quotation_items"]`,空则自动算,手填超容差报 ERROR(`derived-fields` 加算+反向校验双行为)
+- AC3:**金额四件套铁律** —— 主表 `total_amount + currency + exchange_rate + total_amount_cny` 齐全(`BUSINESS_RULES.md R1`);`total_amount_cny` 派生 = `total_amount × exchange_rate`
+- AC4:`quotations.total_amount` 必须等于明细 `subtotal` 之和(见 VALIDATION_GUIDE 第 14 步;代码 `tools/local_validator.py::check_quotations` 子校验 1)
+- AC5:同一报价单同一物料只能一行(唯一约束 `uk_qi_quote_product`,见 `DATA_MODEL.md §4.9`)
+
+**涉及数据表**:`quotations` / `quotation_items`。规则出处 `BUSINESS_RULES.md R10`。
+
+---
+
+### F9.2 正式 QT 生成(formal,从 brief 派生)
+
+**用户故事**:作为业务经理,我想在简要报价确认后,基于它派生出一份正式 QT(formal)发给客户,系统通过 `parent_quote_id` 把两者关联起来,以便保留派生追溯链(正式 QT 从哪份简要报价来的一目了然)。
+
+**输入**:`quotations` 新增一行,`quote_type='formal'`、`parent_quote_id` 指向源 brief 的 `id`,其他字段从 brief 复制或细化。
+
+**输出**:1 张 formal 报价,`parent_quote_id` 软关联到源 brief。
+
+**验收标准**:
+- AC1:`quote_type='formal'` 时,`parent_quote_id` **必须非空**(见 VALIDATION_GUIDE 第 14 步;代码 `check_quotations` 子校验 2)
+- AC2:`parent_quote_id` 指向的必须是 `quote_type='brief'` 的报价(不能 formal 派生 formal)
+- AC3:`parent_quote_id` 是**自引用软关联**(`ON DELETE SET NULL`),类似调拨 `transfer_ref` 的思路——靠应用层校验,非外键强约束(见 ADR-0003)
+- AC4:brief 与 formal **共用 `quotations` 表**,靠 `quote_type` 区分,不建独立表(见 ADR-0003 决策)
+
+**涉及数据表**:`quotations`(自引用)。规则出处 `BUSINESS_RULES.md R10`。
+
+---
+
+### F9.3 报价转销售合同(converted)
+
+**用户故事**:作为业务经理,我想在正式 QT 被客户确认后,把它转成销售合同(PI),系统回填 `converted_contract_id` 串联起"报价→合同"链路,以便后续发货/报关/收款都能追溯到最初的报价。
+
+**输入**:`quotations.status` 推进到 `'converted'`,`converted_contract_id` 回填对应的 `sales_contracts.id`。
+
+**输出**:`quotations` 状态变 `converted`,`converted_contract_id` 指向新建的销售合同。
+
+**验收标准**:
+- AC1:`status='converted'` 时,若 `converted_contract_id` 非空,则该 ID 必须在 `sales_contracts` 存在(见 VALIDATION_GUIDE 第 14 步;代码 `check_quotations` 子校验 3)
+- AC2:状态机 `draft` → `sent` → `confirmed` → `converted` / `cancelled`(`DATA_MODEL.md §4.9`)
+- AC3:转合同后衔接 `sales_contracts` 的金额四件套 + 后续发货/报关/收款流程(跨模块,见 §4 销售模块)
+
+**涉及数据表**:`quotations` + `sales_contracts`。规则出处 `BUSINESS_RULES.md R10`。
+
+---
+
+### F9.4 报价金额计算(KG × 系数定价,subtotal 派生)
+
+**用户故事**:作为 QA,我想确认报价明细的 `subtotal` 跟"重量 × 系数 × 数量"对得上、主表总额跟明细小计之和一致,以便发现"录了明细忘了汇总"或"系数填错"这类笔误。
+
+**输入**:`quotation_items` 的 `weight_per_unit` × `price_coefficient` × `quantity`;`quotations.total_amount` vs `Σ quotation_items.subtotal`
+
+**输出**:不一致报 ERROR
+
+**验收标准**:
+- AC1:明细 `subtotal = weight_per_unit × price_coefficient × quantity`(见 VALIDATION_GUIDE 第 14 步;代码 `check_quotations` 子校验 4,容差 0.01)
+- AC2:主表 `quotations.total_amount = Σ quotation_items.subtotal`(`check_quotations` 子校验 1)
+- AC3:**一张报价单可有多组系数**,用 `group_code` 区分(如 `A组-1.112`),系数放明细不放主表(`BUSINESS_RULES.md R10` + ADR-0003)
+- AC4:派生字段(`total_weight`/`unit_price`/`subtotal`/`total_volume`)的加算+反向校验由 `apply_derived_rules` 完成,`subtotal` 用直接公式避免单轮遍历依赖链失效(代码 `tools/csv_to_sql.py:343-396`)
+
+**涉及数据表**:`quotation_items` + `quotations`。规则出处 `BUSINESS_RULES.md R10`。
+
+---
+
+## 10. 跨模块功能点(贯穿多模块)
 
 > 以下功能点不属于单一模块,但贯穿多个模块,单独列出便于追溯。
 
-### F9.1 金额四件套自动折算
+### F10.1 金额四件套自动折算
 
 **用户故事**:作为财务,我想所有外币金额自动按当期汇率折算 CNY,不用手算,以便任何时候看数据都能精确还原成人民币。
 
@@ -858,7 +956,7 @@
 
 ---
 
-### F9.2 Schema 三处同步
+### F10.2 Schema 三处同步
 
 **用户故事**(开发约束):作为开发者,我想改 schema 时三个地方同步更新,以便校验不"对不上"。
 
@@ -874,9 +972,9 @@
 
 ---
 
-### F9.3 自检门禁(13 步全过)
+### F10.3 自检门禁(14 步全过)
 
-**用户故事**:作为开发者,我想任何改动都跑一次 13 步自检,以便确认改动没破坏既有逻辑。
+**用户故事**:作为开发者,我想任何改动都跑一次 14 步自检,以便确认改动没破坏既有逻辑。
 
 **命令**:
 ```bash
@@ -884,31 +982,32 @@ bash scripts/run_local_validation.sh           # 真实数据
 bash scripts/run_local_validation.sh --demo    # demo 假数据
 ```
 
-**13 步覆盖对照**(本 SPECS 功能点 → 步骤号):
+**14 步覆盖对照**(本 SPECS 功能点 → 步骤号):
 | 步骤 | 校验内容 | 覆盖的功能点 |
 | --- | --- | --- |
-| 1/13 | 基础资料完整性 | F1.1~F1.6 |
-| 2/13 | 采购金额 = 明细之和 | F2.2 |
-| 3/13 | 入库 ≤ 采购 | F3.1 |
-| 4/13 | 合同金额 = 明细之和 | F4.2 |
-| 5/13 | 发货 ≤ 合同 | F5.4 |
-| 6/13 | 累计出库 vs 累计入库(WARN) | F3.5 |
-| 7/13 | 库存对账 | F3.4 |
-| 8/13 | 体积小计跨表 | F3.6 |
-| 9/13 | UCP600 ±5% | F6.3 |
-| 10/13 | credit_note 闭环 | F6.4 |
-| 11/13 | 汇率完整性 | F4.3 / F6.1 / F7.1 |
-| 12/13 | 收款 vs 合同 | F7.4 |
-| 13/13 | 调拨配对 | F8.2 |
+| 1/14 | 基础资料完整性 | F1.1~F1.6 |
+| 2/14 | 采购金额 = 明细之和 | F2.2 |
+| 3/14 | 入库 ≤ 采购 | F3.1 |
+| 4/14 | 合同金额 = 明细之和 | F4.2 |
+| 5/14 | 发货 ≤ 合同 | F5.4 |
+| 6/14 | 累计出库 vs 累计入库(WARN) | F3.5 |
+| 7/14 | 库存对账 | F3.4 |
+| 8/14 | 体积小计跨表 | F3.6 |
+| 9/14 | UCP600 ±5% | F6.3 |
+| 10/14 | credit_note 闭环 | F6.4 |
+| 11/14 | 汇率完整性 | F4.3 / F6.1 / F7.1 |
+| 12/14 | 收款 vs 合同 | F7.4 |
+| 13/14 | 调拨配对 | F8.2 |
+| 14/14 | 报价金额 + 派生关系 + subtotal 公式 | F9.1 / F9.2 / F9.3 / F9.4 |
 
 **验收标准**:
-- AC1:13 步全过才算改对(`BUSINESS_RULES.md R9`)
+- AC1:14 步全过才算改对(`BUSINESS_RULES.md R9`)
 - AC2:CI 同样以此为门禁(`scripts/ci.sh` / `.github/workflows/ci.yml`)
 - AC3:错误排查见 `VALIDATION_GUIDE §6`
 
 ---
 
-## 10. 阶段二规划功能(本阶段不做)
+## 11. 阶段二规划功能(本阶段不做)
 
 > 以下功能在当前阶段**不实现**,只留接口位置。规划清单源自 `payment-receivable/SKILL.md §7`。本节列出便于追溯,不代表当前系统能力。
 
@@ -927,19 +1026,20 @@ bash scripts/run_local_validation.sh --demo    # demo 假数据
 
 ## 附录 A:文档维护约定
 
-- **加新功能点**:先确认系统**真实已有**该能力(查 `sql/01_schema.sql` 字段 / `tools/local_validator.py` 校验函数),不臆造未来功能;未来功能放 §10 阶段二规划。
+- **加新功能点**:先确认系统**真实已有**该能力(查 `sql/01_schema.sql` 字段 / `tools/local_validator.py` 校验函数),不臆造未来功能;未来功能放 §11 阶段二规划。
 - **改 schema**:同步三处(`BUSINESS_RULES.md R7`),并更新本 SPECS 涉及功能点的"涉及数据表"引用。
-- **加新校验步骤**:更新 §F9.3 的 13 步覆盖对照表(校验步骤号映射见 `VALIDATION_GUIDE §3`)。
+- **加新校验步骤**:更新 §F10.3 的 14 步覆盖对照表(校验步骤号映射见 `VALIDATION_GUIDE §3`)。
 - **真实数据不进仓库**(`BUSINESS_RULES.md R8`):本 SPECS 不引用任何真实客户/供应商/合同数据,示例编号(如 `SC20260726001` / `TR20260729001`)均为格式示例。
 
 ## 附录 B:相关文档索引
 
 | 文档 | 作用 |
 | --- | --- |
-| `docs/DATA_MODEL.md` | 物理数据模型单一事实源(22 张表字段/外键/派生) |
+| `docs/DATA_MODEL.md` | 物理数据模型单一事实源(25 张表字段/外键/派生) |
 | `docs/BUSINESS_FLOW.md` | 业务流程全景图(9 节点 / 3 角色) |
-| `docs/BUSINESS_RULES.md` | 业务规则事实源(R1~R9) |
-| `docs/VALIDATION_GUIDE.md` | 13 步校验流程 + 错误排查 |
+| `docs/BUSINESS_RULES.md` | 业务规则事实源(R1~R10) |
+| `docs/VALIDATION_GUIDE.md` | 14 步校验流程 + 错误排查 |
+| `docs/adr/0003-quotation-derive-from-brief.md` | 报价 brief/formal 共用表 + parent_quote_id 派生 + subtotal 直接公式决策 |
 | `docs/GLOSSARY.md` | 业务术语表 |
 | `.claude/skills/product-params/SKILL.md` | 密度/厚度反推/米重深度规则 |
 | `.claude/skills/derived-fields/SKILL.md` | 外径/体积/金额派生深度规则 |
