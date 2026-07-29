@@ -331,6 +331,88 @@ DERIVED_RULES = {
             "description": "收款人民币金额 = 外币到账金额 × 当期汇率",
         },
     },
+
+    # ============================================================
+    # [新增 R10] 报价明细 quotation_items
+    # 业务背景: 报价定价 = 单卷重量(KG) × 报价系数(USD/KG)
+    #   - weight_per_unit : 单卷重量 (从 products.weight 带出, 可覆盖)
+    #   - price_coefficient : 报价系数 (USD/KG, 不同管径组用不同值)
+    #   - quantity        : 数量 (卷数)
+    #   - volume          : 单卷体积 m³ (复用 products.volume 公式)
+    #
+    # 注意: subtotal 不依赖派生的 unit_price, 而是直接展开成原始字段
+    #       乘积 (weight_per_unit × price_coefficient × quantity)。
+    #       原因: apply_derived_rules 是单轮遍历, 不做多轮依赖链计算,
+    #       若 subtotal 依赖 unit_price 会在 unit_price 尚未加算前就跳过。
+    # ============================================================
+    "quotation_items": {
+        # Q1: 总重 (KG) = 单卷重量 × 数量
+        "total_weight": {
+            "expr": lambda row: _safe_mul(
+                _to_float(row.get("weight_per_unit")),
+                _to_float(row.get("quantity")),
+                ndigits=3,
+            ),
+            "depends_on": ["weight_per_unit", "quantity"],
+            "tolerance": 0.001,
+            "description": "总重(KG) = 单卷重量 × 数量",
+        },
+        # Q2: 单卷价 (USD) = 单卷重量 × 报价系数
+        "unit_price": {
+            "expr": lambda row: _safe_mul(
+                _to_float(row.get("weight_per_unit")),
+                _to_float(row.get("price_coefficient")),
+                ndigits=2,
+            ),
+            "depends_on": ["weight_per_unit", "price_coefficient"],
+            "tolerance": 0.01,
+            "description": "单卷价(USD) = 单卷重量(KG) × 报价系数(USD/KG)",
+        },
+        # Q3: 小计 (USD) = 单卷重量 × 报价系数 × 数量
+        # 直接展开成原始字段相乘, 不走派生 unit_price, 避免单轮依赖链问题
+        "subtotal": {
+            "expr": lambda row: (
+                lambda wpu, coef, qty: None if None in (wpu, coef, qty) else round(wpu * coef * qty, 2)
+            )(
+                _to_float(row.get("weight_per_unit")),
+                _to_float(row.get("price_coefficient")),
+                _to_float(row.get("quantity")),
+            ),
+            "depends_on": ["weight_per_unit", "price_coefficient", "quantity"],
+            "tolerance": 0.01,
+            "description": "小计(USD) = 单卷重量 × 报价系数 × 数量 (直接公式, 不依赖派生 unit_price)",
+        },
+        # Q4: 总体积 (m³) = 单卷体积 × 数量
+        "total_volume": {
+            "expr": lambda row: _safe_mul(
+                _to_float(row.get("volume")),
+                _to_float(row.get("quantity")),
+                ndigits=4,
+            ),
+            "depends_on": ["volume", "quantity"],
+            "tolerance": 0.001,
+            "description": "总体积(m³) = 单卷体积 × 数量",
+        },
+    },
+
+    # ============================================================
+    # [新增 R10] 报价主表 quotations
+    # 金额四件套: total_amount (外币) + currency + exchange_rate + total_amount_cny
+    # total_amount = Σ quotation_items.subtotal (在导入明细后由应用层汇总,
+    #                不在本规则算; 本规则只负责外币→CNY 折算)
+    # ============================================================
+    "quotations": {
+        "total_amount_cny": {
+            "expr": lambda row: _safe_mul(
+                _to_float(row.get("total_amount")),
+                _to_float(row.get("exchange_rate")),
+                ndigits=2,
+            ),
+            "depends_on": ["total_amount", "exchange_rate"],
+            "tolerance": 0.01,
+            "description": "报价金额(CNY) = 外币金额 × 当期汇率",
+        },
+    },
 }
 
 
