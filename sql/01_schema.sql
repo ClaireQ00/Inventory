@@ -713,3 +713,93 @@ CREATE TABLE audit_logs (
     INDEX idx_audit_table_record (table_name, record_id),
     INDEX idx_audit_operator_time (operator, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='审计日志(阶段一空壳)';
+
+-- ============================================================
+-- 模块九: 报价管理 (单价 = 单卷重量 KG × 报价系数 USD/KG)
+-- ============================================================
+-- 流程: 简要报价(brief) → 正式 QT form → 销售合同 PI(转单后回填)
+-- 遵循 R1 金额四件套 (amount + currency + exchange_rate + amount_cny)
+-- 遵循 R10 报价定价铁律 (price_coefficient 是定价基准, 不存绝对价)
+-- 详见 docs/BUSINESS_RULES.md R10
+-- ------------------------------------------------------------
+
+-- 9.1 报价参数表 quotation_params (全局键值对)
+-- 用途: 存全局参数, 如默认汇率/默认币种/报价有效期天数
+-- ------------------------------------------------------------
+DROP TABLE IF EXISTS quotation_params;
+CREATE TABLE quotation_params (
+    id              INT AUTO_INCREMENT PRIMARY KEY COMMENT '参数ID',
+    param_key       VARCHAR(64)  NOT NULL UNIQUE   COMMENT '参数键(如 exchange_rate/default_currency/valid_days)',
+    param_value     VARCHAR(128) NOT NULL          COMMENT '参数值',
+    description     VARCHAR(255) DEFAULT ''        COMMENT '说明',
+    effective_date  DATE         DEFAULT NULL      COMMENT '生效日期',
+    updated_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
+                                 ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='报价参数表(全局键值对)';
+
+CREATE INDEX idx_qp_key ON quotation_params(param_key);
+
+-- 9.2 报价主表 quotations (简要报价 + 正式 QT 共用, 状态区分)
+-- 关键字段: quote_type(brief/formal) / version(简要报价多版本) / parent_quote_id(派生源)
+-- ------------------------------------------------------------
+DROP TABLE IF EXISTS quotations;
+CREATE TABLE quotations (
+    id                  INT AUTO_INCREMENT PRIMARY KEY COMMENT '报价内部ID',
+    quote_no            VARCHAR(32)  NOT NULL UNIQUE   COMMENT '报价号(如 QT20260729001)',
+    customer_id         INT          NOT NULL          COMMENT '客户ID',
+    quote_type          ENUM('brief','formal') NOT NULL DEFAULT 'brief' COMMENT '类型: brief简要报价/formal正式QT',
+    parent_quote_id     INT          DEFAULT NULL      COMMENT '派生源(正式QT从哪个简要报价派生)',
+    version             INT          NOT NULL DEFAULT 1 COMMENT '版本(简要报价多版本)',
+    quote_date          DATE         NOT NULL          COMMENT '报价日期',
+    valid_until         DATE         DEFAULT NULL      COMMENT '报价有效期至',
+    -- 金额四件套(R1)
+    total_amount        DECIMAL(14,2) NOT NULL DEFAULT 0.00 COMMENT '报价总金额(原币种)',
+    currency            VARCHAR(3)   NOT NULL DEFAULT 'USD' COMMENT '币种(ISO 4217): USD/EUR/IDR...',
+    exchange_rate       DECIMAL(10,4) NOT NULL DEFAULT 0 COMMENT '汇率(原币种→CNY)',
+    total_amount_cny    DECIMAL(14,2) NOT NULL DEFAULT 0.00 COMMENT '报价总金额(折算CNY) = total_amount × exchange_rate',
+    status              ENUM('draft','sent','confirmed','converted','cancelled')
+                        NOT NULL DEFAULT 'draft'      COMMENT '状态: 草稿/已发/已确认/已转合同/已取消',
+    converted_contract_id INT        DEFAULT NULL      COMMENT '转成的销售合同ID(转后回填)',
+    remark              VARCHAR(512) DEFAULT ''        COMMENT '备注',
+    created_at          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_at          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
+                                     ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+
+    CONSTRAINT fk_quo_customer FOREIGN KEY (customer_id) REFERENCES customers(id),
+    CONSTRAINT fk_quo_parent   FOREIGN KEY (parent_quote_id) REFERENCES quotations(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='报价主表(简要报价+正式QT)';
+
+CREATE INDEX idx_quo_no       ON quotations(quote_no);
+CREATE INDEX idx_quo_customer ON quotations(customer_id);
+CREATE INDEX idx_quo_type     ON quotations(quote_type);
+CREATE INDEX idx_quo_status   ON quotations(status);
+
+-- 9.3 报价明细表 quotation_items
+-- 定价公式: unit_price = weight_per_unit × price_coefficient (USD/KG)
+-- 派生字段(total_weight/unit_price/subtotal/total_volume)下一步 DERIVED_RULES 实现, 本步先建列
+-- ------------------------------------------------------------
+DROP TABLE IF EXISTS quotation_items;
+CREATE TABLE quotation_items (
+    id                  INT AUTO_INCREMENT PRIMARY KEY COMMENT '明细ID',
+    quote_id            INT          NOT NULL           COMMENT '报价ID',
+    product_id          INT          NOT NULL           COMMENT '物料ID(关联products带出重量/体积)',
+    group_code          VARCHAR(32)  NOT NULL DEFAULT '' COMMENT '分组码(同组共用报价系数, 如 A组-1.112)',
+    price_coefficient   DECIMAL(10,4) NOT NULL          COMMENT '报价系数(USD/KG)',
+    weight_per_unit     DECIMAL(10,3) NOT NULL          COMMENT '单卷重量(KG, 从products.weight带出可覆盖)',
+    quantity            INT          NOT NULL           COMMENT '数量(卷)',
+    -- 派生字段(下一步DERIVED_RULES实现, 本步先建列)
+    total_weight        DECIMAL(14,3) NOT NULL DEFAULT 0 COMMENT '派生:总重KG = weight_per_unit × quantity',
+    unit_price          DECIMAL(12,2) NOT NULL DEFAULT 0 COMMENT '派生:单卷价 = weight_per_unit × price_coefficient',
+    subtotal            DECIMAL(14,2) NOT NULL DEFAULT 0 COMMENT '派生:小计 = unit_price × quantity',
+    volume              DECIMAL(12,6) DEFAULT 0.000000   COMMENT '单件体积(从products查或手填)',
+    total_volume        DECIMAL(12,6) NOT NULL DEFAULT 0 COMMENT '派生:总体积 = volume × quantity',
+    remark              VARCHAR(255) DEFAULT ''         COMMENT '备注',
+
+    CONSTRAINT fk_qi_quote   FOREIGN KEY (quote_id)   REFERENCES quotations(id) ON DELETE CASCADE,
+    CONSTRAINT fk_qi_product FOREIGN KEY (product_id) REFERENCES products(id),
+
+    UNIQUE KEY uk_qi_quote_product (quote_id, product_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='报价明细';
+
+CREATE INDEX idx_qi_quote ON quotation_items(quote_id);
+CREATE INDEX idx_qi_group ON quotation_items(group_code);

@@ -424,6 +424,77 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 
 CREATE INDEX IF NOT EXISTS idx_audit_table_record ON audit_logs(table_name, record_id);
 CREATE INDEX IF NOT EXISTS idx_audit_operator_time ON audit_logs(operator, created_at);
+
+-- ============================================================
+-- 模块九: 报价管理 (单价 = 单卷重量 KG × 报价系数 USD/KG)
+-- ============================================================
+
+-- 9.1 报价参数表 (全局键值对)
+CREATE TABLE IF NOT EXISTS quotation_params (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    param_key TEXT NOT NULL UNIQUE,
+    param_value TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    effective_date TEXT,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_qp_key ON quotation_params(param_key);
+
+-- 9.2 报价主表 (简要报价 brief + 正式 QT formal 共用, 状态区分)
+-- 金额四件套 (R1): total_amount + currency + exchange_rate + total_amount_cny
+CREATE TABLE IF NOT EXISTS quotations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    quote_no TEXT NOT NULL UNIQUE,
+    customer_id INTEGER NOT NULL,
+    quote_type TEXT NOT NULL DEFAULT 'brief',
+    parent_quote_id INTEGER,
+    version INTEGER NOT NULL DEFAULT 1,
+    quote_date TEXT NOT NULL,
+    valid_until TEXT,
+    -- 金额四件套 (R1)
+    total_amount REAL NOT NULL DEFAULT 0,
+    currency TEXT NOT NULL DEFAULT 'USD',
+    exchange_rate REAL NOT NULL DEFAULT 0,
+    total_amount_cny REAL NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'draft',
+    converted_contract_id INTEGER,
+    remark TEXT DEFAULT '',
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (customer_id) REFERENCES customers(id),
+    FOREIGN KEY (parent_quote_id) REFERENCES quotations(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_quo_no       ON quotations(quote_no);
+CREATE INDEX IF NOT EXISTS idx_quo_customer ON quotations(customer_id);
+CREATE INDEX IF NOT EXISTS idx_quo_type     ON quotations(quote_type);
+CREATE INDEX IF NOT EXISTS idx_quo_status   ON quotations(status);
+
+-- 9.3 报价明细表
+-- 派生字段 (total_weight/unit_price/subtotal/total_volume) 下一步 DERIVED_RULES 实现, 本步先建列
+CREATE TABLE IF NOT EXISTS quotation_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    quote_id INTEGER NOT NULL,
+    product_id INTEGER NOT NULL,
+    group_code TEXT NOT NULL DEFAULT '',
+    price_coefficient REAL NOT NULL,
+    weight_per_unit REAL NOT NULL,
+    quantity INTEGER NOT NULL,
+    -- 派生字段 (本步先建列, DERIVED_RULES 下一步实现)
+    total_weight REAL NOT NULL DEFAULT 0,
+    unit_price REAL NOT NULL DEFAULT 0,
+    subtotal REAL NOT NULL DEFAULT 0,
+    volume REAL DEFAULT 0,
+    total_volume REAL NOT NULL DEFAULT 0,
+    remark TEXT DEFAULT '',
+    FOREIGN KEY (quote_id) REFERENCES quotations(id) ON DELETE CASCADE,
+    FOREIGN KEY (product_id) REFERENCES products(id),
+    UNIQUE (quote_id, product_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_qi_quote ON quotation_items(quote_id);
+CREATE INDEX IF NOT EXISTS idx_qi_group ON quotation_items(group_code);
 """
 
 
