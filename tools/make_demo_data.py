@@ -259,6 +259,7 @@ def main():
         [
             # 故意留空: 本 demo 是"正常报关无短装"场景
             # 短装示例见 .claude/skills/trade-documents/SKILL.md
+            # (T2.4 短装场景改走 tests/ 独立测试路线, 不污染 demo, 见 TASKS.md)
         ],
     )
 

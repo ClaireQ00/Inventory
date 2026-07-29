@@ -847,8 +847,17 @@ def check_reconciliation(conn, report):
         if c != a:
             cur.execute("SELECT material_id FROM products WHERE id=?", (p,))
             mid = cur.fetchone()[0]
+            # T2.9: 多 join 一次 warehouses 把仓库名带出来, 方便定位
+            # (以前只给 warehouse_id, 用户得自己查表才知道是哪个仓)
+            cur.execute("SELECT name, code FROM warehouses WHERE id=?", (w,))
+            wh_row = cur.fetchone()
+            if wh_row:
+                wh_name, wh_code = wh_row
+                wh_label = f"{wh_name}({wh_code})"
+            else:
+                wh_label = f"<未知仓库 id={w}>"
             report.error(
-                f"对账不平: 物料 {mid} 仓库ID={w} | 库存表={a} | 流水累加={c}"
+                f"对账不平: 物料 {mid} 仓库 {wh_label} | 库存表={a} | 流水累加={c}"
             )
             diffs += 1
 

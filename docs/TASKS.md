@@ -62,13 +62,13 @@
 | --- | --- | --- | --- | --- | --- |
 | **T2.1** | 给 `SPECS.md F1.3`（米重×长度 vs 单重跨字段校验）补一条 demo 数据，让 `check_cross_field_consistency` 在 `--demo` 模式能真正触发一次 WARN | P1 | T1.4 | 待办 | `tools/csv_to_sql.py::check_cross_field_consistency`（目前 demo products 三行重量都自洽，覆盖度为 0） |
 | **T2.2** | 给 `SPECS.md F1.2 AC2`（手填派生列超容差报 ERROR）补一个独立小测试：手填 `products.outer_diameter` 故意偏 0.1mm，确认 `csv_to_sql.py` 阻止生成 | P1 | T1.1 | 待办 | `tools/csv_to_sql.py::apply_derived_rules`（反向校验分支）；建议放 `tests/`（当前仓库无测试目录） |
-| **T2.3** | `SPECS.md F5.4 AC2` 描述"超发报 ERROR/WARN（具体阈值以代码为准）"——核实 `check_delivery_vs_contract` 的实际判定：超发一律 ERROR，没有 WARN。修正 SPECS 表述模糊处 | P1 | — | 待办 | `tools/local_validator.py:636-644`；`docs/SPECS.md §F5.4 AC2` |
+| **T2.3** | `SPECS.md F5.4 AC2` 描述"超发报 ERROR/WARN（具体阈值以代码为准）"——核实 `check_delivery_vs_contract` 的实际判定：超发一律 ERROR，没有 WARN。修正 SPECS 表述模糊处 | P1 | — | 已完成 | `docs/SPECS.md:525`（AC2 改为"一律 ERROR，无 WARN 分级，无容差阈值"）；代码依据 `tools/local_validator.py::check_delivery_vs_contract`（delivered > contracted → report.error） |
 | **T2.4** | 给场景 D（短装超装）补 demo：在 `make_demo_data.py` 增加一个 `shipping_record_items.actual_qty` 故意比 `planned_qty` 少 6% 的样例，让 `check_shipping_vs_delivery` 触发 ERROR，并配一条 `credit_notes` 走闭环 | P1 | T1.4 | 待办 | `tools/make_demo_data.py`；`docs/SCENARIOS.md 场景D` |
 | **T2.5** | `check_exchange_rates` 当前只判断"最近一条 effective_date < 本月1号" → ERROR。补一个跨月场景 demo（合同月 2026-07，收款月 2026-08，8 月汇率缺失），让第 11 步真的报出来 | P1 | T1.4 | 待办 | `tools/local_validator.py::check_exchange_rates`；`docs/SCENARIOS.md 场景C` |
 | **T2.6** | `audit_logs` 表已建（`local_validator.py SQLITE_SCHEMA:414`），但 **写入逻辑全无**（`SPECS.md §10` 标注"空壳"）。补一个最小写入点：导入 CSV 时记录"谁/何时/改了哪张表"到 audit_logs | P1 | — | 待办 | `tools/local_validator.py::load_csv_into_sqlite`（导入成功后写一条 audit）；`docs/DATA_MODEL.md §4.8` |
 | **T2.7** | `scripts/check-sensitive-data.sh` 只检查文件名/扩展名，不检查 CSV 内容里是否混入真实手机号/身份证。补一个内容侧正则扫描（11 位手机号、18 位身份证） | P1 | — | 待办 | `scripts/check-sensitive-data.sh`；`docs/PRIVATE_DATA_GUIDELINES.md` |
-| **T2.8** | `docs/IMPORT_TEMPLATES.md` 列了模板，但 `sample/templates/` 里**缺** `stock_logs_template.csv`（流水表由系统自动重建，不手填）。要么在 IMPORT_TEMPLATES 里明确说明"此表系统生成，无模板"，要么补一个空模板避免用户找 | P2 | — | 待办 | `docs/IMPORT_TEMPLATES.md`；`sample/templates/` |
-| **T2.9** | `local_validator.py` 第 7 步对账报错信息只给了"物料 ID + 仓库 ID"，没给仓库名。把仓库名一起带出来，方便定位 | P1 | — | 待办 | `tools/local_validator.py::check_reconciliation:782-784`（多 join 一次 warehouses 表） |
+| **T2.8** | `docs/IMPORT_TEMPLATES.md` 列了模板，但 `sample/templates/` 里**缺** `stock_logs_template.csv`（流水表由系统自动重建，不手填）。要么在 IMPORT_TEMPLATES 里明确说明"此表系统生成，无模板"，要么补一个空模板避免用户找 | P2 | — | 已完成 | `docs/IMPORT_TEMPLATES.md:44`（已写明"`stock_logs` 表无 CSV 模板...不需要也不应该手填"，指向 `tools/local_validator.py::rebuild_stock_logs`） |
+| **T2.9** | `local_validator.py` 第 7 步对账报错信息只给了"物料 ID + 仓库 ID"，没给仓库名。把仓库名一起带出来，方便定位 | P1 | — | 已完成 | `tools/local_validator.py::check_reconciliation`（多查一次 warehouses 取 name+code，报错格式 "物料 X 仓库 仓名(代码)"） |
 | **T2.10** | `csv_to_sql.py` 的反向校验失败时打印了报告但 `return 0`，主流程靠 `sys.exit(1)` 兜底。建议把"反向校验失败计数"也写进一份 `data/logs/` 日志，方便事后追 | P2 | T1.1 | 待办 | `tools/csv_to_sql.py::convert_csv_to_sql:795-798` |
 
 ---

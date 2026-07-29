@@ -522,7 +522,7 @@
 
 **验收标准**:
 - AC1:**优先用 `actual_quantity`**,未装柜(`actual_quantity=0`)回退 `quantity`(见 VALIDATION_GUIDE 第 5 步;代码 `check_delivery_vs_contract`)
-- AC2:超发(发货 > 合同)→ ERROR / WARN(具体阈值以代码为准)
+- AC2:超发(发货 > 合同)→ **一律 ERROR**,无 WARN 分级(代码 `check_delivery_vs_contract`:任何 `delivered > contracted` 都报 error,不存在容差阈值)
 - AC3:未发完(发货 < 合同)→ WARN "未发完"(`trade-documents/SKILL.md §7` 示例)
 
 **涉及数据表**:`delivery_order_items` + `sales_contract_items`。规则出处 `BUSINESS_FLOW.md 节点 5`。
