@@ -72,7 +72,7 @@ effective_date  DATE            -- 生效日 (一般是月初 1 号)
 source          VARCHAR(32)     -- manual/boc(中行)/pboc(人行)
 ```
 
-**查询规则** (校验函数 `check_exchange_rates`, 步骤 11/12):
+**查询规则** (校验函数 `check_exchange_rates`, 步骤 11/13):
 
 ```
 对每个用到外币的业务记录 (合同/报关/收款), 取它当月的币种:
@@ -121,7 +121,7 @@ source          VARCHAR(32)     -- manual/boc(中行)/pboc(人行)
 
 **关键规则**: 只有 `status='confirmed'` 的收款才会被 `check_receipts_vs_contract` 拿来跟合同金额比对。
 
-### 3.3 对账校验 (步骤 12/12)
+### 3.3 对账校验 (步骤 12/13)
 
 **校验函数**: `check_receipts_vs_contract()`
 

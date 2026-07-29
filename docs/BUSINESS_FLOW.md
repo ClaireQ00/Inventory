@@ -1,6 +1,6 @@
 # 外贸订单业务流程全景图
 
-> 一句话：一笔外贸订单从**客户询盘**到**收款入账**，要走过 **9 个节点**，涉及 **3 个角色**，填 **20 张表里的 16 张**，过 **12 步业务校验**。
+> 一句话：一笔外贸订单从**客户询盘**到**收款入账**，要走过 **9 个节点**，涉及 **3 个角色**，填 **20 张表里的 16 张**，过 **13 步业务校验**。
 >
 > 这份文档是给**新人接手 / Claude 接力**用的——比 `AGENT_GUIDE.md` 更重要，因为这里讲的是**业务怎么走**，不是工具怎么调。
 
@@ -110,11 +110,11 @@
 | --- | --- |
 | **角色** | 仓库保管员 |
 | **填什么表** | `stock_in` + `stock_in_items` |
-| **关键字段** | `in_no`、`warehouse_id`、`po_id`（关联合同）、`in_date`、`status='confirmed'` |
-| **过哪个校验** | **check 3**（入库数 ≤ 采购数）、**check 6**（累计出库 ≤ 累计入库）、**check 7**（库存对账：`inventory.quantity` = Σ stock_logs） |
+| **关键字段** | `in_no`、`in_type`（`purchase`=采购到货 / `transfer`=调拨接收，默认 `purchase`）、`warehouse_id`、`po_id`（采购到货时填）、`in_date`、`status='confirmed'`、`transfer_ref`（仅调拨接收时填，跟配对的 stock_out 同一个号） |
+| **过哪个校验** | **check 3**（入库数 ≤ 采购数，仅 `purchase` 类型）、**check 6**（累计出库 vs 累计入库，**负库存允许但报警**）、**check 7**（库存对账：`inventory.quantity` = Σ stock_logs）、**check 13**（调拨配对，仅 `transfer` 类型） |
 | **状态机** | `draft` → `confirmed` / `cancelled` |
 | **库存影响** | 入库确认后，`inventory.quantity` 增加 |
-| **下一步** | 等客户要货 → 节点 5 |
+| **下一步** | 等客户要货 → 节点 5；或接到调拨单 → 异常分支 4.4 |
 
 ### 节点 5：客户要货，下发货单（DO）
 
@@ -133,13 +133,13 @@
 | 项 | 说明 |
 | --- | --- |
 | **角色** | 仓库保管员 |
-| **填什么表** | `stock_out` + `stock_out_items`（出库）+ 回填 `delivery_order_items.actual_quantity`（实发数） |
-| **关键字段** | `out_no`、`warehouse_id`、`delivery_id`、`out_date`、`status='confirmed'` |
-| **过哪个校验** | **check 6**（累计出库 ≤ 累计入库，类比银行卡不能透支）、**check 7**（库存对账） |
+| **填什么表** | `stock_out` + `stock_out_items`（出库）+ 回填 `delivery_order_items.actual_quantity`（销售装柜实发数） |
+| **关键字段** | `out_no`、`out_type`（`sale`=销售出库 / `transfer`=调拨发出，默认 `sale`）、`warehouse_id`、`delivery_id`（销售时填）、`out_date`、`status='confirmed'`、`transfer_ref`（仅调拨发出时填，跟配对的 stock_in 同一个号） |
+| **过哪个校验** | **check 6**（累计出库 vs 累计入库，**允许负库存但报警**，类比银行卡透支）、**check 7**（库存对账）、**check 13**（调拨配对，仅 `transfer` 类型） |
 | **状态机** | `draft` → `confirmed` / `cancelled` |
 | **库存影响** | 出库确认后，`inventory.quantity` 减少 |
-| **关键动作** | 装柜后**必须**回填 `actual_quantity`，否则 `short_qty` 永远是 0，节点 7 会报错 |
-| **下一步** | 装船报关 → 节点 7 |
+| **关键动作** | 装柜后**必须**回填 `actual_quantity`，否则 `short_qty` 永远是 0，节点 7 会报错（调拨出库无此动作） |
+| **下一步** | 装船报关 → 节点 7（仅销售出库走报关，调拨出库到此结束） |
 
 ### 节点 7：报关出口（SH + CI + PL）
 
@@ -229,6 +229,27 @@
 当前阶段：一个 receipt 只关联一个 `contract_id`，不支持合并。
 第 2 阶段规划：加 `receipt_allocations` 子表（见 `payment-receivable/SKILL.md` 第 7 节）。
 
+### 4.4 仓库间调拨（平行于主线，可随时发生）
+
+主线讲的是"客户下单 → 出口收钱"流程，调拨是**仓库之间的内部挪货**，跟销售无关，所以可以平行发生于任意时刻（比如把主仓的货挪到外协仓、或挪到口岸附近的临时仓）。
+
+```
+仓库 A（源仓）: stock_out  out_type='transfer',  transfer_ref='TR20260729001'
+                                                                        ↓ 同一个号串起来
+仓库 B（目标仓）: stock_in   in_type='transfer',   transfer_ref='TR20260729001'
+                                                                        ↓
+                              check 13 聚合两边数量对比
+                              出库总量 ≠ 入库总量 → ERROR
+                              只有一边              → WARN (在途或漏录)
+```
+
+**关键约定**：
+- 调拨的两条单据**必须填同一个 `transfer_ref`**（编号建议 `TR + 日期 + 序号`，如 `TR20260729001`）
+- 调拨**不走节点 7 报关**（不产生报关单、不涉及 UCP600）
+- 调拨**不走节点 8 收款**（不涉及外币、汇率、credit_note）
+- source 仓允许暂时负库存（**check 6 是 WARN 不是 ERROR**），后续补货即可
+- 业务规则细节见 `docs/BUSINESS_RULES.md` R3.5
+
 ---
 
 ## 5. 三角色交接矩阵（防扯皮）
@@ -255,7 +276,7 @@
 2. **确认基础资料**：`data/csv/products.csv` / `warehouses.csv` / `suppliers.csv` / `customers.csv` 齐全
 3. **录合同**：业务经理填 `sales_contracts.csv` + `sales_contract_items.csv`（金额四件套别漏）
 4. **录采购**：业务经理填 `purchase_orders.csv` + `purchase_order_items.csv`
-5. **跑一次校验**：`bash scripts/run_local_validation.sh`（应该 1-4 步过，5-12 步因为没数据跳过）
+5. **跑一次校验**：`bash scripts/run_local_validation.sh`（应该 1-4 步过，5-13 步因为没数据跳过）
 6. **后续按节点 4→9 顺序补数据，每补一个节点跑一次校验**
 
 **第一次跑必看**：`docs/VALIDATION_GUIDE.md`（生动版校验流程说明）。
@@ -267,7 +288,7 @@
 | 想了解 | 看哪份文档 |
 | --- | --- |
 | 系统整体架构 | `docs/README.md` |
-| 12 步校验细节 | `docs/VALIDATION_GUIDE.md` |
+| 13 步校验细节 | `docs/VALIDATION_GUIDE.md` |
 | Skill / Agent / Hook 体系 | `docs/AGENT_GUIDE.md` |
 | 字段派生规则（外径 / 体积 / 金额） | `.claude/skills/derived-fields/SKILL.md` |
 | 产品参数（密度 / 厚度反推） | `.claude/skills/product-params/SKILL.md` |

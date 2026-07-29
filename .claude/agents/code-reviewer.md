@@ -66,6 +66,17 @@ grep -n "新字段名" sql/01_schema.sql tools/local_validator.py tools/csv_to_s
 
 如果某处缺了 → 报 Critical。
 
+**跨表关联字段特别注意**：像 `transfer_ref` 这种字段同时挂在多张表（`stock_in` + `stock_out`），如果只在一张表加了，`check_transfer_pairs` 校验会挂。**两张表都要加、配套 ENUM 也都要包含 `'transfer'`**。
+
+#### 铁律 2.5：调拨配对闭环（2026-07-29 新增）
+
+调拨 = 一对配对的出入库单（同 `transfer_ref`）。改动涉及 `stock_in` / `stock_out` 时必须确认：
+
+- 两张表的 `in_type` / `out_type` ENUM 都包含 `'transfer'` 值
+- 同一个 `transfer_ref` 的 `stock_out` 出库总量 == `stock_in` 入库总量（按 `product_id` 聚合）
+- 由 `check_transfer_pairs`（步骤 13/13）校验
+- 负库存允许但报警（`check_stock_out_vs_inventory` 是 **WARN 不是 ERROR**，外贸调拨常"先做后补"）
+
 #### 铁律 3：Skill 路由互斥
 
 4 个 skill 边界清晰，不能在一个 skill 里回答另一个 skill 的问题：
@@ -76,6 +87,7 @@ grep -n "新字段名" sql/01_schema.sql tools/local_validator.py tools/csv_to_s
 | `derived-fields` | 外径 / 体积 / 金额小计（行内派生） |
 | `trade-documents` | 报关 / 短装 / credit_note / UCP600 |
 | `payment-receivable` | 收款 / 汇率 / 水单 / 应收对账 |
+| **调拨**（无专属 skill） | 走 `BUSINESS_RULES.md §R3.5` + `check_transfer_pairs`，不进任何 skill |
 
 **检查方法**：读改动过的 `.claude/skills/*/SKILL.md`，看 `description` 和正文有没有越界（比如 `product-params` 里讲报关，就是越界）。
 
@@ -99,7 +111,7 @@ grep -rn "Q025\|PVC\|印尼\|大雄" sql/ tools/*.py
 bash scripts/run_local_validation.sh --demo
 ```
 
-12 步全过才算 OK。任何一步失败 → 把失败信息原文搬进报告。
+13 步全过才算 OK。任何一步失败 → 把失败信息原文搬进报告。
 
 **真实数据校验**（如果 `data/csv` 有真实 CSV）：
 ```bash
@@ -139,7 +151,7 @@ bash scripts/run_local_validation.sh
 - [文件名:行号] 优化点
 
 ### 校验结果
-- run_local_validation.sh --demo: ✓ 12/12 全过 / ✗ 第 N 步失败（错误信息）
+- run_local_validation.sh --demo: ✓ 13/13 全过 / ✗ 第 N 步失败（错误信息）
 - run_local_validation.sh (真实数据): ✓ / ✗ / 未跑
 
 ### 总评

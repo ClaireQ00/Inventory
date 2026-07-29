@@ -332,6 +332,7 @@ CREATE TABLE stock_in (
     in_date         DATE         NOT NULL           COMMENT '入库日期',
     status          ENUM('draft','confirmed','cancelled')
                                 NOT NULL DEFAULT 'draft' COMMENT '状态: 草稿/已确认/已取消',
+    transfer_ref    VARCHAR(32)  DEFAULT NULL       COMMENT '调拨关联号(调拨入库时填, 跟配对的 stock_out 同一个号, 如 TR20260729001)',
     remark          VARCHAR(512) DEFAULT ''         COMMENT '备注',
     created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -344,6 +345,7 @@ CREATE TABLE stock_in (
 CREATE INDEX idx_si_no        ON stock_in(in_no);
 CREATE INDEX idx_si_warehouse ON stock_in(warehouse_id);
 CREATE INDEX idx_si_po        ON stock_in(po_id);
+CREATE INDEX idx_si_transfer  ON stock_in(transfer_ref);
 
 -- ------------------------------------------------------------
 -- 4.3 入库单明细表 stock_in_items
@@ -380,6 +382,7 @@ CREATE TABLE stock_out (
     out_date        DATE         NOT NULL           COMMENT '出库日期',
     status          ENUM('draft','confirmed','cancelled')
                                 NOT NULL DEFAULT 'draft' COMMENT '状态: 草稿/已确认/已取消',
+    transfer_ref    VARCHAR(32)  DEFAULT NULL       COMMENT '调拨关联号(调拨出库时填, 跟配对的 stock_in 同一个号, 如 TR20260729001)',
     remark          VARCHAR(512) DEFAULT ''         COMMENT '备注',
     created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -392,6 +395,7 @@ CREATE TABLE stock_out (
 CREATE INDEX idx_so_no        ON stock_out(out_no);
 CREATE INDEX idx_so_warehouse ON stock_out(warehouse_id);
 CREATE INDEX idx_so_delivery  ON stock_out(delivery_id);
+CREATE INDEX idx_so_transfer  ON stock_out(transfer_ref);
 
 -- ------------------------------------------------------------
 -- 4.5 出库单明细表 stock_out_items

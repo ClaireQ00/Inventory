@@ -35,9 +35,9 @@
 
 | 模板文件 | 对应表 | 备注 |
 | --- | --- | --- |
-| `stock_in_template.csv` | `stock_in` | 入库单主表 |
+| `stock_in_template.csv` | `stock_in` | 入库单主表（**含 `in_type`（purchase/transfer）+ `transfer_ref` 调拨关联号**） |
 | `stock_in_items_template.csv` | `stock_in_items` | 入库明细 |
-| `stock_out_template.csv` | `stock_out` | 出库单主表 |
+| `stock_out_template.csv` | `stock_out` | 出库单主表（**含 `out_type`（sale/transfer）+ `transfer_ref` 调拨关联号**） |
 | `stock_out_items_template.csv` | `stock_out_items` | 出库明细 |
 | `inventory_template.csv` | `inventory` | 当前库存 |
 
@@ -104,7 +104,7 @@
    ```bash
    bash scripts/run_local_validation.sh
    ```
-   12 步全过才算对。具体每一步校验什么，见 `docs/VALIDATION_GUIDE.md`。
+   13 步全过才算对。具体每一步校验什么，见 `docs/VALIDATION_GUIDE.md`。
 
 ## 注意事项
 
@@ -116,5 +116,5 @@
 ## 参考
 
 - `docs/BUSINESS_FLOW.md` — 一笔订单从询盘到收款的完整流程（每个节点填什么表过什么校验）
-- `docs/VALIDATION_GUIDE.md` — 12 步校验详解
+- `docs/VALIDATION_GUIDE.md` — 13 步校验详解
 - `docs/PRIVATE_DATA_GUIDELINES.md` — 敏感数据隔离规范

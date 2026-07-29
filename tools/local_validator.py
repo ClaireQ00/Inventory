@@ -196,6 +196,7 @@ CREATE TABLE IF NOT EXISTS stock_in (
     operator TEXT DEFAULT '',
     in_date TEXT NOT NULL,
     status TEXT DEFAULT 'draft',
+    transfer_ref TEXT,
     remark TEXT DEFAULT '',
     FOREIGN KEY (warehouse_id) REFERENCES warehouses(id),
     FOREIGN KEY (po_id) REFERENCES purchase_orders(id)
@@ -220,6 +221,7 @@ CREATE TABLE IF NOT EXISTS stock_out (
     operator TEXT DEFAULT '',
     out_date TEXT NOT NULL,
     status TEXT DEFAULT 'draft',
+    transfer_ref TEXT,
     remark TEXT DEFAULT '',
     FOREIGN KEY (warehouse_id) REFERENCES warehouses(id),
     FOREIGN KEY (delivery_id) REFERENCES delivery_orders(id)
@@ -510,7 +512,7 @@ def load_csv_into_sqlite(conn, csv_path, table_name, report):
 
 def check_master_data(conn, report):
     """基础资料: 物料/仓库/供应商/客户"""
-    print("[1/12] 校验基础资料...")
+    print("[1/13] 校验基础资料...")
 
     # 物料编号不能重复 (UNIQUE 已保证, 这里再统计一下)
     cur = conn.cursor()
@@ -539,7 +541,7 @@ def check_master_data(conn, report):
 
 def check_purchase_orders(conn, report):
     """采购单: 金额 = 明细小计之和"""
-    print("[2/12] 校验采购单...")
+    print("[2/13] 校验采购单...")
     cur = conn.cursor()
     cur.execute(
         """
@@ -559,7 +561,7 @@ def check_purchase_orders(conn, report):
 
 def check_stock_in_vs_purchase(conn, report):
     """入库数 不能超过 采购数"""
-    print("[3/12] 校验入库数 vs 采购数...")
+    print("[3/13] 校验入库数 vs 采购数...")
     cur = conn.cursor()
     cur.execute(
         """
@@ -587,7 +589,7 @@ def check_stock_in_vs_purchase(conn, report):
 
 def check_sales_contracts(conn, report):
     """销售合同: 金额 = 明细小计之和"""
-    print("[4/12] 校验销售合同...")
+    print("[4/13] 校验销售合同...")
     cur = conn.cursor()
     cur.execute(
         """
@@ -612,7 +614,7 @@ def check_delivery_vs_contract(conn, report):
     优先用 actual_quantity (已装柜的实际数), 没装柜的回退到 quantity (计划数)。
     类比: 合同是承诺发货 100, 装柜后实发 95, 那 95 才是真正"对客户履约"的数。
     """
-    print("[5/12] 校验发货数 vs 合同数...")
+    print("[5/13] 校验发货数 vs 合同数...")
     cur = conn.cursor()
     cur.execute(
         """
@@ -644,15 +646,16 @@ def check_delivery_vs_contract(conn, report):
 
 def check_stock_out_vs_inventory(conn, report):
     """
-    出库校验: 任意时刻, 累计出库 不能超过 累计入库
-    (类比: 银行卡累计取款不能超过累计存款)
+    出库校验: 累计出库 超过 累计入库 时报警 (允许负库存, 但提示补货)
+    (类比: 银行卡累计取款超过累计存款, 允许透支, 但要提醒你存钱)
 
     说明:
     - 不能直接拿"当前库存"对比"单次出库",
       因为当前库存是出库后的结果, 看起来必然"超"
     - 正确做法是按 (物料, 仓库) 累计出入库, 比较两者
+    - 业务上允许"先做后补"(外贸调拨常见), 所以从 error 降级为 warn
     """
-    print("[6/12] 校验出库数 vs 累计入库...")
+    print("[6/13] 校验出库数 vs 累计入库 (负库存报警)...")
     cur = conn.cursor()
     cur.execute(
         """
@@ -685,8 +688,9 @@ def check_stock_out_vs_inventory(conn, report):
     )
     for wh, pid, material_id, total_in, total_out, this_out, out_no in cur.fetchall():
         if total_out > total_in:
-            report.error(
+            report.warn(
                 f"出库单 {out_no} / 物料 {material_id}: 累计出库 {total_out} > 累计入库 {total_in}"
+                f"（仓库 {wh} 当前库存为负 {total_in - total_out}，请补货）"
             )
 
 
@@ -749,7 +753,7 @@ def rebuild_stock_logs(conn):
 
 def check_reconciliation(conn, report):
     """对账: 库存表 == 流水累加"""
-    print("[7/12] 库存对账...")
+    print("[7/13] 库存对账...")
     rebuild_stock_logs(conn)
     cur = conn.cursor()
 
@@ -791,7 +795,7 @@ def check_volume_subtotals(conn, report):
     规则: 单件体积(来自 products 表) × 数量 = 该行体积小计
     跨表校验, csv_to_sql 做不了, 只能这里做。
     """
-    print("[8/12] 校验明细表体积小计...")
+    print("[8/13] 校验明细表体积小计...")
     cur = conn.cursor()
 
     # 单件体积公式: appearance_outer² × appearance_height × 0.93 / 1e6
@@ -847,7 +851,7 @@ def check_shipping_vs_delivery(conn, report):
     类比: 你点了 100 个饺子, 餐厅上了 95~105 个都算正常 (±5%);
           但只上了 90 个就过分了, 得补差价 (credit_note)。
     """
-    print("[9/12] 校验报关实际数 vs 发货单计划数 (UCP600 ±5% 容差)...")
+    print("[9/13] 校验报关实际数 vs 发货单计划数 (UCP600 ±5% 容差)...")
     cur = conn.cursor()
     cur.execute(
         """
@@ -891,7 +895,7 @@ def check_credit_notes_balance(conn, report):
     类比: 客户少收的 5 件货, 你说"回头补", 但拖了 3 个月还没补,
           财务就要炸了 —— 必须强制 close (refund 或 writeoff)。
     """
-    print("[10/12] 校验贷记单闭环 (pending 不能挂超过 30 天)...")
+    print("[10/13] 校验贷记单闭环 (pending 不能挂超过 30 天)...")
     cur = conn.cursor()
     cur.execute(
         """
@@ -924,7 +928,7 @@ def check_credit_notes_balance(conn, report):
 
 def check_exchange_rates(conn, report):
     """
-    [新增 11/12] 汇率表完整性: 业务里用到的每个外币币种, 每月至少要有一条汇率
+    [新增 11/13] 汇率表完整性: 业务里用到的每个外币币种, 每月至少要有一条汇率
 
     规则:
     - 系统里所有"非 CNY"业务(合同/收款/CI)涉及的币种, exchange_rates 必须有对应汇率
@@ -933,7 +937,7 @@ def check_exchange_rates(conn, report):
 
     类比: 没有汇率就像出门不带钱包, 货再发出去也对不上账, 财务月底会炸。
     """
-    print("[11/12] 校验汇率表完整性 (每月每币种至少一条)...")
+    print("[11/13] 校验汇率表完整性 (每月每币种至少一条)...")
     cur = conn.cursor()
 
     # 收集所有业务里出现过的非 CNY 币种
@@ -985,7 +989,7 @@ def check_exchange_rates(conn, report):
 
 def check_receipts_vs_contract(conn, report):
     """
-    [新增 12/12] 收款 vs 合同: 同一合同的累计收款不应超过合同总额
+    [新增 12/13] 收款 vs 合同: 同一合同的累计收款不应超过合同总额
 
     规则:
     - 按 contract_id 聚合, 比对 Σ receipts.amount (原币种) vs sales_contracts.total_amount
@@ -995,7 +999,7 @@ def check_receipts_vs_contract(conn, report):
 
     类比: 合同说好 1 万美元, 客户付了 1.2 万, 财务会问"那 2 千算什么?"。
     """
-    print("[12/12] 校验收款 vs 合同金额 (按原币种聚合)...")
+    print("[12/13] 校验收款 vs 合同金额 (按原币种聚合)...")
     cur = conn.cursor()
     cur.execute(
         """
@@ -1032,6 +1036,70 @@ def check_receipts_vs_contract(conn, report):
             )
 
 
+def check_transfer_pairs(conn, report):
+    """
+    调拨配对校验: 同一个 transfer_ref 的 stock_out 和 stock_in,
+    每个物料的出库总量必须等于入库总量.
+
+    类比: 你从 A 银行卡转 100 块到 B 银行卡, B 卡必须正好收到 100 块.
+          中途不能丢, 也不能多出来.
+    """
+    print("[13/13] 校验调拨配对 (同 transfer_ref 出入库数量必须相等)...")
+    cur = conn.cursor()
+
+    # 1. 按 (transfer_ref, product_id) 聚合出库总量
+    cur.execute(
+        """
+        SELECT so.transfer_ref AS ref, soi.product_id AS pid, p.material_id AS mid,
+               SUM(soi.quantity) AS qty
+        FROM stock_out_items soi
+        JOIN stock_out so ON so.id = soi.stock_out_id
+        JOIN products p ON p.id = soi.product_id
+        WHERE so.status='confirmed' AND so.out_type='transfer' AND so.transfer_ref IS NOT NULL
+        GROUP BY so.transfer_ref, soi.product_id
+        """
+    )
+    out_map = {(ref, pid): (mid, qty) for ref, pid, mid, qty in cur.fetchall()}
+
+    # 2. 按 (transfer_ref, product_id) 聚合入库总量
+    cur.execute(
+        """
+        SELECT si.transfer_ref AS ref, sii.product_id AS pid, p.material_id AS mid,
+               SUM(sii.quantity) AS qty
+        FROM stock_in_items sii
+        JOIN stock_in si ON si.id = sii.stock_in_id
+        JOIN products p ON p.id = sii.product_id
+        WHERE si.status='confirmed' AND si.in_type='transfer' AND si.transfer_ref IS NOT NULL
+        GROUP BY si.transfer_ref, sii.product_id
+        """
+    )
+    in_map = {(ref, pid): (mid, qty) for ref, pid, mid, qty in cur.fetchall()}
+
+    # 3. 配对对比 (差额不为 0 → ERROR)
+    all_keys = set(out_map.keys()) | set(in_map.keys())
+    for ref, pid in sorted(all_keys):
+        out_mid, out_qty = out_map.get((ref, pid), (None, 0))
+        in_mid, in_qty = in_map.get((ref, pid), (None, 0))
+        material_id = out_mid or in_mid or "?"
+        if out_qty != in_qty:
+            report.error(
+                f"调拨 {ref} / 物料 {material_id}: 出库 {out_qty} ≠ 入库 {in_qty}"
+                f"（差额 {out_qty - in_qty}，调拨在途或漏录）"
+            )
+
+    # 4. 只有单边的调拨 → WARN (在途或录错方向)
+    orphan_out = set(out_map.keys()) - set(in_map.keys())
+    orphan_in = set(in_map.keys()) - set(out_map.keys())
+    for ref, pid in orphan_out:
+        report.warn(
+            f"调拨 {ref} / 物料 {out_map[(ref, pid)][0]}: 只有出库没入库（在途或漏录）"
+        )
+    for ref, pid in orphan_in:
+        report.warn(
+            f"调拨 {ref} / 物料 {in_map[(ref, pid)][0]}: 只有入库没出库（在途或录错方向）"
+        )
+
+
 # ============================================================
 # 第三部分: 主流程
 # ============================================================
@@ -1049,7 +1117,7 @@ def setup_db(db_path):
 
 
 def run_validation(conn, report):
-    """跑全部 12 步校验"""
+    """跑全部 13 步校验"""
     check_master_data(conn, report)
     check_purchase_orders(conn, report)
     check_stock_in_vs_purchase(conn, report)
@@ -1063,6 +1131,8 @@ def run_validation(conn, report):
     # [新增] 第7模块: 财务 (汇率 + 应收收款)
     check_exchange_rates(conn, report)
     check_receipts_vs_contract(conn, report)
+    # [新增] 第8模块: 多仓库调拨配对校验
+    check_transfer_pairs(conn, report)
 
 
 def main():
@@ -1091,7 +1161,7 @@ def main():
     print("=" * 60)
 
     # 1. 重建库
-    print("\n[0/12] 重建 SQLite 验证库...")
+    print("\n[0/13] 重建 SQLite 验证库...")
     conn = setup_db(args.db)
     print(f"  库已重建: {args.db}")
 

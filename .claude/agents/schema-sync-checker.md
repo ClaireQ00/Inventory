@@ -1,6 +1,6 @@
 ---
 name: schema-sync-checker
-description: 进销存项目的 schema 同步性检查专家。专门检查 sql/01_schema.sql / tools/local_validator.py SQLITE_SCHEMA / tools/csv_to_sql.py DERIVED_RULES 三处是否一致，以及 4 张外币表的金额四件套完整性。Use when modifying any table structure, adding new tables, or adding new derived fields. 不跑校验、不改代码——纯静态对照。
+description: 进销存项目的 schema 同步性检查专家。专门检查 sql/01_schema.sql / tools/local_validator.py SQLITE_SCHEMA / tools/csv_to_sql.py DERIVED_RULES 三处是否一致，4 张外币表的金额四件套完整性，以及 stock_in/stock_out 调拨字段（transfer_ref + ENUM 'transfer'）配套。Use when modifying any table structure, adding new tables, adding new derived fields, or touching transfer/调拨 logic. 不跑校验、不改代码——纯静态对照。
 tools: Read, Grep, Glob
 model: inherit
 ---
@@ -20,7 +20,7 @@ model: inherit
 
 ---
 
-## 工作流（固定 4 步）
+## 工作流（固定 5 步）
 
 ### 第 1 步：提取 MySQL 真表的字段清单
 
@@ -61,6 +61,27 @@ SQLite 镜像的类型会简化：
 | `receipts` | `amount` | `currency` | `exchange_rate` | `amount_cny` |
 
 并且在 `DERIVED_RULES` 里，每个 `*_cny` 都要有对应的派生规则（`amount × exchange_rate`）。
+
+### 第 5 步：专门检查调拨字段配套（2026-07-29 新增）
+
+`stock_in` 和 `stock_out` 两张表都新增了调拨能力，必须**两边同时具备**以下三项，缺一会让 `check_transfer_pairs` 第 13 步挂：
+
+| 检查项 | stock_in | stock_out |
+|---|---|---|
+| `in_type` / `out_type` ENUM 含 `'transfer'` | ✓ 必须有 | ✓ 必须有 |
+| `transfer_ref` 字段（MySQL: VARCHAR(32) / SQLite: TEXT） | ✓ 必须有 | ✓ 必须有 |
+| `transfer_ref` 索引（`idx_si_transfer` / `idx_so_transfer`，MySQL 侧） | ✓ 必须有 | ✓ 必须有 |
+
+**检查方法**：
+```bash
+grep -n "transfer_ref\|idx_si_transfer\|idx_so_transfer" sql/01_schema.sql
+grep -n "transfer_ref" tools/local_validator.py
+grep -n "'transfer'" sql/01_schema.sql
+```
+
+三处必须同时命中：MySQL 真表、SQLite 镜像、ENUM 枚举值。**只在一张表加 → 报 Critical**。
+
+> ⚠️ `transfer_ref` 是**手填关联号**（类似快递单号），**不是派生字段**，**不应**在 `DERIVED_RULES` 出现。出现反而是错的。
 
 ---
 
@@ -112,6 +133,7 @@ SQLite 镜像的类型会简化：
 3. **派生规则缺 tolerance**：`DERIVED_RULES` 里写了 `expr` 但没写 `tolerance`，反向校验就不生效
 4. **金额四件套"三件套"**：加了 `amount` + `currency` + `amount_cny`，漏了 `exchange_rate`——这是最常见的错
 5. **新表忘了在 SQLITE_SCHEMA 里建**：MySQL 有 `CREATE TABLE foo`，但 SQLITE_SCHEMA 里没有
+6. **调拨字段单边加**：`stock_in` 加了 `transfer_ref`，`stock_out` 漏加（或反过来）—— `check_transfer_pairs` 会因为查不到列直接挂。**两张表必须同时具备 `transfer_ref` + ENUM 含 `'transfer'`**
 
 ---
 

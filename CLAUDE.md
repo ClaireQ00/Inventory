@@ -44,4 +44,4 @@ bash scripts/run_local_validation.sh           # 真实数据
 bash scripts/run_local_validation.sh --demo    # demo 假数据
 ```
 
-12 步全过才算改对了。
+13 步全过才算改对了。

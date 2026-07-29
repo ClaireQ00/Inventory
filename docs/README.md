@@ -43,7 +43,7 @@ inventory/
 │   ├── README.md              # 本文档（系统架构）
 │   ├── BUSINESS_FLOW.md       # 业务流程全景图（一笔订单从询盘到收款）⭐ 新人必看
 │   ├── AGENT_GUIDE.md         # Agent/Skill/Hook 协作指南（现状+蓝图）
-│   ├── VALIDATION_GUIDE.md    # 真实数据验证流程指南（12 步校验）
+│   ├── VALIDATION_GUIDE.md    # 真实数据验证流程指南（13 步校验）
 │   ├── IMPORT_TEMPLATES.md    # 导入模板说明
 │   └── PRIVATE_DATA_GUIDELINES.md  # 真实数据与敏感信息处理指南
 └── sample/                    # 示例代码与导入模板
@@ -109,8 +109,8 @@ inventory/
 | **销售** | `sales_contracts` | 销售合同主表（含金额四件套 + 贸易术语 FOB/CIF/CFR/EXW） |
 | | `sales_contract_items` | 合同明细（含 `delivered_qty` 已发数量） |
 | **库存** | `inventory` | 当前库存（物料+仓库 唯一） |
-| | `stock_in` / `stock_in_items` | 入库单 + 明细 |
-| | `stock_out` / `stock_out_items` | 出库单 + 明细 |
+| | `stock_in` / `stock_in_items` | 入库单 + 明细（**支持调拨：`in_type='transfer'` + `transfer_ref` 配对**） |
+| | `stock_out` / `stock_out_items` | 出库单 + 明细（**支持调拨：`out_type='transfer'` + `transfer_ref` 配对**） |
 | | `stock_logs` | 出入库流水（**由校验器自动重建，无 CSV 模板**） |
 | **发货** | `delivery_orders` | 发货单主表（`status`: draft/confirmed/shipped/delivered/cancelled） |
 | | `delivery_order_items` | 发货明细（含 `quantity` 计划 / `actual_quantity` 实际 / `short_qty` 短装） |

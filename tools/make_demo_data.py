@@ -163,24 +163,27 @@ def main():
         ],
     )
 
-    # 9. 入库单 (跟采购单 1 关联)
+    # 9. 入库单 (跟采购单 1 关联) + 调拨入库 (从主仓调到外协仓的接收端)
     write_csv(
         "stock_in.csv",
         ["id", "in_no", "in_type", "warehouse_id", "po_id", "operator",
-         "in_date", "status", "remark"],
+         "in_date", "status", "transfer_ref", "remark"],
         [
             [1, "IN20260726001", "purchase", 1, 1, "DEMO操作员",
-             "2026-07-26", "confirmed", "采购到货"],
+             "2026-07-26", "confirmed", "", "采购到货"],
+            [2, "TR20260729001-IN", "transfer", 2, "", "DEMO操作员",
+             "2026-07-29", "confirmed", "TR20260729001", "从主仓调入(调拨接收端)"],
         ],
     )
 
-    # 10. 入库明细 (跟采购明细完全对齐, 10+10)
+    # 10. 入库明细 (采购 10+10, 调拨接收物料1 3件)
     write_csv(
         "stock_in_items.csv",
         ["id", "stock_in_id", "product_id", "quantity", "remark"],
         [
             [1, 1, 1, 10, "物料1全部到货"],
             [2, 1, 2, 10, "物料2全部到货"],
+            [3, 2, 1, 3, "调拨入库: 从主仓接收 3 件"],
         ],
     )
 
@@ -285,34 +288,41 @@ def main():
         ],
     )
 
-    # 13. 出库单 (跟发货单 1 关联)
+    # 13. 出库单 (跟发货单 1 关联) + 调拨出库 (从主仓调到外协仓的发出端)
     write_csv(
         "stock_out.csv",
         ["id", "out_no", "out_type", "warehouse_id", "delivery_id", "operator",
-         "out_date", "status", "remark"],
+         "out_date", "status", "transfer_ref", "remark"],
         [
             [1, "OUT20260726001", "sale", 1, 1, "DEMO操作员",
-             "2026-07-26", "confirmed", "销售出库"],
+             "2026-07-26", "confirmed", "", "销售出库"],
+            [2, "TR20260729001-OUT", "transfer", 1, "", "DEMO操作员",
+             "2026-07-29", "confirmed", "TR20260729001", "调拨到外协仓(调拨发出端)"],
         ],
     )
 
-    # 14. 出库明细 (5+10, 跟发货一致)
+    # 14. 出库明细 (销售 5+10, 调拨发出物料1 3件)
     write_csv(
         "stock_out_items.csv",
         ["id", "stock_out_id", "product_id", "quantity", "remark"],
         [
             [1, 1, 1, 5, ""],
             [2, 1, 2, 10, ""],
+            [3, 2, 1, 3, "调拨出库: 发往仓库2 3 件"],
         ],
     )
 
-    # 15. 当前库存 (入库 10+10, 出库 5+10 -> 剩 5+0)
+    # 15. 当前库存
+    #     物料1: 采购入 10 - 销售出 5 - 调拨出 3 = 2  (仓库1)
+    #            调拨入 3 = 3                            (仓库2)
+    #     物料2: 采购入 10 - 销售出 10 = 0              (仓库1)
     write_csv(
         "inventory.csv",
         ["id", "product_id", "warehouse_id", "quantity"],
         [
-            [1, 1, 1, 5],
+            [1, 1, 1, 2],
             [2, 2, 1, 0],
+            [3, 1, 2, 3],
         ],
     )
 

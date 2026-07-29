@@ -221,6 +221,7 @@ resolved_at='2026-08-15'
 - ❌ **不要**把"虚标"（虚报重量）当成正常业务，那是违规
 - ➡️ 涉及密度/厚度/米重 → `product-params` skill
 - ➡️ 涉及外径/体积/金额派生 → `derived-fields` skill
+- ➡️ 涉及**仓库间调拨**（`out_type='transfer'` / `in_type='transfer'`，靠 `transfer_ref` 配对）→ **不在本 skill 范围**。调拨是仓库内部挪货，**不走信用证/短装/credit_note 流程**，由 `local_validator.py::check_transfer_pairs` 第 13 步校验。规则见 `docs/BUSINESS_RULES.md §R3.5`
 
 ---
 
