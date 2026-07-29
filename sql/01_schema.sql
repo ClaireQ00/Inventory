@@ -273,8 +273,8 @@ CREATE TABLE sales_contract_items (
     contract_id     INT          NOT NULL           COMMENT '合同ID',
     product_id      INT          NOT NULL           COMMENT '物料ID',
     quantity        INT          NOT NULL           COMMENT '合同数量(件/卷)',
-    unit_price      DECIMAL(12,2) NOT NULL          COMMENT '合同单价(CNY/件)',
-    subtotal        DECIMAL(14,2) NOT NULL          COMMENT '小计金额(CNY) = quantity*unit_price',
+    unit_price      DECIMAL(12,2) NOT NULL          COMMENT '合同单价(原币种/件, 币种跟随主表 sales_contracts.currency)',
+    subtotal        DECIMAL(14,2) NOT NULL          COMMENT '小计金额(原币种) = quantity*unit_price',
     volume_subtotal DECIMAL(10,4) DEFAULT 0.0000    COMMENT '体积小计(CBM) = 单件体积 × quantity',
     delivered_qty   INT          NOT NULL DEFAULT 0 COMMENT '已发货数量(由发货单回写)',
     remark          VARCHAR(255) DEFAULT ''         COMMENT '备注',
@@ -497,6 +497,17 @@ CREATE TABLE delivery_order_items (
     actual_quantity     INT          NOT NULL DEFAULT 0 COMMENT '实际发货数量(装柜后填, 默认=quantity, 短装时<quantity)',
     short_qty           INT          GENERATED ALWAYS AS (quantity - actual_quantity) STORED COMMENT '短装数(自动算=计划-实际, 正=短装, 负=超装)',
     volume_subtotal     DECIMAL(10,4) DEFAULT 0.0000    COMMENT '体积小计(CBM) = 单件体积 × actual_quantity',
+    -- [R11] Packing Plan 公斤价反算核对 (2026-07-29 加)
+    -- 业务背景: 简要报价按 公斤系数(USD/KG) × 单重 定价; 后续制作发货单(Packing Plan)时,
+    --           要用"报价单的公斤价"正算"应等于的合同单价", 与实际合同单价对比, 差 0.001 内正常。
+    -- 正算公式(丙方案): expected_unit_price = 报价系数 × 汇率 × 单重  (原币种/件)
+    --   - 报价系数: 取 quotation_items.price_coefficient (通过 contract_item_id 反查报价明细)
+    --   - 汇率   : 取 sales_contracts.exchange_rate
+    --   - 单重   : 取 products.weight
+    -- 差异 = 实际合同单价(sales_contract_items.unit_price) − expected_unit_price
+    expected_unit_price  DECIMAL(12,4) DEFAULT 0.0000   COMMENT '[R11]正算应等于的合同单价(原币种/件) = 报价系数×汇率×单重',
+    coeff_diff           DECIMAL(10,4) DEFAULT 0.0000   COMMENT '[R11]公斤价差异 = 实际合同单价 − expected_unit_price (正=高报/负=低报)',
+    coeff_check_status   VARCHAR(16)  DEFAULT 'pending' COMMENT '[R11]核对结论: pass(|diff|≤0.001) / warn(超差) / pending(缺数据)',
     remark              VARCHAR(255) DEFAULT ''         COMMENT '备注',
 
     CONSTRAINT fk_doi_delivery     FOREIGN KEY (delivery_id)      REFERENCES delivery_orders(id) ON DELETE CASCADE,

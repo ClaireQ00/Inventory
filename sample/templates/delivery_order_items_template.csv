@@ -1,2 +1,2 @@
-delivery_id,contract_item_id,product_id,quantity,actual_quantity,short_qty,volume_subtotal,remark
-1,1,1,5,5,0,0.223,示例发货明细 (满发)
+delivery_id,contract_item_id,product_id,quantity,actual_quantity,short_qty,volume_subtotal,expected_unit_price,coeff_diff,coeff_check_status,remark
+1,1,1,5,5,0,0.223,,,pending,示例发货明细 (满发; 后三列由第15步自动反算)

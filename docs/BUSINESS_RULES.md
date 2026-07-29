@@ -252,6 +252,47 @@ CI 同样以此为门禁(`scripts/ci.sh` / `.github/workflows/ci.yml`)。
 
 ---
 
+## R11. Packing Plan 公斤价反算铁律 (2026-07-29 客户确认)
+
+**业务背景**:报价按公斤系数(USD/KG)定价,但后续进销存为避免小数点累积误差,**全部按件价走**。
+制作发货单(Packing Plan)时,要用"报价单的公斤价"反算/正算核对,确保合同单价与报价基准一致。
+
+**正算公式(丙方案,客户 2026-07-29 确认)**:
+```
+应等于的合同单价(原币种/件) = 报价系数(USD/KG) × 汇率 × 单重(KG/件)
+```
+
+- **报价系数**:取 `quotation_items.price_coefficient`(通过 `product_id` 反查最近一条非 reject 报价)
+- **汇率**:取 `sales_contracts.exchange_rate`
+- **单重**:取 `products.weight`(主数据唯一来源,不一致就加新物料,不在单据里改)
+- **实际合同单价**:`sales_contract_items.unit_price`(原币种/件,R10 顺带澄清注释)
+
+**差异判定**:
+```
+差异 = 实际合同单价 − 应等于的合同单价
+|差异| ≤ 0.001  →  pass   (微小四舍五入差额属正常)
+|差异| > 0.001  →  warn   (超差只警告不报错, 业务上确认正常)
+缺任一字段        →  pending (提示补数据)
+```
+
+**会计对应**:标准成本差异分析。报价 = 标准成本,合同 = 实际成本,允许精度损失内的微小差异。
+
+**落点**:不新建 Packing Plan 表(项目刻意不落表),复用 `delivery_order_items` 加 3 个反算字段:
+- `expected_unit_price` DECIMAL(12,4) — 正算应等于的合同单价
+- `coeff_diff` DECIMAL(10,4) — 差异
+- `coeff_check_status` VARCHAR(16) — pass/warn/pending
+
+**校验**:`check_packing_coefficient` 第 15 步(`tools/local_validator.py`)。跨表派生不在 `DERIVED_RULES` 做(超出单行能力),由校验阶段 JOIN 计算并回写。
+
+**为什么用合同单价不用报关单价**:核对的是"承诺价层面的偏离",报关单价是装柜后的实际成交价,时点偏晚。
+
+**Packing Plan 不新建独立表的理由**:它本质是发货单的"前置草稿",时序紧贴 DO,独立建表会让流程节点重复;字段直接挂在 `delivery_order_items` 上更内聚。
+
+- 影响表:`delivery_order_items`(加 3 字段)
+- 关联铁律:R1 金额四件套、R10 报价定价
+
+---
+
 ## 规则变更记录
 
 | 日期 | 规则 | 变更 |
@@ -261,3 +302,4 @@ CI 同样以此为门禁(`scripts/ci.sh` / `.github/workflows/ci.yml`)。
 | 2026-07-29 | 本规则库 | 从 CLAUDE.md / skills 反向提炼,结构化集中 |
 | 2026-07-29 | R3.5 调拨配对 | 新增 `transfer_ref` 字段 + `check_transfer_pairs` 第 13 步;负库存校验由 ERROR 降级为 WARN。自检从 12 步增至 13 步 |
 | 2026-07-29 | R10 报价定价 | 新增报价模块,KG×系数定价 + 简要报价→QT form→PI 派生。新增 `check_quotations` 第 14 步,自检从 13 步增至 14 步 |
+| 2026-07-29 | R11 Packing Plan 反算 | 客户确认方案 A(复用 delivery_order_items)+ 丙方案(正算应等于的合同单价)。新增 `check_packing_coefficient` 第 15 步,自检从 14 步增至 15 步;同步澄清 `sales_contract_items.unit_price` 为"原币种/件" |

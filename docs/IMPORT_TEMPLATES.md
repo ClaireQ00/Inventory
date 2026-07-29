@@ -48,7 +48,7 @@
 | 模板文件 | 对应表 | 备注 |
 | --- | --- | --- |
 | `delivery_orders_template.csv` | `delivery_orders` | 发货单主表 |
-| `delivery_order_items_template.csv` | `delivery_order_items` | 发货明细（**含 actual_quantity 实际装柜 / short_qty 短装数**） |
+| `delivery_order_items_template.csv` | `delivery_order_items` | 发货明细（**含 actual_quantity 实际装柜 / short_qty 短装数**；末三列 `expected_unit_price`/`coeff_diff`/`coeff_check_status` 为 R11 公斤价反算派生，**留空由第15步自动回填**） |
 
 ### 模块 6：报关（3 个，外贸专用）
 
