@@ -1,5 +1,21 @@
 # Inventory 项目 - Claude 工作约定
 
+## SDD 文档体系（规格先行,2026-07-29 建立）
+
+开发前先查对应文档,它们是事实源:
+
+| 要找什么 | 看哪个文档 |
+| --- | --- |
+| 术语定义 | `docs/GLOSSARY.md` |
+| 业务规则（铁律） | `docs/BUSINESS_RULES.md` (R1~R9) |
+| 数据表/字段/ER/派生 | `docs/DATA_MODEL.md` |
+| 功能需求+验收标准 | `docs/SPECS.md` |
+| 技术设计+决策理由 | `docs/DESIGN.md` + `docs/adr/` |
+| 待办任务（claude-driver 输入） | `docs/TASKS.md` |
+| 端到端验收场景 | `docs/SCENARIOS.md` |
+
+> ⚠️ `docs/CLAUDE_BRIEF.md` 已被 `docs/TASKS.md` 取代,仅留作历史,不要再参考。
+
 ## 这个项目是什么
 
 外贸出口企业的进销存 + 报关单据 + 应收收款系统。当前用印尼客户 Q025（PVC 线管）当样本跑通端到端流程，后续会接其他地区/品类的客户。

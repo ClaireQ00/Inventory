@@ -74,19 +74,26 @@ while [ "$ROUND" -lt "$MAX_ROUNDS" ]; do
   echo "  日志: $ROUND_LOG"
 
   # ---- 2. 调 claude 干一轮 ----
-  # 任务指令:让它自己读项目约定,挑一件还没做完的活推进,做完一小块就停。
+  # 任务指令:基于 SDD 文档体系,从 docs/TASKS.md 挑一件未勾选的任务推进。
   # 用 --continue 跨轮保留记忆。--max-turns 防止单轮里它无限调工具。
-  PROMPT="你是本项目的开发者,现在继续推进开发。
+  PROMPT="你是本项目的开发者,现在按 SDD 文档体系继续推进开发。
 
 请按顺序做:
-1. 先读 CLAUDE.md 和 docs/CLAUDE_BRIEF.md,理解项目约定和\"需要 Claude Code 做的事情\"清单。
-2. 判断当前还剩哪些没做完,挑【一件】最重要的继续做(例如:CSV 导入脚本、从本地 CSV 导入并验证的执行脚本、或按顺序验证某个业务流程)。
-3. 严格遵守 CLAUDE.md 的约定:金额四件套铁律、改 schema 三处同步、客户/币种/口岸/品类都是数据不是硬编码。
-4. 真实敏感数据只放在 data/ 或 private/,不要提交到仓库(.gitignore 已忽略它们)。
-5. 做完这一小块后,务必运行: bash $VALIDATE_SCRIPT
+1. 先读 CLAUDE.md(路由约定)和 docs/TASKS.md(任务清单,取代旧的 CLAUDE_BRIEF.md)。
+2. 从 docs/TASKS.md 里挑【一件】状态为'待办'且优先级最高(P0>P1>P2)、依赖已满足的任务。
+3. 实现前先查阅相关 SDD 文档:
+   - 功能要看什么:见 docs/SPECS.md
+   - 数据表/字段/派生:见 docs/DATA_MODEL.md
+   - 设计决策与理由:见 docs/DESIGN.md + docs/adr/
+   - 业务规则(铁律):见 docs/BUSINESS_RULES.md (R1金额四件套/R5派生/R6不硬编码/R7三处同步)
+   - 验收场景:见 docs/SCENARIOS.md
+4. 严格遵守:改 schema 三处同步(R7)、客户/币种/口岸/品类都是数据不硬编码(R6)、真实敏感数据只放 data/ 或 private/ 不进仓库(R8)。
+5. 做完这一小块后:
+   (a) 务必运行: bash $VALIDATE_SCRIPT  (13 步全过才算对)
+   (b) 在 docs/TASKS.md 里把该任务的状态从'待办'改为'已完成',打勾 [x]
 6. 最后在【单独一行】输出本轮状态:
-   CONTINUE  —— 还有后续工作,下一轮请继续
-   DONE      —— docs/CLAUDE_BRIEF.md 里列的事都做完了
+   CONTINUE  —— 还有后续待办任务,下一轮请继续
+   DONE      —— docs/TASKS.md 里所有非阶段二任务都已完成
    BLOCKED   —— 遇到需要人工判断的阻碍,说明清楚阻塞原因
 本轮请只聚焦一件可独立完成的小事,不要贪多。"
 
