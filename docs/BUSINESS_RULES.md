@@ -233,6 +233,25 @@ CI 同样以此为门禁(`scripts/ci.sh` / `.github/workflows/ci.yml`)。
 
 ---
 
+## R10. 报价定价铁律 (2026-07-29 客户确认)
+
+**规则**:报价单价 = 单卷重量(KG) × 报价系数(USD/KG)。
+
+- **报价系数**:不同管径组用不同系数(如实际数据 1.112/1.065/1.075 USD/KG),存于 quotation_items.price_coefficient
+- **分组**:同一报价单内可有多组系数,用 group_code 区分(如 'A组-1.112')
+- **单卷重量**:从 products.weight 带出,可在报价明细里覆盖(weight_per_unit)
+- **派生关系**(全部走 DERIVED_RULES,不要手填):
+  - total_weight(总重KG) = weight_per_unit × quantity
+  - unit_price(单卷价) = weight_per_unit × price_coefficient
+  - subtotal(小计) = unit_price × quantity
+  - total_volume(总体积) = volume × quantity(volume 复用 inventory 体积公式)
+- **报价主表金额四件套**:total_amount = Σ subtotal,仍遵循 R1(currency/exchange_rate/total_amount_cny)
+- **派生关系**:正式 QT form(quote_type='formal')从简要报价(quote_type='brief')派生,parent_quote_id 指向来源
+- **转换**:报价转销售合同后,status='converted',converted_contract_id 回填
+- 影响表:quotation_params / quotations / quotation_items(新增 3 表)
+
+---
+
 ## 规则变更记录
 
 | 日期 | 规则 | 变更 |
@@ -241,3 +260,4 @@ CI 同样以此为门禁(`scripts/ci.sh` / `.github/workflows/ci.yml`)。
 | 2026-07-28 | R2 汇率月固定 | 客户确认 |
 | 2026-07-29 | 本规则库 | 从 CLAUDE.md / skills 反向提炼,结构化集中 |
 | 2026-07-29 | R3.5 调拨配对 | 新增 `transfer_ref` 字段 + `check_transfer_pairs` 第 13 步;负库存校验由 ERROR 降级为 WARN。自检从 12 步增至 13 步 |
+| 2026-07-29 | R10 报价定价 | 新增报价模块,KG×系数定价 + 简要报价→QT form→PI 派生 |

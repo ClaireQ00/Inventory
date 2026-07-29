@@ -101,3 +101,14 @@
 | 报关账 | 实际值,给海关/银行看(源自 `shipping_records`) |
 | 派生字段 | 由其他字段自动计算的字段,默认走应用层(Python),不写 DB 生成列 |
 | 三处同步 | 改 schema 必须同步:`sql/01_schema.sql` + `tools/local_validator.py::SQLITE_SCHEMA` + `tools/csv_to_sql.py::DERIVED_RULES` |
+
+## 8. 报价术语
+
+| 术语 | 含义 |
+| --- | --- |
+| 简要报价 | brief,内部快速算价,可多版本(对应'简要报价728.xlsx') |
+| 正式报价 | QT form,formal,发给客户的正式报价合同(对应'QT form-709') |
+| 报价系数 | price_coefficient,USD/KG 单价系数,不同管径组不同(如1.112) |
+| 分组码 | group_code,同组管径共用一个报价系数 |
+| 单卷重量 | weight_per_unit,KG,从 products.weight 带出可覆盖 |
+| 报价参数表 | quotation_params,全局参数(汇率/默认币种/有效期) |

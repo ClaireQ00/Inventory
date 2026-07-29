@@ -88,6 +88,19 @@
 
 ---
 
+### 第四组：报价模块 (feature/quotation)
+
+> 新增报价模块的规划任务（本步只规划不实现，全部 `待办`）。定价逻辑见 `BUSINESS_RULES.md R10`：单价 = 单卷重量(KG) × 报价系数(USD/KG)，不同管径组用不同系数。流程：简要报价(brief) → 正式 QT form(formal) → 销售合同 PI。本组对应 `feature/quotation` 分支。
+
+- [ ] Q1.1 [P0] schema 新增 quotation_params/quotations/quotation_items 三表 + 三处同步
+- [ ] Q1.2 [P0] csv_to_sql.py 加 quotation_items 派生规则(total_weight/unit_price/subtotal/total_volume)
+- [ ] Q1.3 [P0] local_validator.py 加第14步 check_quotations + 步数 13→14 同步
+- [ ] Q1.4 [P0] 报价模板(3个CSV) + make_demo_data(Q025真实1.112组数据) + IMPORT_TEMPLATES 更新
+- [ ] Q1.5 [P1] DATA_MODEL/SPECS/DESIGN/SCENARIOS 文档补报价模块
+- [ ] Q1.6 [P1] ADR-0003 报价派生关系决策
+
+---
+
 ## 3. 任务分组索引（按主题快速跳转）
 
 | 主题 | 任务 ID | 说明 |
