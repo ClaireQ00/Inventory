@@ -4,7 +4,7 @@
 
 ## 模板位置
 
-- `sample/templates/`（共 21 个模板）
+- `sample/templates/`（共 24 个模板）
 
 ## 完整模板清单（按业务模块分组）
 
@@ -65,7 +65,30 @@
 | `exchange_rates_template.csv` | `exchange_rates` | 汇率表（**每月 1 日录一次，整月用这条**） |
 | `receipts_template.csv` | `receipts` | 客户收款单（**金额四件套** + T/T/L/C/D/P/D/A 付款方式） |
 
-### 模块 8：审计（1 个，空壳）
+### 模块 8：报价（3 个，R10 报价定价铁律）
+
+| 模板文件 | 对应表 | 备注 |
+| --- | --- | --- |
+| `quotation_params_template.csv` | `quotation_params` | 报价全局参数（默认汇率/币种/有效期，键值对） |
+| `quotations_template.csv` | `quotations` | 报价主表（**金额四件套** + brief 简要报价 / formal 正式 QT + parent_quote_id 派生链） |
+| `quotation_items_template.csv` | `quotation_items` | 报价明细（**R10 系数定价**：unit_price = weight_per_unit × price_coefficient） |
+
+> **R10 报价定价铁律**：报价不存绝对价，只存"单卷重量 × 报价系数(USD/KG)"。同组管径共用一个系数（如 `A组-1.112`），改一个系数整组价格自动更新。详见 `docs/BUSINESS_RULES.md` R10。
+
+**派生规则**（`tools/csv_to_sql.py::DERIVED_RULES`）：
+- `quotation_items.total_weight` = `weight_per_unit × quantity`
+- `quotation_items.unit_price` = `weight_per_unit × price_coefficient`
+- `quotation_items.subtotal` = `weight_per_unit × price_coefficient × quantity`（直接展开，不走派生的 unit_price）
+- `quotation_items.total_volume` = `volume × quantity`
+- `quotations.total_amount_cny` = `total_amount × exchange_rate`
+- `quotations.total_amount` **不是派生**，是 `Σ quotation_items.subtotal` 的汇总，需在录完明细后手填或由应用层汇总
+
+**导入顺序**（必须按此顺序，否则外键/汇总对不上）：
+1. `quotation_params`（参数先行，供默认值引用）
+2. `quotations`（主表先建，明细才能挂 quote_id）
+3. `quotation_items`（明细后录，录完后回填主表 `total_amount = Σ subtotal`）
+
+### 模块 9：审计（1 个，空壳）
 
 | 模板文件 | 对应表 | 备注 |
 | --- | --- | --- |
@@ -99,12 +122,13 @@
    - `shipping_records` + `shipping_record_items`（报关出口）
    - `receipts`（客户付款）
    - `credit_notes`（如有短装/超装）
+   - `quotation_params` → `quotations` → `quotation_items`（报价流程：询盘阶段出简要报价，确认后转正式 QT，最终可转销售合同）
 
 4. **跑校验**：
    ```bash
    bash scripts/run_local_validation.sh
    ```
-   13 步全过才算对。具体每一步校验什么，见 `docs/VALIDATION_GUIDE.md`。
+   14 步全过才算对。具体每一步校验什么，见 `docs/VALIDATION_GUIDE.md`。
 
 ## 注意事项
 

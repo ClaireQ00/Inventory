@@ -288,6 +288,73 @@ def main():
         ],
     )
 
+    # 12g. [新增 R10] 报价参数 quotation_params (全局键值对)
+    #      业务背景: 全局参数表, 存默认汇率/默认币种/报价有效期
+    #      注意: 这里 exchange_rate=7.25 是报价专用汇率 (跟 exchange_rates 表的月度汇率独立)
+    write_csv(
+        "quotation_params.csv",
+        ["param_key", "param_value", "effective_date", "description"],
+        [
+            ["exchange_rate", "7.25", "2026-07-01", "报价专用汇率 (USD→CNY)"],
+            ["default_currency", "USD", "", "默认报价币种"],
+            ["valid_days", "7", "", "报价有效期天数"],
+        ],
+    )
+
+    # 12h. [新增 R10] 报价主表 quotations (2 条: 简要报价 + 正式 QT)
+    #      QT001 简要报价 → 后续可派生 QT002 正式报价 (parent_quote_id=1)
+    #
+    #      QT001 total_amount 汇总 (不是 DERIVED_RULES 算的, 是 Σ quotation_items.subtotal):
+    #        明细1 subtotal (DEMO-M-001, 64kg × 1.112 × 10) = 711.68
+    #        明细2 subtotal (DEMO-M-002, 41kg × 1.112 × 10) = 455.92
+    #        合计 = 711.68 + 455.92 = 1167.60
+    #      total_amount_cny 派生 (DERIVED_RULES 算): 1167.60 × 7.25 = 8465.10
+    #
+    #      QT002 是从 QT001 派生的正式报价 (parent_quote_id=1), 暂无明细 → total_amount=0
+    write_csv(
+        "quotations.csv",
+        ["quote_no", "customer_id", "quote_type", "parent_quote_id", "version",
+         "quote_date", "valid_until", "total_amount", "currency", "exchange_rate",
+         "total_amount_cny", "status", "converted_contract_id", "remark"],
+        [
+            # QT001: Q025 简要报价, 客户A(id=1), 总价 1167.60 USD × 7.25 = 8465.10 CNY
+            ["QT20260729001", 1, "brief", "", 1,
+             "2026-07-29", "2026-08-05", 1167.60, "USD", 7.25,
+             8465.10, "draft", "", "Q025 简要报价 (R10 系数定价)"],
+            # QT002: 正式 QT, 从 QT001 派生 (parent_quote_id=1), 暂无明细故金额=0
+            ["QT20260729002", 1, "formal", 1, 1,
+             "2026-07-29", "2026-08-05", 0, "USD", 7.25,
+             0, "draft", "", "从 QT001 派生的正式 QT (待补明细)"],
+        ],
+    )
+
+    # 12i. [新增 R10] 报价明细 quotation_items (对应 QT001=quote_id 1)
+    #      定价铁律 R10: unit_price = weight_per_unit × price_coefficient (USD/KG)
+    #      subtotal 直接展开 = weight_per_unit × price_coefficient × quantity (不走派生 unit_price)
+    #
+    #      明细1: DEMO-M-001 (id=1, weight=64kg)
+    #        total_weight = 64 × 10 = 640
+    #        unit_price   = 64 × 1.112 = 71.168
+    #        subtotal     = 64 × 1.112 × 10 = 711.68
+    #        volume       = 0.0446 (从 products 带出), total_volume = 0.0446 × 10 = 0.446
+    #
+    #      明细2: DEMO-M-002 (id=2, weight=41kg)
+    #        total_weight = 41 × 10 = 410
+    #        unit_price   = 41 × 1.112 = 45.592
+    #        subtotal     = 41 × 1.112 × 10 = 455.92
+    #        volume       = 0.0253 (从 products 带出), total_volume = 0.0253 × 10 = 0.253
+    write_csv(
+        "quotation_items.csv",
+        ["quote_id", "product_id", "group_code", "price_coefficient",
+         "weight_per_unit", "quantity", "total_weight", "unit_price", "subtotal",
+         "volume", "total_volume", "remark"],
+        [
+            # 派生字段算好填进去 (跟现有 demo 风格一致, 如 purchase_order_items 的 subtotal/volume_subtotal)
+            [1, 1, "A组-1.112", 1.112, 64, 10, 640, 71.168, 711.68, 0.0446, 0.446, "1-1/4管"],
+            [1, 2, "A组-1.112", 1.112, 41, 10, 410, 45.592, 455.92, 0.0253, 0.253, "1寸管"],
+        ],
+    )
+
     # 13. 出库单 (跟发货单 1 关联) + 调拨出库 (从主仓调到外协仓的发出端)
     write_csv(
         "stock_out.csv",

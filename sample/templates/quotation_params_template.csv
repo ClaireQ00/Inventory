@@ -1,0 +1,4 @@
+param_key,param_value,effective_date,description
+exchange_rate,7.25,2026-07-01,人民币兑美元汇率
+default_currency,USD,,默认报价币种
+valid_days,7,,报价有效期天数
