@@ -62,7 +62,7 @@ amount + currency + exchange_rate + amount_cny
 
 ### 校验
 
-`tools/local_validator.py::check_exchange_rates`(步骤 11/14):对每个用外币的业务记录,查其当月币种汇率,缺则报 ERROR "缺 X 月 Y 币种汇率,请补录"。
+`tools/local_validator.py::check_exchange_rates`(步骤 12/16):对每个用外币的业务记录,查其当月币种汇率,缺则报 ERROR "缺 X 月 Y 币种汇率,请补录"。
 
 ---
 
@@ -118,14 +118,14 @@ stock_in  (in_type='transfer',  transfer_ref='TR20260729001', warehouse=目标�
 
 ### 校验
 
-`tools/local_validator.py::check_transfer_pairs`(步骤 13/14):
+`tools/local_validator.py::check_transfer_pairs`(步骤 14/16):
 
 - 出库总量 ≠ 入库总量 → **ERROR**(差额、漏录或调拨在途)
 - 只有一边(只有出库没入库,或反之)→ **WARN**(在途、漏录或方向录错)
 
 ### 配套规则(本次新增的其他改动)
 
-- **负库存允许但报警**:`check_stock_out_vs_inventory`(步骤 6/14)从 ERROR 降级为 WARN。理由:外贸调拨常"先做后补",允许 source 仓暂时透支,后续补货即可。
+- **负库存允许但报警**:`check_stock_out_vs_inventory`(步骤 6/16)从 ERROR 降级为 WARN。理由:外贸调拨常"先做后补",允许 source 仓暂时透支,后续补货即可。
 - **调拨不走外贸单据流程**:不产生报关单、不触发 UCP600、不涉及收款/汇率/credit_note。`trade-documents` / `payment-receivable` skill 不管调拨。
 
 ---
@@ -182,6 +182,8 @@ stock_in  (in_type='transfer',  transfer_ref='TR20260729001', warehouse=目标�
 - 其余派生默认走**应用层**(Python 算),不用 MySQL `GENERATED COLUMN`
 - 代码:`tools/csv_to_sql.py::DERIVED_RULES`
 
+> ⚠️ **主表 `total_volume` 不是 DERIVED_RULES**,是**应用层汇总字段**(同 `total_amount` 模式):4 张主表(`quotations` / `sales_contracts` / `purchase_orders` / `delivery_orders`)的 `total_volume` = Σ 各自明细的 `volume_subtotal`(或 `quotation_items.total_volume`),WARN 级校验(容差 0.01)。**跟 `shipping_records.total_cbm`(装柜后报关真实 CBM)是两个概念**——前者是给客户看的展示统计,后者是要交海关的实际数。
+
 > 路由约定:外径/体积/金额小计 → `derived-fields` skill;密度/厚度/米重 → `product-params` skill。
 
 ---
@@ -222,7 +224,7 @@ stock_in  (in_type='transfer',  transfer_ref='TR20260729001', warehouse=目标�
 
 ## R9. 自检门禁规则
 
-**规则**:任何改动,14 步自检全过才算改对。
+**规则**:任何改动,16 步自检全过才算改对。
 
 ```bash
 bash scripts/run_local_validation.sh           # 真实数据
@@ -246,6 +248,7 @@ CI 同样以此为门禁(`scripts/ci.sh` / `.github/workflows/ci.yml`)。
   - subtotal(小计) = unit_price × quantity
   - total_volume(总体积) = volume × quantity(volume 复用 inventory 体积公式)
 - **报价主表金额四件套**:total_amount = Σ subtotal,仍遵循 R1(currency/exchange_rate/total_amount_cny)
+- **报价主表 total_volume**:**应用层汇总**(同 total_amount 模式,不是 DERIVED_RULES)= Σ quotation_items.total_volume。同字段也存在于 `sales_contracts` / `purchase_orders` / `delivery_orders` 主表(各自 = Σ 明细 volume_subtotal)。**展示用统计**(给客户看),WARN 级校验,跟 `shipping_records.total_cbm` 报关实际数是两个概念
 - **派生关系**:正式 QT form(quote_type='formal')从简要报价(quote_type='brief')派生,parent_quote_id 指向来源
 - **转换**:报价转销售合同后,status='converted',converted_contract_id 回填
 - 影响表:quotation_params / quotations / quotation_items(新增 3 表)
@@ -282,7 +285,7 @@ CI 同样以此为门禁(`scripts/ci.sh` / `.github/workflows/ci.yml`)。
 - `coeff_diff` DECIMAL(10,4) — 差异
 - `coeff_check_status` VARCHAR(16) — pass/warn/pending
 
-**校验**:`check_packing_coefficient` 第 15 步(`tools/local_validator.py`)。跨表派生不在 `DERIVED_RULES` 做(超出单行能力),由校验阶段 JOIN 计算并回写。
+**校验**:`check_packing_coefficient` 第 16 步(`tools/local_validator.py`)。跨表派生不在 `DERIVED_RULES` 做(超出单行能力),由校验阶段 JOIN 计算并回写。
 
 **为什么用合同单价不用报关单价**:核对的是"承诺价层面的偏离",报关单价是装柜后的实际成交价,时点偏晚。
 
@@ -303,3 +306,4 @@ CI 同样以此为门禁(`scripts/ci.sh` / `.github/workflows/ci.yml`)。
 | 2026-07-29 | R3.5 调拨配对 | 新增 `transfer_ref` 字段 + `check_transfer_pairs` 第 13 步;负库存校验由 ERROR 降级为 WARN。自检从 12 步增至 13 步 |
 | 2026-07-29 | R10 报价定价 | 新增报价模块,KG×系数定价 + 简要报价→QT form→PI 派生。新增 `check_quotations` 第 14 步,自检从 13 步增至 14 步 |
 | 2026-07-29 | R11 Packing Plan 反算 | 客户确认方案 A(复用 delivery_order_items)+ 丙方案(正算应等于的合同单价)。新增 `check_packing_coefficient` 第 15 步,自检从 14 步增至 15 步;同步澄清 `sales_contract_items.unit_price` 为"原币种/件" |
+| 2026-07-30 | 主表 total_volume 字段 | 4 张主表(quotations/sales_contracts/purchase_orders/delivery_orders)新增 `total_volume` 字段(DECIMAL(10,4),展示用统计 = Σ 明细 volume_subtotal/quotation_items.total_volume)。新增 `check_delivery_order_volume` 第 9 步,自检从 15 步增至 16 步。**与 `shipping_records.total_cbm` 是两个概念**——前者是给客户看的展示统计,后者是装柜后报关真实 CBM。校验用 WARN 级(容差 0.01),不阻断业务流程 |

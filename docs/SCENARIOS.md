@@ -1,8 +1,8 @@
 # 端到端验收场景 (End-to-End Acceptance Scenarios)
 
-> 每个**场景**对应 14 步校验里的一步或几步，给出**可复现的输入 + 明确的预期结果**（ERROR / WARN / 通过）。所有数据基于 `tools/make_demo_data.py` 真实生成的 demo 数据（物料号 `DEMO-*`、客户"客户A/B"、汇率 7.15），不臆造。
+> 每个**场景**对应 16 步校验里的一步或几步，给出**可复现的输入 + 明确的预期结果**（ERROR / WARN / 通过）。所有数据基于 `tools/make_demo_data.py` 真实生成的 demo 数据（物料号 `DEMO-*`、客户"客户A/B"、汇率 7.15），不臆造。
 >
-> 验收口径：跑完每个场景的"操作步骤"后，执行 `bash scripts/run_local_validation.sh --demo`，对照"预期结果"列逐条核对。14 步含义见 `docs/VALIDATION_GUIDE.md §3`，校验代码逻辑见 `tools/local_validator.py`。
+> 验收口径：跑完每个场景的"操作步骤"后，执行 `bash scripts/run_local_validation.sh --demo`，对照"预期结果"列逐条核对。16 步含义见 `docs/VALIDATION_GUIDE.md §3`，校验代码逻辑见 `tools/local_validator.py`。
 
 ---
 
@@ -16,24 +16,26 @@
 | **WARN** | 黄灯，提醒但不阻断流程 | `report.warn(...)`；最终 `exit 0`（除非同时有别的 ERROR） |
 | **ERROR** | 红灯，必须修；最终 `exit 1` | `report.error(...)`；`ValidationReport.ok == False` |
 
-### 0.2 14 步速查（详细见 VALIDATION_GUIDE §3）
+### 0.2 16 步速查（详细见 VALIDATION_GUIDE §3）
 
 | 步 | 校验函数 | 一句话 |
 | --- | --- | --- |
 | 1 | `check_master_data` | 基础资料完整性 |
-| 2 | `check_purchase_orders` | 采购金额 = 明细之和 |
+| 2 | `check_purchase_orders` | 采购金额 = 明细之和;total_volume = Σ volume_subtotal |
 | 3 | `check_stock_in_vs_purchase` | 入库 ≤ 采购 |
-| 4 | `check_sales_contracts` | 合同金额 = 明细之和 |
+| 4 | `check_sales_contracts` | 合同金额 = 明细之和;total_volume = Σ volume_subtotal |
 | 5 | `check_delivery_vs_contract` | 发货 ≤ 合同 |
 | 6 | `check_stock_out_vs_inventory` | 累计出 vs 累计入（WARN 级负库存） |
 | 7 | `check_reconciliation` | 库存表 = 流水累加 |
 | 8 | `check_volume_subtotals` | 体积小计跨表 |
-| 9 | `check_shipping_vs_delivery` | UCP600 ±5% 容差 |
-| 10 | `check_credit_notes_balance` | credit_note 闭环（>30天 WARN，>90天 ERROR） |
-| 11 | `check_exchange_rates` | 汇率完整性（每月每币种至少一条） |
-| 12 | `check_receipts_vs_contract` | 收款 vs 合同金额 |
-| 13 | `check_transfer_pairs` | 调拨配对 |
-| 14 | `check_quotations` | 报价金额 + 派生关系 + subtotal 公式 |
+| 9 | `check_delivery_order_volume` | **发货单总体积(展示统计,WARN 容差 0.01)** |
+| 10 | `check_shipping_vs_delivery` | UCP600 ±5% 容差 |
+| 11 | `check_credit_notes_balance` | credit_note 闭环（>30天 WARN，>90天 ERROR） |
+| 12 | `check_exchange_rates` | 汇率完整性（每月每币种至少一条） |
+| 13 | `check_receipts_vs_contract` | 收款 vs 合同金额 |
+| 14 | `check_transfer_pairs` | 调拨配对 |
+| 15 | `check_quotations` | 报价金额 + 派生关系 + subtotal 公式;total_volume = Σ 明细 total_volume |
+| 16 | `check_packing_coefficient` | Packing Plan 公斤价反算 |
 
 ### 0.3 数据来源
 

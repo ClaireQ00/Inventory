@@ -1,6 +1,6 @@
 ---
 name: derived-fields
-description: 进销存项目的派生字段"加算 + 反向校验"完整规则集。当用户处理 products / purchase_order_items / sales_contract_items / delivery_order_items 中的派生字段（外径、内径外径串、单件体积、体积小计、金额小计等），做 CSV 到 SQL 的转换，运行 tools/csv_to_sql.py 或 scripts/run_local_validation.sh，或者问到"外径公式"、"CBM"、"装箱体积"、"虚标"、"虚重"、"虚米"、"appearance_outer"、"Unit Size"时使用此 skill。注意：涉及产品类别(线管/钢丝管)、密度、厚度反推、米重/单重 5% 容差的，请改用 product-params skill。
+description: 进销存项目的派生字段"加算 + 反向校验"完整规则集。当用户处理 products / purchase_order_items / sales_contract_items / delivery_order_items 中的派生字段（外径、内径外径串、单件体积、体积小计、金额小计等），做 CSV 到 SQL 的转换，运行 tools/csv_to_sql.py 或 scripts/run_local_validation.sh，或者问到"外径公式"、"CBM"、"装箱体积"、"虚标"、"虚重"、"虚米"、"appearance_outer"、"Unit Size"、"主表 total_volume"时使用此 skill。注意：① 涉及产品类别(线管/钢丝管)、密度、厚度反推、米重/单重 5% 容差的，请改用 product-params skill；② 4 张主表(quotations/sales_contracts/purchase_orders/delivery_orders)的 `total_volume` 是**应用层汇总字段**(同 total_amount 模式,不是 DERIVED_RULES),跟 shipping_records.total_cbm 报关真实 CBM 是两个概念。
 allowed-tools: Read, Grep, Glob, Bash(python3:*)
 ---
 
@@ -57,9 +57,15 @@ allowed-tools: Read, Grep, Glob, Bash(python3:*)
 | # | 字段 | 公式 | 校验位置 |
 | --- | --- | --- | --- |
 | C2 | `purchase_orders.total_amount` | `SUM(purchase_order_items.subtotal)` | `check_purchase_orders()` |
+| C2b | `purchase_orders.total_volume` | `SUM(purchase_order_items.volume_subtotal)` | `check_purchase_orders()`(WARN 级,容差 0.01) |
 | C4 | `sales_contracts.total_amount` | `SUM(sales_contract_items.subtotal)` | `check_sales_contracts()` |
+| C4b | `sales_contracts.total_volume` | `SUM(sales_contract_items.volume_subtotal)` | `check_sales_contracts()`(WARN 级,容差 0.01) |
+| C7 | `delivery_orders.total_volume` | `SUM(delivery_order_items.volume_subtotal)` | `check_delivery_order_volume()`(第 9 步,WARN 级,容差 0.01) |
+| C8 | `quotations.total_volume` | `SUM(quotation_items.total_volume)` | `check_quotations()` 子校验 1b(WARN 级,容差 0.01) |
 | C5 | `purchase_order_items.received_qty` | `SUM(stock_in_items.quantity where 同po+product)` | `check_stock_in_vs_purchase()` |
 | C6 | `sales_contract_items.delivered_qty` | `SUM(delivery_order_items.quantity where contract_item_id)` | `check_delivery_vs_contract()` |
+
+> ⚠️ **主表 `total_volume` 是展示用统计**(给客户看这张单总共多少立方),跟 `shipping_records.total_cbm`(装柜后报关真实 CBM)是**两个概念**——前者按计划数累加,后者是装柜后的实际数,可能因拼柜/整柜微调过。所以 `total_volume` 用 WARN 级校验,即使对不上也不阻断流程。
 
 ---
 
@@ -164,7 +170,7 @@ python3 tools/csv_to_sql.py data/csv/purchase_order_items.csv purchase_order_ite
 bash scripts/run_local_validation.sh
 ```
 
-这会跑全部 15 步校验，包括跨表体积校验（第 8 步）。
+这会跑全部 16 步校验，包括跨表体积校验（第 8 步）和主表 total_volume 一致性校验（第 9 步,发货单;2/4/15 步分别带 PO/SC/QT 主表）。
 
 ---
 
@@ -191,7 +197,7 @@ bash scripts/run_local_validation.sh
 
 ```python
 def check_xxx(conn, report):
-    print("[N/15] 校验 xxx...")
+    print("[N/16] 校验 xxx...")
     cur = conn.cursor()
     cur.execute("SELECT ... FROM ...")
     for ...:

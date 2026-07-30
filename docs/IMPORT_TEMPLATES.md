@@ -21,14 +21,14 @@
 
 | 模板文件 | 对应表 | 备注 |
 | --- | --- | --- |
-| `purchase_orders_template.csv` | `purchase_orders` | 采购单主表 |
+| `purchase_orders_template.csv` | `purchase_orders` | 采购单主表（含 `total_volume` 主表体积汇总 = Σ 明细 `volume_subtotal`，录完明细后回填；**展示用统计**，跟报关数不是一回事） |
 | `purchase_order_items_template.csv` | `purchase_order_items` | 采购明细（subtotal 自动算） |
 
 ### 模块 3：销售合同（2 个）
 
 | 模板文件 | 对应表 | 备注 |
 | --- | --- | --- |
-| `sales_contracts_template.csv` | `sales_contracts` | 合同主表（**含金额四件套 + 贸易术语 FOB/CIF/CFR/EXW + 付款条件 payment_term + 包装条款 packing**，后两项从 formal 报价转单时拷贝） |
+| `sales_contracts_template.csv` | `sales_contracts` | 合同主表（**含金额四件套 + 贸易术语 FOB/CIF/CFR/EXW + 付款条件 payment_term + 包装条款 packing + total_volume 主表体积汇总**，后两项从 formal 报价转单时拷贝） |
 | `sales_contract_items_template.csv` | `sales_contract_items` | 合同明细 |
 
 ### 模块 4：库存（5 个）
@@ -47,8 +47,8 @@
 
 | 模板文件 | 对应表 | 备注 |
 | --- | --- | --- |
-| `delivery_orders_template.csv` | `delivery_orders` | 发货单主表 |
-| `delivery_order_items_template.csv` | `delivery_order_items` | 发货明细（**含 actual_quantity 实际装柜 / short_qty 短装数**；末三列 `expected_unit_price`/`coeff_diff`/`coeff_check_status` 为 R11 公斤价反算派生，**留空由第15步自动回填**） |
+| `delivery_orders_template.csv` | `delivery_orders` | 发货单主表（含 `total_volume` 主表体积汇总 = Σ 明细 `volume_subtotal`；**展示用统计**，跟 `shipping_records.total_cbm` 报关实际数是两个概念） |
+| `delivery_order_items_template.csv` | `delivery_order_items` | 发货明细（**含 actual_quantity 实际装柜 / short_qty 短装数**；末三列 `expected_unit_price`/`coeff_diff`/`coeff_check_status` 为 R11 公斤价反算派生，**留空由第16步自动回填**） |
 
 ### 模块 6：报关（3 个，外贸专用）
 
@@ -70,7 +70,7 @@
 | 模板文件 | 对应表 | 备注 |
 | --- | --- | --- |
 | `quotation_params_template.csv` | `quotation_params` | 报价全局参数（默认汇率/币种/有效期，键值对） |
-| `quotations_template.csv` | `quotations` | 报价主表（**金额四件套** + brief 简要报价 / formal 正式 QT + parent_quote_id 派生链 + **5 个贸易条款 trade_terms/port_loading/port_discharge/payment_term/packing**，brief 留空、formal 补齐） |
+| `quotations_template.csv` | `quotations` | 报价主表（**金额四件套 + total_volume 主表体积汇总 + brief 简要报价 / formal 正式 QT + parent_quote_id 派生链 + 5 个贸易条款 trade_terms/port_loading/port_discharge/payment_term/packing**，brief 留空、formal 补齐） |
 | `quotation_items_template.csv` | `quotation_items` | 报价明细（**R10 系数定价**：unit_price = weight_per_unit × price_coefficient） |
 
 > **R10 报价定价铁律**：报价不存绝对价，只存"单卷重量 × 报价系数(USD/KG)"。同组管径共用一个系数（如 `A组-1.112`），改一个系数整组价格自动更新。详见 `docs/BUSINESS_RULES.md` R10。
@@ -82,11 +82,12 @@
 - `quotation_items.total_volume` = `volume × quantity`
 - `quotations.total_amount_cny` = `total_amount × exchange_rate`
 - `quotations.total_amount` **不是派生**，是 `Σ quotation_items.subtotal` 的汇总，需在录完明细后手填或由应用层汇总
+- `quotations.total_volume` **同模式**：是 `Σ quotation_items.total_volume` 的应用层汇总（**展示用统计**，给客户看这张单总共多少立方；跟 `shipping_records.total_cbm` 报关实际数不是一回事）。同字段也存在于 `sales_contracts` / `purchase_orders` / `delivery_orders` 主表
 
 **导入顺序**（必须按此顺序，否则外键/汇总对不上）：
 1. `quotation_params`（参数先行，供默认值引用）
 2. `quotations`（主表先建，明细才能挂 quote_id）
-3. `quotation_items`（明细后录，录完后回填主表 `total_amount = Σ subtotal`）
+3. `quotation_items`（明细后录，录完后回填主表 `total_amount = Σ subtotal`、`total_volume = Σ total_volume`）
 
 ### 模块 9：审计（1 个，空壳）
 
@@ -108,7 +109,7 @@
 ## 建议的验证流程
 
 1. **先录汇率**（月初做一次）：
-   - `exchange_rates` — 否则所有外币业务在校验 step 11 直接 ERROR
+   - `exchange_rates` — 否则所有外币业务在校验 step 12 直接 ERROR
 
 2. **再录基础数据**：
    - `products` / `warehouses` / `suppliers` / `customers` / `inventory`
@@ -128,7 +129,7 @@
    ```bash
    bash scripts/run_local_validation.sh
    ```
-   14 步全过才算对。具体每一步校验什么，见 `docs/VALIDATION_GUIDE.md`。
+   16 步全过才算对。具体每一步校验什么，见 `docs/VALIDATION_GUIDE.md`。
 
 ## 注意事项
 
@@ -140,5 +141,5 @@
 ## 参考
 
 - `docs/BUSINESS_FLOW.md` — 一笔订单从询盘到收款的完整流程（每个节点填什么表过什么校验）
-- `docs/VALIDATION_GUIDE.md` — 13 步校验详解
+- `docs/VALIDATION_GUIDE.md` — 16 步校验详解
 - `docs/PRIVATE_DATA_GUIDELINES.md` — 敏感数据隔离规范

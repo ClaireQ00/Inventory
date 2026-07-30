@@ -1,7 +1,7 @@
 # 功能需求规格说明书 (Software Requirements Specification)
 
 > 本文件是**功能规格视角的统一叙述层**,回答"系统能干什么"。
-> **不重复造文档**——业务流程细节见 `docs/BUSINESS_FLOW.md`,业务规则事实源见 `docs/BUSINESS_RULES.md`,数据怎么落表见 `docs/DATA_MODEL.md`,14 步校验怎么跑见 `docs/VALIDATION_GUIDE.md`。本文件大量引用以上文档,只补一层"用户故事 + 输入输出 + 可测验收标准"的叙述。
+> **不重复造文档**——业务流程细节见 `docs/BUSINESS_FLOW.md`,业务规则事实源见 `docs/BUSINESS_RULES.md`,数据怎么落表见 `docs/DATA_MODEL.md`,16 步校验怎么跑见 `docs/VALIDATION_GUIDE.md`。本文件大量引用以上文档,只补一层"用户故事 + 输入输出 + 可测验收标准"的叙述。
 >
 > 本文档**只描述系统真实已有的能力**,不臆造未来功能。涉及阶段二规划的功能会明确标注"阶段二,本阶段不做"(规划清单见 `.claude/skills/payment-receivable/SKILL.md §7`)。
 
@@ -16,14 +16,14 @@
 | 业务怎么走(9 个节点、3 个角色) | `docs/BUSINESS_FLOW.md` |
 | 业务硬性规则 R1~R10(事实源) | `docs/BUSINESS_RULES.md` |
 | 每张表的字段、外键、派生规则 | `docs/DATA_MODEL.md` |
-| 14 步校验怎么跑、错误怎么排查 | `docs/VALIDATION_GUIDE.md` |
+| 16 步校验怎么跑、错误怎么排查 | `docs/VALIDATION_GUIDE.md` |
 | **每个功能点要满足什么才算做完(本文)** | `docs/SPECS.md` |
 | 单个领域的深度规则(密度/外径/单据/汇率) | `.claude/skills/*/SKILL.md` |
 
 ### 0.2 验收标准的可测写法
 
 每个功能点的"验收标准"都满足:
-- **可测**:能被 `scripts/run_local_validation.sh` 14 步校验之一覆盖,或能在 `data/db/validation.db` 里用 SQL 验证
+- **可测**:能被 `scripts/run_local_validation.sh` 16 步校验之一覆盖,或能在 `data/db/validation.db` 里用 SQL 验证
 - **可引用**:引用 `VALIDATION_GUIDE.md` 的步骤号(如"见 VALIDATION_GUIDE 第 9 步"),不复制内容
 - **真实**:涉及的表名/字段名源自 `sql/01_schema.sql`,不臆造
 
@@ -244,7 +244,7 @@
 
 **涉及表**:`inventory` / `stock_in` + `stock_in_items` / `stock_out` + `stock_out_items` / `stock_logs`(共 5 张)。表结构详见 `DATA_MODEL.md §4.4`。
 
-**核心校验**:见 VALIDATION_GUIDE 第 3、6、7、8 步。第 13 步(调拨配对)见 §8。
+**核心校验**:见 VALIDATION_GUIDE 第 3、6、7、8 步。第 14 步(调拨配对)见 §8。
 
 ### 3.2 功能点清单
 
@@ -271,7 +271,7 @@
 
 **验收标准**:
 - AC1:`in_type='purchase'` 时,入库数 ≤ 采购数(见 VALIDATION_GUIDE 第 3 步;代码 `check_stock_in_vs_purchase`)
-- AC2:`in_type='transfer'` 时,必须填 `transfer_ref`,跟配对的 `stock_out.transfer_ref` 同值(见 §8 / VALIDATION_GUIDE 第 13 步)
+- AC2:`in_type='transfer'` 时,必须填 `transfer_ref`,跟配对的 `stock_out.transfer_ref` 同值(见 §8 / VALIDATION_GUIDE 第 14 步)
 - AC3:`inventory` 表唯一约束 `uk_product_warehouse (product_id, warehouse_id)` —— 同物料同仓库只有一行(`DATA_MODEL.md §4.4`)
 
 **涉及数据表**:`stock_in` / `stock_in_items` / `inventory` / `stock_logs`。规则出处 `BUSINESS_FLOW.md 节点 4`。
@@ -372,7 +372,7 @@
 
 **涉及表**:`sales_contracts`(主) + `sales_contract_items`(明细)。表结构详见 `DATA_MODEL.md §4.3`。
 
-**核心校验**:见 VALIDATION_GUIDE 第 4 步(合同金额)、第 11 步(汇率)。
+**核心校验**:见 VALIDATION_GUIDE 第 4 步(合同金额)、第 12 步(汇率)。
 
 ### 4.2 功能点清单
 
@@ -389,7 +389,7 @@
 **用户故事**:作为业务经理,我想跟客户签一份销售合同,标明贸易术语(FOB/CIF/CFR/EXW)、装运港/卸货港、合同数量、外币单价、付款条件、包装条款,以便后续发货/报关/收款都能引用这份"承诺值"。
 
 **输入**:
-- 主表 `sales_contracts`:`contract_no`(如 SC20260726001)、`customer_id`、`sign_date`、`delivery_deadline`、金额四件套(`total_amount` + `currency`(默认 USD) + `exchange_rate` + `total_amount_cny`(派生))、贸易术语(`trade_terms` / `port_loading` / `port_discharge` / `freight` / `insurance`)、**付款/包装条款**(`payment_term` TEXT、`packing` TEXT,2026-07-29 加,从 formal 报价转单时拷贝)、`status`(`draft`/`confirmed`/`delivering`/`completed`/`cancelled`)
+- 主表 `sales_contracts`:`contract_no`(如 SC20260726001)、`customer_id`、`sign_date`、`delivery_deadline`、金额四件套(`total_amount` + `currency`(默认 USD) + `exchange_rate` + `total_amount_cny`(派生))、`total_volume`(展示用统计,= Σ 明细 `volume_subtotal`)、贸易术语(`trade_terms` / `port_loading` / `port_discharge` / `freight` / `insurance`)、**付款/包装条款**(`payment_term` TEXT、`packing` TEXT,2026-07-29 加,从 formal 报价转单时拷贝)、`status`(`draft`/`confirmed`/`delivering`/`completed`/`cancelled`)
 - 明细 `sales_contract_items`:每行 `product_id`、`quantity`(合同数)、`unit_price`、`subtotal`(派生)、`volume_subtotal`(派生)、`delivered_qty`(由发货单回写)
 - **卖方信息**:不录在合同表里,合同模板渲染时通过 `WHERE suppliers.is_self=1` 调取本公司的 `company_profiles`/`billing_profiles`(见 F1.5)
 
@@ -432,7 +432,7 @@
 **输出**:当月该币种 `exchange_rates` 无记录 → ERROR "缺 X 月 Y 币种汇率,请补录"
 
 **验收标准**:
-- AC1:见 VALIDATION_GUIDE 第 11 步(代码 `check_exchange_rates`)
+- AC1:见 VALIDATION_GUIDE 第 12 步(代码 `check_exchange_rates`)
 - AC2:汇率字段为 0 或 NULL → ERROR "汇率异常"(`payment-receivable/SKILL.md §2`)
 - AC3:跨月场景规则见 `BUSINESS_RULES.md R2`(本模块按 `sign_date` 定月)
 
@@ -466,7 +466,7 @@
 **用户故事**:作为业务经理,我想给客户下一次发货指令,标明计划发哪些物料、各多少件(商务承诺),关联到具体合同明细,以便仓库按单备货、合同"已发数量"能正确回写。
 
 **输入**:
-- 主表 `delivery_orders`:`delivery_no`、`customer_id`、`delivery_date`、`receiver`/`receiver_phone`/`receiver_address`、`transport_no`、`status`(`draft`/`confirmed`/`shipped`/`delivered`/`cancelled`)
+- 主表 `delivery_orders`:`delivery_no`、`customer_id`、`delivery_date`、`receiver`/`receiver_phone`/`receiver_address`、`transport_no`、`total_volume`(展示用统计,= Σ 明细 `volume_subtotal`;跟 `shipping_records.total_cbm` 报关实际数是两个概念)、`status`(`draft`/`confirmed`/`shipped`/`delivered`/`cancelled`)
 - 明细 `delivery_order_items`:每行 `contract_item_id`(关联合同明细)、`product_id`、`quantity`(计划发货数,商务承诺,**不改**)、`actual_quantity`(实际装柜数,默认 = `quantity`)、`short_qty`(派生)、`volume_subtotal`(派生)
 
 **输出**:1 张发货主表 + N 行明细。一次发货可对应多个合同明细(同一客户多合同一起发)。
@@ -540,7 +540,7 @@
 
 **涉及表**:`shipping_records`(主) + `shipping_record_items`(明细) + `credit_notes`(差异处理)。表结构详见 `DATA_MODEL.md §4.6`。
 
-**核心校验**:见 VALIDATION_GUIDE 第 9 步(UCP600 ±5%)、第 10 步(credit_note 闭环)、第 11 步(报关月汇率)。
+**核心校验**:见 VALIDATION_GUIDE 第 10 步(UCP600 ±5%)、第 11 步(credit_note 闭环)、第 12 步(报关月汇率)。
 
 ### 6.2 功能点清单
 
@@ -604,7 +604,7 @@
 
 **验收标准**:
 - AC1:容差常量 `SHORT_SHIPMENT_TOLERANCE = 0.05`(代码 `tools/local_validator.py`)
-- AC2:见 VALIDATION_GUIDE 第 9 步(代码 `check_shipping_vs_delivery`)
+- AC2:见 VALIDATION_GUIDE 第 10 步(代码 `check_shipping_vs_delivery`)
 - AC3:**不要试图统一两套账**——合同账是承诺值,报关账是实际值,差异用 credit_note 衔接(`BUSINESS_RULES.md R3` / `trade-documents/SKILL.md §3`)
 - AC4:适用范围:发货单 `quantity` → 报关单 `actual_qty`;销售合同 `quantity` → 发货单 `actual_quantity`(`trade-documents/SKILL.md §4`)
 
@@ -623,7 +623,7 @@
 **验收标准**:
 - AC1:`resolution = 'pending'` 且 `created_at` 距今 > 30 天 → WARN(催办)
 - AC2:`resolution = 'pending'` 且 `created_at` 距今 > 90 天 → ERROR(严重逾期)
-- AC3:见 VALIDATION_GUIDE 第 10 步(代码 `check_credit_notes_balance`)
+- AC3:见 VALIDATION_GUIDE 第 11 步(代码 `check_credit_notes_balance`)
 - AC4:`diff_amount_cny` 派生 = `diff_amount × exchange_rate`(按报关单 `shipping_date` 所在月定汇率,`DATA_MODEL.md §7.2`)
 - AC5:金额四件套铁律适用(`BUSINESS_RULES.md R1`,影响 `credit_notes`)
 
@@ -657,7 +657,7 @@
 
 **涉及表**:`exchange_rates`(月固定汇率表)+ `receipts`(收款单)。表结构详见 `DATA_MODEL.md §4.7`。
 
-**核心校验**:见 VALIDATION_GUIDE 第 11 步(汇率完整性)、第 12 步(收款 vs 合同)。
+**核心校验**:见 VALIDATION_GUIDE 第 12 步(汇率完整性)、第 13 步(收款 vs 合同)。
 
 ### 7.2 功能点清单
 
@@ -681,7 +681,7 @@
 **验收标准**:
 - AC1:**唯一约束** `uk_currency_effective (currency, effective_date)` —— 同币种同月仅一条(`sql/01_schema.sql` 第 649 行;`BUSINESS_RULES.md R2`)
 - AC2:`rate_to_cny` 为 0 或 NULL → 业务上数据缺陷(`payment-receivable/SKILL.md §2`)
-- AC3:见 VALIDATION_GUIDE 第 11 步(代码 `check_exchange_rates`)
+- AC3:见 VALIDATION_GUIDE 第 12 步(代码 `check_exchange_rates`)
 
 **涉及数据表**:`exchange_rates`。规则出处 `BUSINESS_RULES.md R2`、`payment-receivable/SKILL.md §2`。
 
@@ -741,7 +741,7 @@
 - 汇率为 0 → ERROR
 
 **验收标准**:
-- AC1:见 VALIDATION_GUIDE 第 12 步(代码 `check_receipts_vs_contract`)
+- AC1:见 VALIDATION_GUIDE 第 13 步(代码 `check_receipts_vs_contract`)
 - AC2:**只统计 `confirmed` 收款**,`draft` / `cancelled` 不算(`payment-receivable/SKILL.md §3.2`)
 - AC3:**按原币种聚合**(`receipts.currency` 必须跟 `sales_contracts.currency` 一致)
 - AC4:±5% 容差跟 UCP600 短装容差对齐(`payment-receivable/SKILL.md §3.3`)
@@ -759,7 +759,7 @@
 
 **特殊点**:**调拨没有独立表**——它是一对特殊类型的出入库单据(`in_type='transfer'` / `out_type='transfer'`)。设计理由详见 `DATA_MODEL.md §6`。
 
-**核心校验**:见 VALIDATION_GUIDE 第 13 步(调拨配对)。
+**核心校验**:见 VALIDATION_GUIDE 第 14 步(调拨配对)。
 
 ### 8.2 功能点清单
 
@@ -806,7 +806,7 @@
 - 只有一边(只有出库没入库,或反之)→ **WARN**(在途、漏录或方向录错)
 
 **验收标准**:
-- AC1:见 VALIDATION_GUIDE 第 13 步(代码 `check_transfer_pairs`)
+- AC1:见 VALIDATION_GUIDE 第 14 步(代码 `check_transfer_pairs`)
 - AC2:聚合 key 是 `(transfer_ref, product_id)`,**按物料分组**对账(`DATA_MODEL.md §6.3`)
 - AC3:在途(已出未到)报 WARN,到货后入库即可消除(`VALIDATION_GUIDE §6`)
 
@@ -826,7 +826,7 @@
 
 **验收标准**:
 - AC1:调拨类型(`transfer`)的单据不会被报关/收款校验函数扫描(代码层面:`check_shipping_vs_delivery` / `check_receipts_vs_contract` 只扫销售链路单据)
-- AC2:调拨校验独立在第 13 步,跟前 12 步逻辑隔离(`BUSINESS_RULES.md R3.5`)
+- AC2:调拨校验独立在第 14 步,跟前 13 步逻辑隔离(`BUSINESS_RULES.md R3.5`)
 - AC3:source 仓允许暂时负库存(见 F3.5,降级为 WARN),后续补货即可
 
 **涉及数据表**:无新增。规则出处 `BUSINESS_RULES.md R3.5`、`DATA_MODEL.md §6.6`。
@@ -841,7 +841,7 @@
 
 **涉及表**:`quotation_params`(全局参数) + `quotations`(主表,brief/formal 共用) + `quotation_items`(明细)。表结构详见 `DATA_MODEL.md §4.9`。
 
-**核心校验**:见 VALIDATION_GUIDE 第 14 步(`check_quotations`)。
+**核心校验**:见 VALIDATION_GUIDE 第 15 步(`check_quotations`)。
 
 **业务规则**:定价铁律见 `BUSINESS_RULES.md R10`;设计取舍(为何 brief/formal 共用表、subtotal 为何用直接公式)见 `docs/adr/0003-quotation-derive-from-brief.md`。
 
@@ -861,17 +861,17 @@
 **用户故事**:作为业务经理,我想在正式签合同前先给客户一份简要报价,只录"每卷重量 × 报价系数 × 数量"就能算出单价和小计,不用手工套公式,以便快速回应客户询盘。
 
 **输入**:
-- 主表 `quotations`:`quote_no`(如 `QT20260729001`)、`customer_id`、`quote_type='brief'`、`quote_date`、`valid_until`、金额四件套(`total_amount` + `currency`(默认 USD) + `exchange_rate` + `total_amount_cny`(派生))、`status`(`draft`/`sent`/`confirmed`/`converted`/`cancelled`)
+- 主表 `quotations`:`quote_no`(如 `QT20260729001`)、`customer_id`、`quote_type='brief'`、`quote_date`、`valid_until`、金额四件套(`total_amount` + `currency`(默认 USD) + `exchange_rate` + `total_amount_cny`(派生))、`total_volume`(展示用统计,= Σ 明细 `quotation_items.total_volume`)、`status`(`draft`/`sent`/`confirmed`/`converted`/`cancelled`)
 - 明细 `quotation_items`:每行 `product_id`(关联 `products` 带出 `weight`/`volume`)、`group_code`(分组码,如 `A组-1.112`)、`price_coefficient`(报价系数 USD/KG)、`weight_per_unit`(单卷重量 KG,从 `products.weight` 带出可覆盖)、`quantity`(卷数)、派生字段(`total_weight`/`unit_price`/`subtotal`/`total_volume`)
 - **不带条款**:brief 阶段 5 个贸易条款字段(`trade_terms`/`port_loading`/`port_discharge`/`payment_term`/`packing`)留空,等 formal 阶段补(见 F9.2)
 
-**输出**:1 张简要报价主表 + N 行明细。主表 `total_amount = Σ quotation_items.subtotal`(应用层汇总,非 `DERIVED_RULES`)。
+**输出**:1 张简要报价主表 + N 行明细。主表 `total_amount = Σ quotation_items.subtotal`(应用层汇总,非 `DERIVED_RULES`);`total_volume = Σ quotation_items.total_volume`(同模式,展示用统计)。
 
 **验收标准**:
 - AC1:**定价铁律 R10** —— `unit_price = weight_per_unit × price_coefficient`,`subtotal = weight_per_unit × price_coefficient × quantity`(直接公式,不依赖派生 `unit_price`,见 `BUSINESS_RULES.md R10` + ADR-0003)
 - AC2:派生字段(4 个)走 `tools/csv_to_sql.py::DERIVED_RULES["quotation_items"]`,空则自动算,手填超容差报 ERROR(`derived-fields` 加算+反向校验双行为)
 - AC3:**金额四件套铁律** —— 主表 `total_amount + currency + exchange_rate + total_amount_cny` 齐全(`BUSINESS_RULES.md R1`);`total_amount_cny` 派生 = `total_amount × exchange_rate`
-- AC4:`quotations.total_amount` 必须等于明细 `subtotal` 之和(见 VALIDATION_GUIDE 第 14 步;代码 `tools/local_validator.py::check_quotations` 子校验 1)
+- AC4:`quotations.total_amount` 必须等于明细 `subtotal` 之和;`quotations.total_volume` 应等于 Σ 明细 `total_volume`(WARN 容差 0.01)(见 VALIDATION_GUIDE 第 15 步;代码 `tools/local_validator.py::check_quotations` 子校验 1/1b)
 - AC5:同一报价单同一物料只能一行(唯一约束 `uk_qi_quote_product`,见 `DATA_MODEL.md §4.9`)
 
 **涉及数据表**:`quotations` / `quotation_items`。规则出处 `BUSINESS_RULES.md R10`。
@@ -887,7 +887,7 @@
 **输出**:1 张 formal 报价(即 PROFORMA INVOICE),`parent_quote_id` 软关联到源 brief。
 
 **验收标准**:
-- AC1:`quote_type='formal'` 时,`parent_quote_id` **必须非空**(见 VALIDATION_GUIDE 第 14 步;代码 `check_quotations` 子校验 2)
+- AC1:`quote_type='formal'` 时,`parent_quote_id` **必须非空**(见 VALIDATION_GUIDE 第 15 步;代码 `check_quotations` 子校验 2)
 - AC2:`parent_quote_id` 指向的必须是 `quote_type='brief'` 的报价(不能 formal 派生 formal)
 - AC3:`parent_quote_id` 是**自引用软关联**(`ON DELETE SET NULL`),类似调拨 `transfer_ref` 的思路——靠应用层校验,非外键强约束(见 ADR-0003)
 - AC4:brief 与 formal **共用 `quotations` 表**,靠 `quote_type` 区分,不建独立表(见 ADR-0003 决策)
@@ -906,7 +906,7 @@
 **输出**:`quotations` 状态变 `converted`,`converted_contract_id` 指向新建的销售合同。
 
 **验收标准**:
-- AC1:`status='converted'` 时,若 `converted_contract_id` 非空,则该 ID 必须在 `sales_contracts` 存在(见 VALIDATION_GUIDE 第 14 步;代码 `check_quotations` 子校验 3)
+- AC1:`status='converted'` 时,若 `converted_contract_id` 非空,则该 ID 必须在 `sales_contracts` 存在(见 VALIDATION_GUIDE 第 15 步;代码 `check_quotations` 子校验 3)
 - AC2:状态机 `draft` → `sent` → `confirmed` → `converted` / `cancelled`(`DATA_MODEL.md §4.9`)
 - AC3:转合同后衔接 `sales_contracts` 的金额四件套 + 后续发货/报关/收款流程(跨模块,见 §4 销售模块)
 
@@ -923,7 +923,7 @@
 **输出**:不一致报 ERROR
 
 **验收标准**:
-- AC1:明细 `subtotal = weight_per_unit × price_coefficient × quantity`(见 VALIDATION_GUIDE 第 14 步;代码 `check_quotations` 子校验 4,容差 0.01)
+- AC1:明细 `subtotal = weight_per_unit × price_coefficient × quantity`(见 VALIDATION_GUIDE 第 15 步;代码 `check_quotations` 子校验 4,容差 0.01)
 - AC2:主表 `quotations.total_amount = Σ quotation_items.subtotal`(`check_quotations` 子校验 1)
 - AC3:**一张报价单可有多组系数**,用 `group_code` 区分(如 `A组-1.112`),系数放明细不放主表(`BUSINESS_RULES.md R10` + ADR-0003)
 - AC4:派生字段(`total_weight`/`unit_price`/`subtotal`/`total_volume`)的加算+反向校验由 `apply_derived_rules` 完成,`subtotal` 用直接公式避免单轮遍历依赖链失效(代码 `tools/csv_to_sql.py:343-396`)
@@ -955,7 +955,7 @@
 **验收标准**:
 - AC1:四张表的 `*_cny` 字段都是同一公式的变体,代码位置 `tools/csv_to_sql.py::DERIVED_RULES`(`DATA_MODEL.md §5.1` 表格)
 - AC2:派生字段永远自动算,不手填(`BUSINESS_RULES.md R1`)
-- AC3:校验落点见 VALIDATION_GUIDE 第 11 步(汇率完整性)+ 第 12 步(收款对账)
+- AC3:校验落点见 VALIDATION_GUIDE 第 12 步(汇率完整性)+ 第 13 步(收款对账)
 
 **规则出处**:`BUSINESS_RULES.md R1`、`payment-receivable/SKILL.md §1`。
 
@@ -977,9 +977,9 @@
 
 ---
 
-### F10.3 自检门禁(14 步全过)
+### F10.3 自检门禁(16 步全过)
 
-**用户故事**:作为开发者,我想任何改动都跑一次 14 步自检,以便确认改动没破坏既有逻辑。
+**用户故事**:作为开发者,我想任何改动都跑一次 16 步自检,以便确认改动没破坏既有逻辑。
 
 **命令**:
 ```bash
@@ -987,26 +987,28 @@ bash scripts/run_local_validation.sh           # 真实数据
 bash scripts/run_local_validation.sh --demo    # demo 假数据
 ```
 
-**14 步覆盖对照**(本 SPECS 功能点 → 步骤号):
+**16 步覆盖对照**(本 SPECS 功能点 → 步骤号):
 | 步骤 | 校验内容 | 覆盖的功能点 |
 | --- | --- | --- |
-| 1/14 | 基础资料完整性 | F1.1~F1.6 |
-| 2/14 | 采购金额 = 明细之和 | F2.2 |
-| 3/14 | 入库 ≤ 采购 | F3.1 |
-| 4/14 | 合同金额 = 明细之和 | F4.2 |
-| 5/14 | 发货 ≤ 合同 | F5.4 |
-| 6/14 | 累计出库 vs 累计入库(WARN) | F3.5 |
-| 7/14 | 库存对账 | F3.4 |
-| 8/14 | 体积小计跨表 | F3.6 |
-| 9/14 | UCP600 ±5% | F6.3 |
-| 10/14 | credit_note 闭环 | F6.4 |
-| 11/14 | 汇率完整性 | F4.3 / F6.1 / F7.1 |
-| 12/14 | 收款 vs 合同 | F7.4 |
-| 13/14 | 调拨配对 | F8.2 |
-| 14/14 | 报价金额 + 派生关系 + subtotal 公式 | F9.1 / F9.2 / F9.3 / F9.4 |
+| 1/16 | 基础资料完整性 | F1.1~F1.6 |
+| 2/16 | 采购金额 = 明细之和 | F2.2 |
+| 3/16 | 入库 ≤ 采购 | F3.1 |
+| 4/16 | 合同金额 = 明细之和 | F4.2 |
+| 5/16 | 发货 ≤ 合同 | F5.4 |
+| 6/16 | 累计出库 vs 累计入库(WARN) | F3.5 |
+| 7/16 | 库存对账 | F3.4 |
+| 8/16 | 体积小计跨表 | F3.6 |
+| 9/16 | **发货单总体积(展示统计,WARN)** | F5.1(主表 `total_volume` 一致性) |
+| 10/16 | UCP600 ±5% | F6.3 |
+| 11/16 | credit_note 闭环 | F6.4 |
+| 12/16 | 汇率完整性 | F4.3 / F6.1 / F7.1 |
+| 13/16 | 收款 vs 合同 | F7.4 |
+| 14/16 | 调拨配对 | F8.2 |
+| 15/16 | 报价金额 + 派生关系 + subtotal 公式 | F9.1 / F9.2 / F9.3 / F9.4 |
+| 16/16 | Packing Plan 公斤价反算 | F9.4 |
 
 **验收标准**:
-- AC1:14 步全过才算改对(`BUSINESS_RULES.md R9`)
+- AC1:16 步全过才算改对(`BUSINESS_RULES.md R9`)
 - AC2:CI 同样以此为门禁(`scripts/ci.sh` / `.github/workflows/ci.yml`)
 - AC3:错误排查见 `VALIDATION_GUIDE §6`
 
@@ -1033,7 +1035,7 @@ bash scripts/run_local_validation.sh --demo    # demo 假数据
 
 - **加新功能点**:先确认系统**真实已有**该能力(查 `sql/01_schema.sql` 字段 / `tools/local_validator.py` 校验函数),不臆造未来功能;未来功能放 §11 阶段二规划。
 - **改 schema**:同步三处(`BUSINESS_RULES.md R7`),并更新本 SPECS 涉及功能点的"涉及数据表"引用。
-- **加新校验步骤**:更新 §F10.3 的 14 步覆盖对照表(校验步骤号映射见 `VALIDATION_GUIDE §3`)。
+- **加新校验步骤**:更新 §F10.3 的 16 步覆盖对照表(校验步骤号映射见 `VALIDATION_GUIDE §3`)。
 - **真实数据不进仓库**(`BUSINESS_RULES.md R8`):本 SPECS 不引用任何真实客户/供应商/合同数据,示例编号(如 `SC20260726001` / `TR20260729001`)均为格式示例。
 
 ## 附录 B:相关文档索引
@@ -1043,7 +1045,7 @@ bash scripts/run_local_validation.sh --demo    # demo 假数据
 | `docs/DATA_MODEL.md` | 物理数据模型单一事实源(25 张表字段/外键/派生) |
 | `docs/BUSINESS_FLOW.md` | 业务流程全景图(9 节点 / 3 角色) |
 | `docs/BUSINESS_RULES.md` | 业务规则事实源(R1~R10) |
-| `docs/VALIDATION_GUIDE.md` | 14 步校验流程 + 错误排查 |
+| `docs/VALIDATION_GUIDE.md` | 16 步校验流程 + 错误排查 |
 | `docs/adr/0003-quotation-derive-from-brief.md` | 报价 brief/formal 共用表 + parent_quote_id 派生 + subtotal 直接公式决策 |
 | `docs/GLOSSARY.md` | 业务术语表 |
 | `.claude/skills/product-params/SKILL.md` | 密度/厚度反推/米重深度规则 |
