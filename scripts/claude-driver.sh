@@ -85,9 +85,9 @@ while [ "$ROUND" -lt "$MAX_ROUNDS" ]; do
    - 功能要看什么:见 docs/SPECS.md
    - 数据表/字段/派生:见 docs/DATA_MODEL.md
    - 设计决策与理由:见 docs/DESIGN.md + docs/adr/
-   - 业务规则(铁律):见 docs/BUSINESS_RULES.md (R1金额四件套/R5派生/R6不硬编码/R7三处同步)
+   - 业务规则(铁律):见 docs/BUSINESS_RULES.md (R1金额四件套/R5派生/R6不硬编码/R7四处同步)
    - 验收场景:见 docs/SCENARIOS.md
-4. 严格遵守:改 schema 三处同步(R7)、客户/币种/口岸/品类都是数据不硬编码(R6)、真实敏感数据只放 data/ 或 private/ 不进仓库(R8)。
+4. 严格遵守:改 schema 四处同步(R7: schema+SQLITE_SCHEMA+DERIVED_RULES+模板表头)、客户/币种/口岸/品类都是数据不硬编码(R6)、真实敏感数据只放 data/ 或 private/ 不进仓库(R8)。
 5. 做完这一小块后:
    (a) 务必运行: bash $VALIDATE_SCRIPT  (13 步全过才算对)
    (b) 在 docs/TASKS.md 里把该任务的状态从'待办'改为'已完成',打勾 [x]

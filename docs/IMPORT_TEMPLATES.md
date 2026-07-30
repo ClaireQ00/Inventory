@@ -48,7 +48,8 @@ CSV 每行的**逗号数必须跟表头一致**。空值不能省略逗号——
 
 ## 模板位置
 
-- `sample/templates/`（共 23 个模板，audit_logs 阶段一是空壳无模板）
+- `sample/templates/`（共 23 个模板）
+- ⚠️ `audit_logs`（阶段一空壳）和 `stock_logs`（出入库流水由校验器自动重建）这两张表**故意不提供模板**，看到表没模板不是漏
 
 ## 完整模板清单（按业务模块分组）
 
@@ -133,11 +134,11 @@ CSV 每行的**逗号数必须跟表头一致**。空值不能省略逗号——
 2. `quotations`（主表先建，明细才能挂 quote_id）
 3. `quotation_items`（明细后录，录完后回填主表 `total_amount = Σ subtotal`、`total_volume = Σ total_volume`）
 
-### 模块 9：审计（1 个，空壳）
+### 模块 9：审计（无模板，空壳）
 
-| 模板文件 | 对应表 | 备注 |
-| --- | --- | --- |
-| `audit_logs_template.csv` | `audit_logs` | ⚠️ **阶段一空壳，暂不使用**。表已建但无业务逻辑，看到模板也别填。第 2 阶段才接入。 |
+`audit_logs` 表阶段一是空壳（已建表但无业务逻辑），**故意不提供 CSV 模板**。看到这张表没模板不是漏。第 2 阶段才接入。
+
+> 📌 自动检测：`bash scripts/check-template-schema-sync.sh` 会比对 schema 字段 vs 模板表头，发现不一致立刻报警。如果以后给 audit_logs 加业务逻辑并新增模板，这条会自动放行。
 
 ---
 

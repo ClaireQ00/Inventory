@@ -117,11 +117,13 @@
 
 ### 4.1 基础设施（脚本与工具链）
 
-- [x] `tools/csv_to_sql.py` —— CSV→SQL 通用脚本，含 `DERIVED_RULES`（products/poi/sci/doi/sri/sr/cn/sc/receipts/quotation_items 共 10 张表的派生规则）+ 反向校验 + 跨字段提醒
+- [x] `tools/csv_to_sql.py` —— CSV→SQL 通用脚本，含 `DERIVED_RULES`（products/poi/sci/doi/sri/sr/cn/sc/receipts/quotation_items 共 10 张表的派生规则）+ 反向校验 + 跨字段提醒（**2026-07-30 修复** `_looks_like_number`：长度 > 10 的纯数字串不再当数字处理，避免电话号/银行账号被加 `.0`）
 - [x] `tools/local_validator.py` —— SQLite 本地验证引擎，16 个 `check_*` 函数全部就位（见 `SPECS.md §F10.3` 对照表）
 - [x] `tools/make_demo_data.py` —— 演示数据生成器，写入沙箱 `data/csv/demo_runtime/`，有 `PROTECTED_FILES` 安全守卫
-- [x] `scripts/run_local_validation.sh` —— 一键脚本，支持 `--demo`，4 步流程（环境检查 → 敏感数据检查 → 准备 CSV → 跑校验）
+- [x] `scripts/run_local_validation.sh` —— 一键脚本，支持 `--demo`，5 步流程（环境检查 → 敏感数据检查 → **模板↔schema 同步检查(2b, 2026-07-30 新增)** → 准备 CSV → 跑校验）
 - [x] `scripts/check-sensitive-data.sh` —— 敏感数据扫描
+- [x] `scripts/check-template-schema-sync.sh` —— **2026-07-30 新增**：对比 `01_schema.sql` 字段 vs `sample/templates/*_template.csv` 表头，发现不一致立刻报警（R7 第 4 处同步点的自动化兜底）
+- [x] `scripts/load-csv-to-db.sh` —— CSV→MySQL 一键导入脚本（**2026-07-30 修复** `set -euo pipefail` 陷阱：单表失败不再终止整批，改用 `set +e` + `PIPESTATUS` 捕获 mysql 退出码）
 - [x] `scripts/ci.sh` + `.github/workflows/ci.yml` —— CI 门禁
 - [x] `scripts/claude-driver.sh` —— 无人值守驱动（消费本 TASKS.md）
 
@@ -130,7 +132,7 @@
 - [x] `sql/01_schema.sql` —— MySQL 真表（44KB，22 张表）
 - [x] `sql/02_seed_data.sql` —— 种子数据
 - [x] `sql/03_master_data.sql` —— 基础资料
-- [x] `sample/templates/*_template.csv` —— 20 张表的导入模板（缺 stock_logs，见 T2.8）
+- [x] `sample/templates/*_template.csv` —— **23 个**导入模板（`stock_logs` 由校验器自动重建、`audit_logs` 阶段一空壳，两张表**故意无模板**）
 
 ### 4.3 文档体系（SDD）
 
@@ -166,6 +168,20 @@
 | 16/16 | `check_packing_coefficient` | 触发（通过） | R11 公斤价反算,容差 0.001（无 demo 触发 WARN 的样例,可补 T2.x） |
 
 > 结论：16 步全部有代码、能跑通,但第 10/11 步在 demo 模式下"没机会真正报警",是覆盖度短板（T2.4 / T2.5 要补）。第 9 步 `check_delivery_order_volume` 是 2026-07-30 新增,跟 `shipping_records.total_cbm`(报关真实 CBM)是两个概念。
+
+### 4.5 真实数据试用记录（2026-07-30）
+
+首次用真实业务数据（PVC 线管 Q025 客户）跑完整流程踩到的坑，全部已修复（详见 git commit `eb250c7` + 本次文档同步）：
+
+| # | 问题 | 修复 | 影响 |
+| --- | --- | --- | --- |
+| 1 | 电话号 `081297100933` 被当数字处理，存进 SQL 变成 `81297100933.0` | `csv_to_sql.py::_looks_like_number` 加规则：长度 > 10 的纯数字串不当数字 | `customers.phone` / `suppliers.bank_account` / 任何长数字单号 |
+| 2 | `load-csv-to-db.sh` 单表失败终止整批（`set -euo pipefail` 陷阱） | `set +e` 包管道 + `PIPESTATUS[1]` 捕获 mysql 退出码，逐表累加 SUCCESS/FAILED | CSV→MySQL 批量导入稳定性 |
+| 3 | `customer_id` AUTO_INCREMENT 漂移（多次 REPLACE INTO 把 Q025 的 id 从 2 推到 37），外键失效 | 短期：TRUNCATE 重置；长期（阶段二）：外键改业务编号 `customer.code` | 所有业务表外键引用 |
+| 4 | customers 表加了 `brand_name`/`company_profiles`/`billing_profiles` 字段，但模板表头没同步，CSV 列错位 | 新建 `check-template-schema-sync.sh` 自动比对，集成进 `run_local_validation.sh` 第 2b 步 | R7 同步规则升级为"四处" |
+| 5 | 手写 CSV 逗号数对不齐，列错位 | 在 `docs/IMPORT_TEMPLATES.md` 顶部加"填 CSV 4 大坑"，强烈建议用 Python `csv.writer` | 所有 CSV 录入者必读 |
+
+> 这 5 个修复全部是"真实数据试用"暴露出来的，跟 demo 数据无关。后续每加一类新客户/新品类走一遍真实流程，比跑 demo 更能发现问题。
 
 ---
 

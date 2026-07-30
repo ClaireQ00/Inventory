@@ -200,13 +200,17 @@ stock_in  (in_type='transfer',  transfer_ref='TR20260729001', warehouse=目标�
 
 ---
 
-## R7. Schema 三处同步规则 ⭐
+## R7. Schema 四处同步规则 ⭐
 
-**规则**:修改 schema 时,必须同步以下三处,漏一处校验即对不上:
+**规则**:修改 schema 时,必须同步以下四处,漏一处校验即对不上:
 
 1. `sql/01_schema.sql` —— MySQL 真表
 2. `tools/local_validator.py::SQLITE_SCHEMA` —— SQLite 镜像
 3. `tools/csv_to_sql.py::DERIVED_RULES` —— 派生字段(仅当字段是派生时)
+4. `sample/templates/<表名>_template.csv` —— CSV 模板表头(加字段必须同步表头列,否则录入时列错位)
+
+> 第 4 处是 2026-07-30 真实数据试用踩坑后补的(当时 customers 表加了 `brand_name`/`company_profiles`/`billing_profiles` 3 个字段但模板没同步,导致 CSV 列错位)。
+> 自动检测:`bash scripts/check-template-schema-sync.sh`(已集成进 `run_local_validation.sh` 第 2b 步,WARN 不阻断)。
 
 ---
 

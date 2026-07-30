@@ -48,23 +48,29 @@ amount + currency + exchange_rate + amount_cny
 
 **常见错误**：只加了 `total_amount` 和 `currency`，漏掉 `exchange_rate` 和 `*_cny`。
 
-#### 铁律 2：Schema 三处同步
+#### 铁律 2：Schema 四处同步
 
-任何 schema 改动必须同步改这 3 处（漏一处就对不上）：
+任何 schema 改动必须同步改这 4 处（漏一处就对不上）：
 
 | # | 位置 | 改什么 |
 |---|---|---|
 | 1 | `sql/01_schema.sql` | MySQL 真表定义 |
 | 2 | `tools/local_validator.py` 顶部 `SQLITE_SCHEMA` 字符串 | SQLite 镜像（用于本地校验） |
 | 3 | `tools/csv_to_sql.py` 的 `DERIVED_RULES` | 仅当字段是**派生**时（如 `*_cny`、`outer_diameter`） |
+| 4 | `sample/templates/<表名>_template.csv` | **CSV 模板表头**（2026-07-30 真实数据试用踩坑后新增；只对**有模板**的表生效，`stock_logs`/`audit_logs` 等故意无模板的表豁免） |
 
 **检查方法**：
 ```bash
-# 用 grep 看字段是否在三处都出现
+# 用 grep 看字段是否在前三处都出现
 grep -n "新字段名" sql/01_schema.sql tools/local_validator.py tools/csv_to_sql.py
+# 看 sample/templates/ 下对应表的 CSV 表头是否同步
+head -1 sample/templates/<表名>_template.csv | tr ',' '\n' | grep -n "新字段名"
+# 第 4 处的自动兜底（推荐先跑这个，省事）
+bash scripts/check-template-schema-sync.sh
 ```
 
-如果某处缺了 → 报 Critical。
+如果前三处某处缺了 → 报 Critical。
+第 4 处由 `scripts/check-template-schema-sync.sh` 自动兜底（已集成进 `run_local_validation.sh` 第 2b 步，WARN 级别不阻断），但**新增字段时仍要在 code review 阶段就把表头同步掉**，别等运行时报警。
 
 **跨表关联字段特别注意**：像 `transfer_ref` 这种字段同时挂在多张表（`stock_in` + `stock_out`），如果只在一张表加了，`check_transfer_pairs` 校验会挂。**两张表都要加、配套 ENUM 也都要包含 `'transfer'`**。
 

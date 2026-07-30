@@ -2,7 +2,7 @@
 
 > 本文件是项目的**物理数据模型单一事实源**。所有表名、字段名、外键、派生规则以本文件 + `sql/01_schema.sql` 为准。
 > 业务术语含义见 `docs/GLOSSARY.md`,业务硬性规则见 `docs/BUSINESS_RULES.md`,本文档**不重复**这些内容,只做"数据怎么落表"的说明。
-> 修改 schema 时必须同步三处(见 `BUSINESS_RULES.md` R7):`sql/01_schema.sql` + `tools/local_validator.py::SQLITE_SCHEMA` + `tools/csv_to_sql.py::DERIVED_RULES`。
+> 修改 schema 时必须同步四处(见 `BUSINESS_RULES.md` R7):`sql/01_schema.sql` + `tools/local_validator.py::SQLITE_SCHEMA` + `tools/csv_to_sql.py::DERIVED_RULES` + `sample/templates/*_template.csv`（第 4 处模板表头由 `scripts/check-template-schema-sync.sh` 自动兜底）。
 
 ---
 
@@ -551,7 +551,7 @@ amount_cny = amount × exchange_rate   (容差 0.01)
 
 ## 附录:文档维护约定
 
-- **改 schema 时**:同步三处(`sql/01_schema.sql` + `tools/local_validator.py::SQLITE_SCHEMA` + `tools/csv_to_sql.py::DERIVED_RULES`),见 `BUSINESS_RULES.md` R7。
+- **改 schema 时**:同步四处(`sql/01_schema.sql` + `tools/local_validator.py::SQLITE_SCHEMA` + `tools/csv_to_sql.py::DERIVED_RULES` + `sample/templates/*_template.csv` 表头),见 `BUSINESS_RULES.md` R7。
 - **加新派生字段**:在 `DERIVED_RULES` 加一条,同步更新本文档 §5.1 表格。
 - **加新表**:同步更新本文档 §2 表清单 + §3 erDiagram + §4 详解,表数量必须与 schema 一致。
 - **真实数据不进仓库**:见 `BUSINESS_RULES.md` R8,本文档不引用任何真实客户/供应商/合同数据。

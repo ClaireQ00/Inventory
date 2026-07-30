@@ -105,7 +105,7 @@
 | 合同账 | 承诺值,给客户/财务看(源自 `sales_contracts` / `delivery_orders`) |
 | 报关账 | 实际值,给海关/银行看(源自 `shipping_records`) |
 | 派生字段 | 由其他字段自动计算的字段,默认走应用层(Python),不写 DB 生成列 |
-| 三处同步 | 改 schema 必须同步:`sql/01_schema.sql` + `tools/local_validator.py::SQLITE_SCHEMA` + `tools/csv_to_sql.py::DERIVED_RULES` |
+| 四处同步 | 改 schema 必须同步:`sql/01_schema.sql` + `tools/local_validator.py::SQLITE_SCHEMA` + `tools/csv_to_sql.py::DERIVED_RULES` + `sample/templates/*_template.csv`（第 4 处由 `scripts/check-template-schema-sync.sh` 自动兜底；2026-07-30 升级，之前是三处） |
 
 ## 8. 报价术语
 

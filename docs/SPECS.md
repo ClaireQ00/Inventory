@@ -39,7 +39,7 @@
 | **汇率月固定** | `BUSINESS_RULES.md R2` | 每月 1 日录一次 `exchange_rates`,跨月交易用各自月份的汇率 |
 | **报价 KG×系数定价** | `BUSINESS_RULES.md R10` | 报价单价 = 单卷重量 × 报价系数,影响 `quotation_params` / `quotations` / `quotation_items`(见 §9) |
 | **数据即数据,不硬编码** | `BUSINESS_RULES.md R6` | 客户/币种/口岸/产品品类都是数据,不是代码分支 |
-| **Schema 三处同步** | `BUSINESS_RULES.md R7` | 改 schema 同步 `01_schema.sql` + `SQLITE_SCHEMA` + `DERIVED_RULES` |
+| **Schema 四处同步** | `BUSINESS_RULES.md R7` | 改 schema 同步 `01_schema.sql` + `SQLITE_SCHEMA` + `DERIVED_RULES` + `sample/templates/*_template.csv` 表头 |
 | **真实数据不进仓库** | `BUSINESS_RULES.md R8` | 真实业务数据只放 `data/` / `private/` |
 
 ---
@@ -509,7 +509,7 @@
 - AC1:`short_qty = quantity - actual_quantity`(正=短装,负=超装)
 - AC2:**唯一走 DB 生成列的派生字段** —— MySQL `GENERATED ALWAYS AS (quantity - actual_quantity) STORED`(`sql/01_schema.sql` 第 498 行;`DATA_MODEL.md §5.1` 表格 ⚠️ 标注)
 - AC3:SQLite 镜像和 `csv_to_sql.py` 走应用层兜底版(`DERIVED_RULES["delivery_order_items"]["short_qty"]`)
-- AC4:改 schema 时同步三处(`BUSINESS_RULES.md R7`)
+- AC4:改 schema 时同步四处(`BUSINESS_RULES.md R7`)
 
 **涉及数据表**:`delivery_order_items`。规则出处 `BUSINESS_RULES.md R5`(唯一例外说明)。
 
@@ -961,19 +961,21 @@
 
 ---
 
-### F10.2 Schema 三处同步
+### F10.2 Schema 四处同步
 
-**用户故事**(开发约束):作为开发者,我想改 schema 时三个地方同步更新,以便校验不"对不上"。
+**用户故事**(开发约束):作为开发者,我想改 schema 时四个地方同步更新,以便校验不"对不上"。
 
-**三处**(`BUSINESS_RULES.md R7`):
+**四处**(`BUSINESS_RULES.md R7`):
 1. `sql/01_schema.sql` — MySQL 真表
 2. `tools/local_validator.py::SQLITE_SCHEMA` — SQLite 镜像
 3. `tools/csv_to_sql.py::DERIVED_RULES` — 派生字段(仅当字段是派生时)
+4. `sample/templates/<表名>_template.csv` — CSV 模板表头(2026-07-30 真实数据试用踩坑后新增)
 
 **验收标准**:
 - AC1:漏一处校验即对不上(铁律)
 - AC2:`delivery_order_items.short_qty` 例外说明:同时走 DB 生成列 + 应用层兜底版(见 F5.3)
 - AC3:加新派生字段同步更新 `DATA_MODEL.md §5.1` 表格
+- AC4:**模板表头与 schema 字段一致** —— `bash scripts/check-template-schema-sync.sh` 退出码 0(已集成进 `run_local_validation.sh` 第 2b 步,系统字段 `id`/`created_at`/`updated_at`/`deleted_at` 自动豁免)
 
 ---
 
@@ -1034,7 +1036,7 @@ bash scripts/run_local_validation.sh --demo    # demo 假数据
 ## 附录 A:文档维护约定
 
 - **加新功能点**:先确认系统**真实已有**该能力(查 `sql/01_schema.sql` 字段 / `tools/local_validator.py` 校验函数),不臆造未来功能;未来功能放 §11 阶段二规划。
-- **改 schema**:同步三处(`BUSINESS_RULES.md R7`),并更新本 SPECS 涉及功能点的"涉及数据表"引用。
+- **改 schema**:同步四处(`BUSINESS_RULES.md R7`),并更新本 SPECS 涉及功能点的"涉及数据表"引用。
 - **加新校验步骤**:更新 §F10.3 的 16 步覆盖对照表(校验步骤号映射见 `VALIDATION_GUIDE §3`)。
 - **真实数据不进仓库**(`BUSINESS_RULES.md R8`):本 SPECS 不引用任何真实客户/供应商/合同数据,示例编号(如 `SC20260726001` / `TR20260729001`)均为格式示例。
 

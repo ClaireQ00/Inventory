@@ -45,11 +45,12 @@ amount + currency + exchange_rate + amount_cny
 - **amount_cny 永远派生**：`tools/csv_to_sql.py::DERIVED_RULES` 自动算，不要手填
 - 影响表：`sales_contracts` / `shipping_records` / `credit_notes` / `receipts`
 
-## 改 schema 必须 sync 的三个地方（漏一处就校验对不上）
+## 改 schema 必须 sync 的四个地方（漏一处就校验对不上）
 
 1. `sql/01_schema.sql` — MySQL 真表
 2. `tools/local_validator.py::SQLITE_SCHEMA` — SQLite 镜像
 3. `tools/csv_to_sql.py::DERIVED_RULES` — 派生字段（仅当字段是派生时）
+4. `sample/templates/<表名>_template.csv` — CSV 模板表头（2026-07-30 真实数据试用踩坑后补，第 4 处由 `scripts/check-template-schema-sync.sh` 自动兜底）
 
 派生字段默认走应用层（Python 算），不用 MySQL GENERATED COLUMN。目前唯一例外是 `delivery_order_items.short_qty`（纯行内计算）。
 

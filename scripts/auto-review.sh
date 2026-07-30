@@ -82,8 +82,8 @@ if [[ -x scripts/run_local_validation.sh ]]; then
     echo "" >&2
     echo "修复提示：" >&2
     echo "  1. 看上面的错误信息，定位是哪一步挂了" >&2
-    echo "  2. 常见原因：改了 schema 漏了 SQLITE_SCHEMA / DERIVED_RULES 三处同步" >&2
-    echo "  3. 可以让 schema-sync-checker subagent 帮你查三处同步" >&2
+    echo "  2. 常见原因：改了 schema 漏了 SQLITE_SCHEMA / DERIVED_RULES / 模板表头 四处同步" >&2
+    echo "  3. 可以让 schema-sync-checker subagent 帮你查四处同步；第 4 处（模板表头）可先跑 bash scripts/check-template-schema-sync.sh" >&2
     exit 2
   fi
 fi

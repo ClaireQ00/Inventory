@@ -41,11 +41,11 @@
 | Subagent | 做什么 | 工具权限（故意限制） | 何时用 |
 | --- | --- | --- | --- |
 | `code-reviewer` | 代码审查 + 跑校验 + 出分级报告 | `Read, Grep, Glob, Bash`（**不给 Edit/Write**——审查员不能自己改代码） | 改完 `sql/`、`tools/`、`scripts/`、`.claude/skills/` 后做正式 review |
-| `schema-sync-checker` | 专查 schema 三处同步 + 金额四件套完整性 | `Read, Grep, Glob`（**纯只读，连 Bash 都不给**——避免跟 code-reviewer 重叠） | 改了表结构 / 加新表 / 加派生字段后做同步性检查 |
+| `schema-sync-checker` | 专查 schema 四处同步（含模板表头，第 4 处半自动） + 金额四件套完整性 | `Read, Grep, Glob`（**纯只读，连 Bash 都不给**——避免跟 code-reviewer 重叠） | 改了表结构 / 加新表 / 加派生字段后做同步性检查 |
 
 **怎么调用**：让主 Claude 在适当时机用 Task 工具拉起，或直接说"用 code-reviewer 看一下这次改动"。
 
-**与内置 `code-review` 的区别**：内置的是通用代码审查；项目专属的 `code-reviewer` 内置了项目的 4 条铁律（金额四件套 / schema 三处同步 / skill 路由互斥 / 不硬编码样本数据），不用每次再解释。
+**与内置 `code-review` 的区别**：内置的是通用代码审查；项目专属的 `code-reviewer` 内置了项目的 4 条铁律（金额四件套 / schema 四处同步 / skill 路由互斥 / 不硬编码样本数据），不用每次再解释。
 
 ### 1.3 真实可用的自检命令
 

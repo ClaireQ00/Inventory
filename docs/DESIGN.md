@@ -18,7 +18,7 @@
 | 为什么调拨不建独立表、负库存允许 | §5 |
 | 为什么校验放在导入时、ERROR/WARN 怎么分 | §6 |
 | 为什么客户/币种/品类都是数据不硬编码 | §7 |
-| 为什么 schema 要三处同步 | §8 |
+| 为什么 schema 要四处同步 | §8 |
 | 为什么报价 brief/formal 共用表、subtotal 用直接公式 | §9 |
 
 ---
@@ -96,7 +96,7 @@
 - **纯行内计算**——`short_qty` 只依赖同一行的 `quantity` 和 `actual_quantity`,**不跨表、不容差、不分路径**。DB 生成列恰好擅长这种场景。
 - **强一致性**——`actual_quantity` 一改,`short_qty` 自动重算,不存在"应用层忘算"的风险。
 
-**三处同步的体现**(`BUSINESS_RULES.md R7`):
+**前三处同步的体现**(`BUSINESS_RULES.md R7` 前三处):
 | 位置 | 实现方式 | 代码位置 |
 | --- | --- | --- |
 | MySQL 真表 | DB 生成列 | `sql/01_schema.sql:498` |
@@ -294,20 +294,21 @@
 
 ---
 
-## 8. 三处同步设计(关键决策)
+## 8. 四处同步设计(关键决策)
 
-### 8.1 决策:改 schema 必须同步三处
+### 8.1 决策:改 schema 必须同步四处
 
 **规则**(详见 `BUSINESS_RULES.md R7`):
 1. `sql/01_schema.sql` — MySQL 真表
 2. `tools/local_validator.py::SQLITE_SCHEMA` — SQLite 镜像
 3. `tools/csv_to_sql.py::DERIVED_RULES` — 派生字段(仅当字段是派生时)
+4. `sample/templates/<表名>_template.csv` — CSV 模板表头(2026-07-30 真实数据试用踩坑后新增)
 
-### 8.2 理由:为什么必须三处同步
+### 8.2 理由:为什么必须四处同步
 
-**根本原因**:SQLite 校验层和 MySQL 生产层是**两套独立的 schema**,加上派生字段规则是**第三处独立逻辑**。三处各管一摊,漏一处就会出现"MySQL 能跑但 SQLite 校验报错"或"派生字段在 CSV 转换时算错"的不一致。
+**根本原因**:SQLite 校验层和 MySQL 生产层是**两套独立的 schema**,派生字段规则是**第三处独立逻辑**,CSV 模板表头是**第四处独立约束**。四处各管一摊,漏一处就会出现"MySQL 能跑但 SQLite 校验报错"或"派生字段在 CSV 转换时算错"或"模板表头跟 schema 字段对不上,录入时列错位"的不一致。
 
-**证据(`short_qty` 这个例子最能说明)**:
+**证据(`short_qty` 这个例子最能说明前三处)**:
 
 | 位置 | 实现 | 代码行 |
 | --- | --- | --- |
@@ -320,23 +321,36 @@
 - CSV 转换时 `short_qty` 不会被算出来(`DERIVED_RULES` 没这条规则)
 - → 校验通过但数据是错的
 
-所以三处必须同步,`BUSINESS_RULES.md R7` 列为铁律。
+**第 4 处(模板表头)踩过的坑**(2026-07-30):customers 表加了 `brand_name`/`company_profiles`/`billing_profiles` 3 个字段,但 `sample/templates/customers_template.csv` 表头没同步,真实数据 CSV 按旧模板填,多列地址被塞进 `bank_account`,触发 `ERROR 1406 Data too long`。
+
+所以四处必须同步,`BUSINESS_RULES.md R7` 列为铁律。
 
 ### 8.3 校验机制
 
-本项目用**静态对照**保证三处一致(`schema-sync-checker` agent 专门做这事),而非运行时检测。原因:
-- 三处是**异构**(SQL / Python 字符串 / Python 字典),运行时统一检测复杂
-- 改动频率低(加字段才需要同步),静态对照 + 人工 review 足够
-- 配合 13 步校验(`scripts/run_local_validation.sh`)做最终兜底——如果三处没同步,某个 check 函数会报错
+本项目用**静态对照**保证四处一致,而非运行时检测:
+
+| 检查对象 | 检查方式 | 入口 |
+| --- | --- | --- |
+| 前三处(schema/SQLite/派生) | `schema-sync-checker` agent 静态对照 + 人工 review | `.claude/agents/schema-sync-checker.md` |
+| 第四处(模板表头) | **自动化** `check-template-schema-sync.sh`,对比 schema CREATE TABLE 字段 vs 模板表头 | `scripts/run_local_validation.sh` 第 2b 步 |
+
+原因:
+- 前三处是**异构**(SQL / Python 字符串 / Python 字典),运行时统一检测复杂
+- 模板表头对 schema 字段是**纯字符串比对**,可以全自动化(系统字段 `id`/`created_at`/`updated_at`/`deleted_at` 自动豁免)
+- 改动频率低(加字段才需要同步),前三处静态对照 + 人工 review 足够;第四处加上自动化兜底,彻底堵死"漏改模板"的常见坑
+- 配合 16 步校验(`scripts/run_local_validation.sh`)做最终兜底——如果四处没同步,某个 check 函数会报错
 
 ### 8.4 维护清单
 
 | 改动类型 | 同步动作 |
 | --- | --- |
-| 加新字段(非派生) | 改 `01_schema.sql` + `SQLITE_SCHEMA` |
-| 加新派生字段 | 改 `01_schema.sql` + `SQLITE_SCHEMA` + `DERIVED_RULES` + `DATA_MODEL.md §5.1` 表格 |
-| 加新表 | 改 `01_schema.sql` + `SQLITE_SCHEMA` + `DATA_MODEL.md §2/§3/§4` |
+| 加新字段(非派生) | 改 `01_schema.sql` + `SQLITE_SCHEMA` + **模板表头**(`sample/templates/<表名>_template.csv`) |
+| 加新派生字段 | 改 `01_schema.sql` + `SQLITE_SCHEMA` + `DERIVED_RULES` + **模板表头** + `DATA_MODEL.md §5.1` 表格 |
+| 加新表 | 改 `01_schema.sql` + `SQLITE_SCHEMA` + 新建模板表头 + `DATA_MODEL.md §2/§3/§4` |
 | 改 ENUM 值 | 改 `01_schema.sql` + `SQLITE_SCHEMA`(SQLite 是 TEXT 不严格,但保持一致) |
+| 删字段 / 删表 | 改对应 schema/SQLite/派生,**同步删模板**(`audit_logs_template.csv` 阶段一就是这样删的) |
+
+> 改完后跑 `bash scripts/run_local_validation.sh`,第 2b 步自动校验模板表头一致性(WARN 不阻断,但建议尽快修)。
 
 ---
 
