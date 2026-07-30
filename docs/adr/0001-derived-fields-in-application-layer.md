@@ -39,7 +39,7 @@
 ### 为什么选应用层,不选 DB 生成列
 
 **1. 跨表派生,DB 生成列做不了。**
-`purchase_order_items.volume_subtotal` 依赖 `products.volume`(单件体积),这是**跨表**关系。MySQL `GENERATED COLUMN` 只能引用**本行**其他列,跨表 JOIN 它管不了。所以这种字段只能在 Python 端算完再落库。证据:`local_validator.py::check_volume_subtotals`(步骤 8/13)专门做跨表体积校验,正是因为 DB 约束保证不了。
+`purchase_order_items.volume_subtotal` 依赖 `products.volume`(单件体积),这是**跨表**关系。MySQL `GENERATED COLUMN` 只能引用**本行**其他列,跨表 JOIN 它管不了。所以这种字段只能在 Python 端算完再落库。证据:`local_validator.py::check_volume_subtotals`(步骤 8/15)专门做跨表体积校验,正是因为 DB 约束保证不了。
 
 **2. 反向校验需要容差逻辑,DB 表达不了。**
 客户经常"上下浮动"填一个值(比如理论米重 100g,客户填 102g),系统不能强行覆盖,而是要**比对公式值,超容差才报错**。`apply_derived_rules` 做的是"软约束 + 容差":CSV 没填就自动算,填了就跟公式比,超容差报 ERROR。DB 生成列是**硬覆盖**——客户填的值会被直接丢掉,这违背业务需求(R4:按客户给定值保存)。
@@ -96,6 +96,6 @@
   - `tools/csv_to_sql.py:574`(`depends_on_any`)、`tools/csv_to_sql.py:621`(`tolerance_mode`)
   - `sql/01_schema.sql:498`(`short_qty` DB 生成列,唯一例外)
   - `tools/local_validator.py:277`(`short_qty` 在 SQLite 镜像里是普通 INT)
-  - `tools/local_validator.py::check_volume_subtotals`(步骤 8/13,跨表体积校验)
+  - `tools/local_validator.py::check_volume_subtotals`(步骤 8/15,跨表体积校验)
 
 DONE

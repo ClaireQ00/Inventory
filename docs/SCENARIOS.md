@@ -87,7 +87,7 @@ bash scripts/run_local_validation.sh --demo
 | 5/14 | **WARN**：「合同 SC20260720001 / 物料 DEMO-M-001: 已发 5 < 合同 8（未发完）」「物料 DEMO-M-002: 已发 10 < 合同 14（未发完）」 | 发货 5/10 < 合同 8/14（`check_delivery_vs_contract:641-644`） |
 | 6/14 | **通过** | 物料1仓1：入10 出5+3调拨=8 ≤ 10；物料2仓1：入10 出10 恰好平衡（`check_stock_out_vs_inventory:689-694`） |
 | 7/14 | **通过** | 流水累加 = inventory（10-5-3=2；10-10=0；调拨入=3）（`check_reconciliation:776-788`） |
-| 8/14 | **通过** | DEMO-M-001 单件体积 40²×30×0.93/1e6=0.04464，PO 填 0.446（10件），偏差 0.0004 ≤ 0.01（`check_volume_subtotals:836-840`） |
+| 8/14 | **通过** | DEMO-M-001 外观外径40²×外观高度30×0.93/1e6=0.04464，PO 填 volume_subtotal=0.446（10件），偏差 0.0004 ≤ 0.01（`check_volume_subtotals:836-840`） |
 | 9/14 | **通过**（不触发任何 WARN/ERROR） | 报关 actual_qty = planned_qty（5/5, 10/10），偏差 0%（`check_shipping_vs_delivery:870-884`，`ratio>0` 才进 WARN 分支） |
 | 10/14 | **通过**（跳过） | credit_notes 空表，`SELECT ... WHERE resolution='pending'` 返回 0 行（`check_credit_notes_balance:900-905`） |
 | 11/14 | **通过** | MAX(effective_date)=2026-07-01，不早于本月1号 2026-07-01（`check_exchange_rates:973-987`） |

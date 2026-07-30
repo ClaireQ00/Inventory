@@ -383,13 +383,12 @@ erDiagram
 | `products` | `id_x_od` | 字符串拼接,如 `6.5x10.5` | 无(字符串) | `DERIVED_RULES["products"]["id_x_od"]` + `_format_id_od` |
 | `products` | `weight` | (内径+厚度)×厚度×3.14×密度×长度/1000 | 5% | `DERIVED_RULES["products"]["weight"]` + `calc_theoretical_weight` |
 | `products` | `weight_per_meter` | (内径+厚度)×厚度×3.14×密度 | 5% | `DERIVED_RULES["products"]["weight_per_meter"]` + `calc_theoretical_weight_per_meter` |
-| `products` | `volume` | 外观外径² × 外观高度 × 0.93 / 1e6 (CBM) | 0.001 m³ | `DERIVED_RULES["products"]["volume"]` |
-| `products` | `volume_subtotal` | 同 volume(products 表内同义) | 0.001 m³ | `DERIVED_RULES["products"]["volume_subtotal"]` |
+| `products` | `volume` | 外观外径(mm)² × 外观高度(mm) × 0.93 / 1e6 (CBM) | 0.001 m³ | `DERIVED_RULES["products"]["volume"]` |
 | `purchase_order_items` | `subtotal` | 数量 × 单价 | 0.01 | `DERIVED_RULES["purchase_order_items"]["subtotal"]` |
 | `purchase_order_items` | `volume_subtotal` | 单件体积 × 数量 | 0.01 | `DERIVED_RULES["purchase_order_items"]["volume_subtotal"]` |
 | `sales_contract_items` | `subtotal` | 数量 × 单价 | 0.01 | `DERIVED_RULES["sales_contract_items"]["subtotal"]` |
 | `sales_contract_items` | `volume_subtotal` | 单件体积 × 数量 | 0.01 | `DERIVED_RULES["sales_contract_items"]["volume_subtotal"]` |
-| `delivery_order_items` | `volume_subtotal` | 单件体积 × 数量 | 0.01 | `DERIVED_RULES["delivery_order_items"]["volume_subtotal"]` |
+| `delivery_order_items` | `volume_subtotal` | 单件体积 × quantity (计划数) | 0.01 | `DERIVED_RULES["delivery_order_items"]["volume_subtotal"]` |
 | `delivery_order_items` | `short_qty` | 计划 - 实际(应用层兜底版) | 0 | `DERIVED_RULES["delivery_order_items"]["short_qty"]` |
 | `delivery_order_items` | `short_qty` ⚠️ | **同字段,DB 生成列版**(MySQL `GENERATED ALWAYS AS`) | — | `sql/01_schema.sql` 第 498 行 |
 | `shipping_record_items` | `subtotal_usd` | 实际装柜数 × 单价 | 0.01 | `DERIVED_RULES["shipping_record_items"]["subtotal_usd"]` |
@@ -431,7 +430,7 @@ erDiagram
 
 有些派生字段依赖跨表数据,`csv_to_sql.py` 做不了,只能在校验时算:
 
-- **明细表 `volume_subtotal`** vs **`products.volume`**:跨表校验在 `check_volume_subtotals`(步骤 8/14)。单件体积公式:`appearance_outer² × appearance_height × 0.93 / 1e6`(圆盘装箱经验系数 0.93)。
+- **明细表 `volume_subtotal`** vs **`products.volume`**:跨表校验在 `check_volume_subtotals`(步骤 8/15)。单件体积公式:`appearance_outer(mm)² × appearance_height(mm) × 0.93 / 1e6`(圆盘装箱经验系数 0.93;1e6 把 mm³ 换算成 m³)。各明细表 `volume_subtotal = products.volume × quantity`,`delivery_order_items` 也按计划数 `quantity` 算,装柜后 `actual_quantity` 只影响报关/短装链路,不改体积小计。
 
 ### 5.5 跨字段一致性(WARN 级)
 

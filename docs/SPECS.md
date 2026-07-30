@@ -74,7 +74,7 @@
 **输入(CSV 字段)**:
 - 必填:`material_id`(企业内部唯一)、`inner_diameter`(内径 mm)、`length`(长度 m)、`product_category`(决定密度)
 - 任选 1~3 个:`thickness` / `weight_per_meter` / `weight`
-- 外观(算体积用,可选):`appearance_outer`(cm)、`appearance_height`(cm)
+- 外观(算体积用,可选):`appearance_outer`(外观外径 mm)、`appearance_height`(外观高度 mm)
 - 虚标(可选,业务约定):`virtual_weight` 虚重、`virtual_length` 虚米
 
 **输出**:
@@ -103,8 +103,7 @@
 **输出**(由 `apply_derived_rules()` 自动加算):
 - `outer_diameter` = `inner_diameter + thickness × 2`(mm,容差 0.05)
 - `id_x_od` = `"{inner}x{outer}"` 字符串(如 `32x40.36`)
-- `volume` = `appearance_outer² × appearance_height × 0.93 / 1e6`(CBM,容差 0.001;0.93 是圆盘装箱系数)
-- `volume_subtotal`(products 表内与 `volume` 语义等价,兼容字段)
+- `volume` = `appearance_outer(mm)² × appearance_height(mm) × 0.93 / 1e6`(CBM,容差 0.001;0.93 是圆盘装箱系数;1e6 把 mm³ 换算成 m³)
 
 **验收标准**:
 - AC1:CSV 里派生列为空 → 按公式自动填入(`derived-fields/SKILL.md §5`)
@@ -359,7 +358,7 @@
 **验收标准**:
 - AC1:校验范围 `purchase_order_items` / `sales_contract_items` / `delivery_order_items` 三张明细表(见 VALIDATION_GUIDE 第 8 步;代码 `check_volume_subtotals`)
 - AC2:`products.volume` = `appearance_outer² × appearance_height × 0.93 / 1e6`(单件体积公式,见 F1.2)
-- AC3:`delivery_order_items.volume_subtotal` 按 `actual_quantity` 算(实际装柜数)
+- AC3:`delivery_order_items.volume_subtotal` 按 `quantity`(计划发货数)算,装柜后短装不改(实际装柜数 `actual_quantity` 只影响报关/短装链路,不影响体积小计)
 
 **涉及数据表**:各明细表 + `products`。
 

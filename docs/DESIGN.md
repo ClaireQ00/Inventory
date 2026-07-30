@@ -80,7 +80,7 @@
 
 派生字段集中在 `tools/csv_to_sql.py::DERIVED_RULES`(csv_to_sql.py:47-334),共 8 张表 19 个派生字段(完整清单见 `DATA_MODEL.md §5.1`)。走应用层而非 DB 生成列,理由有四:
 
-1. **跨表派生 DB 做不了**。`purchase_order_items.volume_subtotal` 依赖 `products.volume`(单件体积),这是跨表关系。MySQL `GENERATED COLUMN` 只能引用**本行**其他列,无法跨表 JOIN。所以这种字段只能在 Python 端算完再落库。证据:`local_validator.py::check_volume_subtotals`(步骤 8/13,local_validator.py:791)专门做跨表体积校验,因为它无法靠 DB 约束保证。
+1. **跨表派生 DB 做不了**。`purchase_order_items.volume_subtotal` 依赖 `products.volume`(单件体积),这是跨表关系。MySQL `GENERATED COLUMN` 只能引用**本行**其他列,无法跨表 JOIN。所以这种字段只能在 Python 端算完再落库。证据:`local_validator.py::check_volume_subtotals`(步骤 8/15,local_validator.py:885)专门做跨表体积校验,因为它无法靠 DB 约束保证。
 
 2. **反向校验需要容差逻辑**。客户经常"上下浮动"填一个值,系统不能强行覆盖,而是要**比对公式值,超容差才报错**。`apply_derived_rules`(csv_to_sql.py:547-642)实现了"加算 + 反向校验"双行为:CSV 没填就自动算,填了就跟公式比,超容差(`tolerance_mode` 支持 `absolute`/`percent`,csv_to_sql.py:621-629)报 ERROR。这种"软约束 + 容差"逻辑 DB 生成列完全表达不了——生成列是硬覆盖,客户填的值会被直接丢掉。
 
