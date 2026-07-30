@@ -116,8 +116,9 @@ DERIVED_RULES = {
             "tolerance_mode": "percent",
             "description": "米重(g/m) = (内径+厚度)×厚度×3.14×密度",
         },
-        # A4: 单件体积 CBM (m³) = 外观外径(cm)² × 外观高度(cm) × 0.93 / 1e6
+        # A4: 单件体积 CBM (m³) = 外观外径(mm)² × 外观高度(mm) × 0.93 / 1e6
         # 外贸装箱经验系数 0.93: 圆盘装箱比正方体小、比圆柱体大, 用 0.93 估算
+        # 单位铁律: appearance_outer / appearance_height 都是 mm, 1e6 把 mm³ 换算成 m³
         "volume": {
             "expr": lambda row: (
                 lambda ao, ah: _safe_div(
@@ -131,27 +132,7 @@ DERIVED_RULES = {
             ),
             "depends_on": ["appearance_outer", "appearance_height"],
             "tolerance": 0.001,  # m³
-            "description": "单件体积(CBM) = 外观外径(cm)² × 外观高度(cm) × 0.93 / 1e6",
-        },
-        # A4b: 体积小计 (m³) - products 表里这个字段表示"整卷的体积"
-        # 跟 volume 是同一个东西, 只是命名不同, 这里保持兼容
-        # volume_subtotal 字段在 products 里如果空了, 就用 volume 算
-        "volume_subtotal": {
-            "expr": lambda row: _safe_div(
-                _safe_mul(
-                    _safe_mul(
-                        _to_float(row.get("appearance_outer")),
-                        _to_float(row.get("appearance_outer")),
-                    ),
-                    _to_float(row.get("appearance_height")),
-                    6,
-                ),
-                1_000_000 / 0.93,  # 反向: 把 0.93 系数除掉再除 1e6
-                ndigits=4,
-            ),
-            "depends_on": ["appearance_outer", "appearance_height"],
-            "tolerance": 0.001,
-            "description": "体积小计(m³) = 外观外径² × 外观高度 × 0.93 / 1e6",
+            "description": "单件体积(CBM) = 外观外径(mm)² × 外观高度(mm) × 0.93 / 1e6",
         },
     },
 

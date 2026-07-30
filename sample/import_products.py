@@ -138,6 +138,16 @@ def compute_derived_fields(row_data: dict[str, Any]) -> None:
         outer = row_data.get('outer_diameter')
         if inner is not None and outer is not None:
             row_data['id_x_od'] = f"{format_decimal(inner)}x{format_decimal(outer)}"
+    # 单件体积 = 外观外径(mm)² × 外观高度(mm) × 0.93 / 1e6  (圆盘装箱经验系数)
+    if row_data.get('volume') is None:
+        ao = row_data.get('appearance_outer')
+        ah = row_data.get('appearance_height')
+        if ao is not None and ah is not None:
+            try:
+                vol = (Decimal(str(ao)) ** 2) * Decimal(str(ah)) * Decimal('0.93') / Decimal('1000000')
+                row_data['volume'] = vol.quantize(Decimal('0.0001'))
+            except Exception:
+                pass
 
 
 def read_products_from_excel(path: Path, sheet_name: str) -> list[dict[str, Any]]:

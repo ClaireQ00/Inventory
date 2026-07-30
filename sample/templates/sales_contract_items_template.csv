@@ -1,2 +1,2 @@
-contract_id,product_id,quantity,unit_price,subtotal,delivered_qty,remark
-1,1,5,3000.00,15000.00,0,示例销售合同明细
+contract_id,product_id,quantity,unit_price,subtotal,volume_subtotal,delivered_qty,remark
+1,1,5,3000.00,15000.00,0.223,0,示例销售合同明细 (volume_subtotal = 单件体积 × quantity)

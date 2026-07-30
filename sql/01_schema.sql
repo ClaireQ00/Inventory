@@ -36,6 +36,11 @@ CREATE DATABASE IF NOT EXISTS inventory_db
 
 USE inventory_db;
 
+-- 建表阶段关闭外键检查: 部分表(如 stock_out)的外键引用了定义在后面的表(如 delivery_orders),
+-- MySQL 建表时会立即检查被引用表是否存在, 顺序不对就报 ERROR 1824。
+-- 关掉检查让所有表先建完, 末尾再恢复, 不影响任何外键约束本身。
+SET FOREIGN_KEY_CHECKS=0;
+
 -- ============================================================
 -- 模块一: 基础资料
 -- ============================================================
@@ -76,8 +81,7 @@ CREATE TABLE products (
     appearance_inner    DECIMAL(8,2) DEFAULT NULL       COMMENT '外观内径(mm) [S2]',
     appearance_outer    DECIMAL(8,2) DEFAULT NULL       COMMENT '外观外径(mm) [S2]',
     appearance_height   DECIMAL(8,2) DEFAULT NULL       COMMENT '外观高度(mm) [S2]',
-    volume              DECIMAL(12,6) DEFAULT NULL      COMMENT '体积(原始值) [S2]',
-    volume_subtotal     DECIMAL(12,6) DEFAULT NULL      COMMENT '体积小计(m³) [S2]',
+    volume              DECIMAL(12,6) DEFAULT NULL      COMMENT '单件体积(m³) = appearance_outer² × appearance_height × 0.93 / 1e6 [S2]',
     package             VARCHAR(32)  DEFAULT ''         COMMENT '包装 [S1] 如 PE膜',
     label_paper         VARCHAR(32)  DEFAULT ''         COMMENT '标签纸 [S2] 如 小(A)',
     material_used       VARCHAR(32)  DEFAULT ''         COMMENT '用料 [S1] 如 A25橙',
@@ -502,7 +506,7 @@ CREATE TABLE delivery_order_items (
     quantity            INT          NOT NULL           COMMENT '计划发货数量(件/卷, 商务承诺)',
     actual_quantity     INT          NOT NULL DEFAULT 0 COMMENT '实际发货数量(装柜后填, 默认=quantity, 短装时<quantity)',
     short_qty           INT          GENERATED ALWAYS AS (quantity - actual_quantity) STORED COMMENT '短装数(自动算=计划-实际, 正=短装, 负=超装)',
-    volume_subtotal     DECIMAL(10,4) DEFAULT 0.0000    COMMENT '体积小计(CBM) = 单件体积 × actual_quantity',
+    volume_subtotal     DECIMAL(10,4) DEFAULT 0.0000    COMMENT '体积小计(CBM) = 单件体积 × quantity (按计划数, 装柜后短装不改)',
     -- [R11] Packing Plan 公斤价反算核对 (2026-07-29 加)
     -- 业务背景: 简要报价按 公斤系数(USD/KG) × 单重 定价; 后续制作发货单(Packing Plan)时,
     --           要用"报价单的公斤价"正算"应等于的合同单价", 与实际合同单价对比, 差 0.001 内正常。
@@ -826,3 +830,6 @@ CREATE TABLE quotation_items (
 
 CREATE INDEX idx_qi_quote ON quotation_items(quote_id);
 CREATE INDEX idx_qi_group ON quotation_items(group_code);
+
+-- 恢复外键检查 (与文件开头的 SET FOREIGN_KEY_CHECKS=0 配对)
+SET FOREIGN_KEY_CHECKS=1;
