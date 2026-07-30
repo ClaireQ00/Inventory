@@ -14,7 +14,7 @@
 | --- | --- | --- |
 | `products_template.csv` | `products` | 物料主数据（含密度/尺寸/重量属性） |
 | `warehouses_template.csv` | `warehouses` | 仓库目录 |
-| `suppliers_template.csv` | `suppliers` | 供应商名录 |
+| `suppliers_template.csv` | `suppliers` | 供应商名录（含本公司 `is_self=1` + 中文开票资料 `company_profiles` + 外币账户资料 `billing_profiles`） |
 | `customers_template.csv` | `customers` | 客户名录 |
 
 ### 模块 2：采购（2 个）
@@ -28,7 +28,7 @@
 
 | 模板文件 | 对应表 | 备注 |
 | --- | --- | --- |
-| `sales_contracts_template.csv` | `sales_contracts` | 合同主表（**含金额四件套 + 贸易术语 FOB/CIF/CFR/EXW**） |
+| `sales_contracts_template.csv` | `sales_contracts` | 合同主表（**含金额四件套 + 贸易术语 FOB/CIF/CFR/EXW + 付款条件 payment_term + 包装条款 packing**，后两项从 formal 报价转单时拷贝） |
 | `sales_contract_items_template.csv` | `sales_contract_items` | 合同明细 |
 
 ### 模块 4：库存（5 个）
@@ -70,7 +70,7 @@
 | 模板文件 | 对应表 | 备注 |
 | --- | --- | --- |
 | `quotation_params_template.csv` | `quotation_params` | 报价全局参数（默认汇率/币种/有效期，键值对） |
-| `quotations_template.csv` | `quotations` | 报价主表（**金额四件套** + brief 简要报价 / formal 正式 QT + parent_quote_id 派生链） |
+| `quotations_template.csv` | `quotations` | 报价主表（**金额四件套** + brief 简要报价 / formal 正式 QT + parent_quote_id 派生链 + **5 个贸易条款 trade_terms/port_loading/port_discharge/payment_term/packing**，brief 留空、formal 补齐） |
 | `quotation_items_template.csv` | `quotation_items` | 报价明细（**R10 系数定价**：unit_price = weight_per_unit × price_coefficient） |
 
 > **R10 报价定价铁律**：报价不存绝对价，只存"单卷重量 × 报价系数(USD/KG)"。同组管径共用一个系数（如 `A组-1.112`），改一个系数整组价格自动更新。详见 `docs/BUSINESS_RULES.md` R10。

@@ -8,8 +8,10 @@
 
 | 中文 | 英文 / 缩写 | 含义 | 对应数据表 |
 | --- | --- | --- | --- |
-| 询盘 / 形式发票 | PI (Proforma Invoice) | 客户询价阶段的报价单,属于"承诺(报价)"性质 | (暂不落表) |
-| 销售合同 | SC (Sales Contract) | 双方签字的合同,合同账的起点 | `sales_contracts` + `sales_contract_items` |
+| 询盘 | (Inquiry) | 客户邮件/WhatsApp 问价,纯口头或邮件 | (不落表) |
+| 简要报价 | brief | 询盘后的**初版轻量报价**,只含"每卷重量 × 系数 × 数量"算出的单价/小计,不带贸易条款 | `quotations`(`quote_type='brief'`) + `quotation_items` |
+| 形式发票 | PI / PROFORMA INVOICE | 客户确认简要报价后,发出的**正式报价单**,含完整贸易/付款/包装条款,作为承诺(报价)性质的单据 | `quotations`(`quote_type='formal'`) + `quotation_items` |
+| 销售合同 | SC (Sales Contract) | 双方签字的合同,合同账的起点(从 formal 报价转单,回填 `converted_contract_id`) | `sales_contracts` + `sales_contract_items` |
 | 采购单 | PO (Purchase Order) | 接单后向供应商采购的承诺单 | `purchase_orders` + `purchase_order_items` |
 | 装箱计划 | Packing Plan | 装柜前 7-10 天的预估 | 不独立建表,反算核对字段挂在 `delivery_order_items` 上(`expected_unit_price`/`coeff_diff`/`coeff_check_status`),由第15步自动算(R11) |
 | 发货单 | DO / DN (Delivery Order / Note) | 装柜前 1-2 天的内部发货指令(计划数) | `delivery_orders` + `delivery_order_items` |
@@ -23,9 +25,12 @@
 | 原产地证 | CO (Certificate of Origin) | 产地证明 | (字段级) |
 | 贷记单 | CN (Credit Note) | 对账时处理两套账差异的差异单 | `credit_notes` |
 
-**流程时序**:PI → SC → PO → Packing Plan → DO → SO → SH/CI/PL → CN(如有差异)。
+**流程时序**:询盘 → brief → formal(PI) → SC → PO → Packing Plan → DO → SO → SH/CI/PL → CN(如有差异)。
 **关键节点**:`delivery_orders`(合同账/计划)→ `shipping_records`(报关账/实际)之间允许 ±5% 偏差。
 **平行流程**:仓库间调拨(Transfer)可发生于任意时刻,平行于主线,由一对 SI+SO 共用 `transfer_ref` 实现,不进报关/收款流程。
+
+> **PI/正式报价术语澄清**(2026-07-29 修):本项目里 **PI = `quotations.quote_type='formal'` 的正式报价单**,**不是**独立表也不是销售合同。formal 含完整 5 个贸易条款字段(`trade_terms`/`port_loading`/`port_discharge`/`payment_term`/`packing`),brief 阶段条款留空待确认后补。转单时这些条款字段连同明细一起拷贝到 `sales_contracts`。
+> **卖方公司(自己)** 不单独建表,通过 `suppliers.is_self=1` 在供应商表里标记(合同模板通过 `WHERE is_self=1` 调取卖方开票/收款信息)。
 
 ## 2. 单据状态
 

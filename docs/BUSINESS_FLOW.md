@@ -28,10 +28,18 @@
 ## 2. 完整流程图（9 个节点）
 
 ```
-   [节点1] 询盘 PI ───────────── 业务经理 ────────── (口头/邮件, 不进表)
+   [节点1] 询盘 ──────────────── 业务经理 ────────── (口头/邮件, 不进表)
        │
        ▼
-   [节点2] 接单签 SC ─────────── 业务经理 ────────── sales_contracts + sales_contract_items
+   [节点1a] 简要报价 brief ────── 业务经理 ────────── quotations(quote_type='brief') + quotation_items
+       │                                            过 check 14 (报价金额=明细之和, subtotal 公式)
+       │                                            brief 不带贸易/付款/包装条款
+       ▼
+   [节点1b] 正式报价 formal(PI)── 业务经理 ────────── quotations(quote_type='formal', parent_quote_id 指向 brief)
+       │                                            带 5 个贸易条款: trade_terms/port_loading/port_discharge/payment_term/packing
+       │                                            过 check 14 (formal.parent_quote_id 必须指向 brief)
+       ▼
+   [节点2] 接单签 SC ─────────── 业务经理 ────────── sales_contracts + sales_contract_items (从 formal 转单拷贝条款)
        │                                            过 check 4 (合同金额=明细之和)
        │                                            过 check 11 (合同币种当月有汇率)
        ▼
@@ -70,15 +78,43 @@
 
 ## 3. 每个节点详解（谁填什么表，过什么校验，状态怎么变）
 
-### 节点 1：询盘（PI）
+### 节点 1：询盘
 
 | 项 | 说明 |
 | --- | --- |
 | **角色** | 业务经理 |
 | **触发** | 客户邮件/WhatsApp 问价 |
-| **填什么表** | ❌ **不进表**（口头或邮件报价，确认了才进下一节点） |
-| **业务单据** | 形式发票 PI（Proforma Invoice），类似菜单上的价格 |
-| **下一步** | 客户确认 → 节点 2 |
+| **填什么表** | ❌ **不进表**（口头或邮件沟通） |
+| **业务单据** | 无（询盘本身不落表） |
+| **下一步** | 业务经理整理出 brief → 节点 1a |
+
+### 节点 1a：简要报价（brief）
+
+| 项 | 说明 |
+| --- | --- |
+| **角色** | 业务经理 |
+| **触发** | 询盘后快速回应客户 |
+| **填什么表** | `quotations`(`quote_type='brief'`) + `quotation_items` |
+| **关键字段** | `quote_no`、`customer_id`、`quote_date`、`valid_until`、金额四件套(`total_amount`+`currency`+`exchange_rate`+`total_amount_cny`)、`status` |
+| **报价明细** | 每行 `product_id`(带出 `weight`/`volume`) + `weight_per_unit` + `price_coefficient`(USD/KG) + `quantity`,派生 `total_weight`/`unit_price`/`subtotal`/`total_volume` |
+| **过哪个校验** | **check 14**(主表 `total_amount = Σ quotation_items.subtotal`、subtotal = weight × coef × qty) |
+| **状态机** | `draft` → `sent` → `confirmed` → `converted` / `cancelled` |
+| **不带条款** | brief **不带** `trade_terms`/`port_loading`/`port_discharge`/`payment_term`/`packing`(这 5 字段留空,等 formal 阶段补) |
+| **下一步** | 客户口头确认意向 → 节点 1b 出正式报价 |
+
+### 节点 1b：正式报价（formal / PI）
+
+| 项 | 说明 |
+| --- | --- |
+| **角色** | 业务经理 |
+| **触发** | brief 得到客户确认意向,出含完整条款的正式报价 |
+| **填什么表** | `quotations`(`quote_type='formal'`,`parent_quote_id` 指向 brief 的 `id`) + `quotation_items`(formal 自己的明细,因 `uk_qi_quote_product` 不能共用 brief 明细) |
+| **关键字段** | 同 brief + 5 个贸易条款:`trade_terms`(FOB/CIF/CFR/EXW)、`port_loading`、`port_discharge`、`payment_term`(自由文本)、`packing`(自由文本) |
+| **业务单据** | PROFORMA INVOICE(PI),承诺性质,作为客户付定金/开证的依据 |
+| **卖方信息来源** | 合同模板通过 `WHERE suppliers.is_self=1` 调取本公司的 `company_profiles`/`billing_profiles` |
+| **过哪个校验** | **check 14**(formal 的 `parent_quote_id` 必须指向存在的 brief) |
+| **状态机** | 同 brief(`draft`/`sent`/`confirmed`/`converted`/`cancelled`) |
+| **下一步** | 客户签字确认 → 节点 2(转 SC 时拷贝 5 个贸易条款) |
 
 ### 节点 2：接单签销售合同（SC）
 
@@ -86,7 +122,8 @@
 | --- | --- |
 | **角色** | 业务经理 |
 | **填什么表** | `sales_contracts`（合同主表） + `sales_contract_items`（明细） |
-| **关键字段** | `contract_no`、`customer_id`、`currency`（默认 USD）、`exchange_rate`（当期月汇率）、`total_amount`、`trade_terms`（FOB/CIF/CFR/EXW）、`port_loading`、`port_discharge` |
+| **关键字段** | `contract_no`、`customer_id`、`currency`（默认 USD）、`exchange_rate`（当期月汇率）、`total_amount`、`trade_terms`（FOB/CIF/CFR/EXW）、`port_loading`、`port_discharge`、`payment_term`（自由文本）、`packing`（自由文本） |
+| **条款来源** | 从 formal 报价转单时拷贝过来(`trade_terms`/`port_loading`/`port_discharge`/`payment_term`/`packing`) |
 | **金额四件套** | `total_amount` + `currency` + `exchange_rate` + `total_amount_cny`（派生） |
 | **过哪个校验** | **check 4**（合同金额 = Σ 明细小计）、**check 11**（合同币种当月有汇率） |
 | **状态机** | `draft` → `confirmed` → `delivering` → `completed` / `cancelled` |
@@ -256,7 +293,9 @@
 
 | 交接点 | 交接物 | 谁给谁 | 关键字段必须对齐 |
 | --- | --- | --- | --- |
-| 询盘→接单 | PI 形式发票 | 业务经理 → 客户 | 报价币种 / 交期 |
+| 询盘→简要报价 | brief 报价单 | 业务经理 → 客户 | 报价币种 / 单价(subtotal 公式) / 数量 |
+| 简要报价→正式报价 | formal(PI) | 业务经理 → 客户 | 补 5 个贸易条款(trade_terms/port/payment_term/packing) |
+| 正式报价→接单 | 客户签字确认 | 客户 → 业务经理 | 同 formal 5 条款 + 数量/单价 |
 | 接单→采购 | 销售合同内部同步 | 业务经理 → 自己 | 合同数量 / 物料号 |
 | 采购→到货 | 采购单 | 业务经理 → 供应商 + 仓库 | `expected_date` |
 | 到货→入库 | 送货单 | 供应商 → 仓库 | 实收数量 |

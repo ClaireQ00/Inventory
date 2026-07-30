@@ -149,17 +149,19 @@
 
 ---
 
-### F1.5 供应商名录维护
+### F1.5 供应商名录维护(含本公司 is_self=1)
 
-**用户故事**:作为业务经理,我想录入供应商的联系/开票/收款资料,以便采购合同模板能调取这些全文还原成原始格式(含中文开票信息、外币账户等)。
+**用户故事**:作为业务经理,我想录入供应商的联系/开票/收款资料,以便采购合同模板能调取这些全文还原成原始格式(含中文开票信息、外币账户等)。同时**把本公司也录进来**(标记 `is_self=1`),这样销售合同/PI 模板调取卖方信息时能直接 `WHERE is_self=1` 查到。
 
-**输入**:`code`(唯一)、`name`、`contact_person`、`phone`、`bank_account`、`company_profiles`(多行 TEXT)、`billing_profiles`(多行 TEXT)
+**输入**:`code`(唯一)、`name`、`contact_person`、`phone`、`address`、`bank_account`、`company_profiles`(多行 TEXT)、`billing_profiles`(多行 TEXT)、`is_self`(0=外部供应商,1=本公司)、`is_active`
 
 **输出**:`suppliers` 表一行记录
 
 **验收标准**:
 - AC1:`code` 唯一(`suppliers.code` 有 `UNIQUE`)
 - AC2:`company_profiles` / `billing_profiles` 支持多行中文,`tools/csv_to_sql.py::sql_escape()` 已处理换行/引号转义(`DATA_MODEL.md §4.1` 备注)
+- AC3:`is_self` 完整性 —— 校验步骤 1(`check_master_data`)校验 `is_self=1` **恰好 1 条**:0 条 WARN"合同模板无法调取卖方信息",>1 条 WARN"目前只支持 1 家本公司"
+- AC4:`is_self=1` 的那条记录,其 `company_profiles`(中文开票资料) 和 `billing_profiles`(外币账户资料) 是合同/PI 模板的卖方信息源,必填
 
 **涉及数据表**:`suppliers`。
 
@@ -385,11 +387,12 @@
 
 ### F4.1 销售合同录入(金额四件套)
 
-**用户故事**:作为业务经理,我想跟客户签一份销售合同,标明贸易术语(FOB/CIF/CFR/EXW)、装运港/卸货港、合同数量、外币单价,以便后续发货/报关/收款都能引用这份"承诺值"。
+**用户故事**:作为业务经理,我想跟客户签一份销售合同,标明贸易术语(FOB/CIF/CFR/EXW)、装运港/卸货港、合同数量、外币单价、付款条件、包装条款,以便后续发货/报关/收款都能引用这份"承诺值"。
 
 **输入**:
-- 主表 `sales_contracts`:`contract_no`(如 SC20260726001)、`customer_id`、`sign_date`、`delivery_deadline`、金额四件套(`total_amount` + `currency`(默认 USD) + `exchange_rate` + `total_amount_cny`(派生))、贸易术语(`trade_terms` / `port_loading` / `port_discharge` / `freight` / `insurance`)、`status`(`draft`/`confirmed`/`delivering`/`completed`/`cancelled`)
+- 主表 `sales_contracts`:`contract_no`(如 SC20260726001)、`customer_id`、`sign_date`、`delivery_deadline`、金额四件套(`total_amount` + `currency`(默认 USD) + `exchange_rate` + `total_amount_cny`(派生))、贸易术语(`trade_terms` / `port_loading` / `port_discharge` / `freight` / `insurance`)、**付款/包装条款**(`payment_term` TEXT、`packing` TEXT,2026-07-29 加,从 formal 报价转单时拷贝)、`status`(`draft`/`confirmed`/`delivering`/`completed`/`cancelled`)
 - 明细 `sales_contract_items`:每行 `product_id`、`quantity`(合同数)、`unit_price`、`subtotal`(派生)、`volume_subtotal`(派生)、`delivered_qty`(由发货单回写)
+- **卖方信息**:不录在合同表里,合同模板渲染时通过 `WHERE suppliers.is_self=1` 调取本公司的 `company_profiles`/`billing_profiles`(见 F1.5)
 
 **输出**:1 张合同主表 + N 行明细。**唯一约束 `uk_sci_contract_product`**:同一合同同一物料只能一行。
 
@@ -399,6 +402,7 @@
 - AC3:`exchange_rate` 按 `sign_date`(签约日)所在月查 `exchange_rates`(规则 `BUSINESS_RULES.md R2`)
 - AC4:`currency` 默认 USD,记账本位币 CNY(`BUSINESS_RULES.md R1`)
 - AC5:`trade_terms` ENUM `FOB`/`CIF`/`CFR`/`EXW`,影响 `freight` / `insurance` 字段含义(`DATA_MODEL.md §4.3`)
+- AC6:`payment_term` / `packing` 是自由文本(TEXT),通常从 formal 报价转单时拷贝过来;手填直签合同时也支持(`DATA_MODEL.md §4.3`)
 
 **涉及数据表**:`sales_contracts` / `sales_contract_items`。规则出处 `BUSINESS_FLOW.md 节点 2`。
 
@@ -860,6 +864,7 @@
 **输入**:
 - 主表 `quotations`:`quote_no`(如 `QT20260729001`)、`customer_id`、`quote_type='brief'`、`quote_date`、`valid_until`、金额四件套(`total_amount` + `currency`(默认 USD) + `exchange_rate` + `total_amount_cny`(派生))、`status`(`draft`/`sent`/`confirmed`/`converted`/`cancelled`)
 - 明细 `quotation_items`:每行 `product_id`(关联 `products` 带出 `weight`/`volume`)、`group_code`(分组码,如 `A组-1.112`)、`price_coefficient`(报价系数 USD/KG)、`weight_per_unit`(单卷重量 KG,从 `products.weight` 带出可覆盖)、`quantity`(卷数)、派生字段(`total_weight`/`unit_price`/`subtotal`/`total_volume`)
+- **不带条款**:brief 阶段 5 个贸易条款字段(`trade_terms`/`port_loading`/`port_discharge`/`payment_term`/`packing`)留空,等 formal 阶段补(见 F9.2)
 
 **输出**:1 张简要报价主表 + N 行明细。主表 `total_amount = Σ quotation_items.subtotal`(应用层汇总,非 `DERIVED_RULES`)。
 
@@ -878,15 +883,16 @@
 
 **用户故事**:作为业务经理,我想在简要报价确认后,基于它派生出一份正式 QT(formal)发给客户,系统通过 `parent_quote_id` 把两者关联起来,以便保留派生追溯链(正式 QT 从哪份简要报价来的一目了然)。
 
-**输入**:`quotations` 新增一行,`quote_type='formal'`、`parent_quote_id` 指向源 brief 的 `id`,其他字段从 brief 复制或细化。
+**输入**:`quotations` 新增一行,`quote_type='formal'`、`parent_quote_id` 指向源 brief 的 `id`,其他字段从 brief 复制或细化。**formal 阶段必须补齐 5 个贸易条款**:`trade_terms`(FOB/CIF/CFR/EXW)、`port_loading`、`port_discharge`、`payment_term`(自由文本)、`packing`(自由文本)。
 
-**输出**:1 张 formal 报价,`parent_quote_id` 软关联到源 brief。
+**输出**:1 张 formal 报价(即 PROFORMA INVOICE),`parent_quote_id` 软关联到源 brief。
 
 **验收标准**:
 - AC1:`quote_type='formal'` 时,`parent_quote_id` **必须非空**(见 VALIDATION_GUIDE 第 14 步;代码 `check_quotations` 子校验 2)
 - AC2:`parent_quote_id` 指向的必须是 `quote_type='brief'` 的报价(不能 formal 派生 formal)
 - AC3:`parent_quote_id` 是**自引用软关联**(`ON DELETE SET NULL`),类似调拨 `transfer_ref` 的思路——靠应用层校验,非外键强约束(见 ADR-0003)
 - AC4:brief 与 formal **共用 `quotations` 表**,靠 `quote_type` 区分,不建独立表(见 ADR-0003 决策)
+- AC5:formal 的 5 个贸易条款字段(`trade_terms`/`port_loading`/`port_discharge`/`payment_term`/`packing`)是 formal → SC 转单时的拷贝源(F9.3 转合同 + F4.1 录合同都会用)
 
 **涉及数据表**:`quotations`(自引用)。规则出处 `BUSINESS_RULES.md R10`。
 

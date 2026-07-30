@@ -35,7 +35,7 @@
 | --- | --- | --- | --- | --- |
 | 1 | `products` | 基础资料 | 物料主数据(线管/管材的属性字典),不带价格 | — |
 | 2 | `warehouses` | 基础资料 | 仓库目录 | — |
-| 3 | `suppliers` | 基础资料 | 供应商名录,含开票/收款资料全文 | — |
+| 3 | `suppliers` | 基础资料 | 供应商名录(含本公司 `is_self=1`),含开票/收款资料全文 | — |
 | 4 | `customers` | 基础资料 | 客户名录,含品牌名、开票资料全文 | — |
 | 5 | `purchase_orders` | 采购 | 采购单主表(PO),CNY 计价 | ✅ `purchase_order_items` |
 | 6 | `purchase_order_items` | 采购 | 采购明细(一行一物料) | — |
@@ -153,9 +153,11 @@ erDiagram
 - **外键**:无
 - **派生字段**:无
 
-#### `suppliers` — 供应商名录
-- **职责**:进货对方(卖原材料给你的厂家),含合同模板用的开票/收款资料全文。
-- **关键字段**:`code`、`name`、`contact_person`、`phone`、`bank_account`、`company_profiles`(TEXT 全文)、`billing_profiles`(TEXT 全文)
+#### `suppliers` — 供应商名录(含本公司 is_self=1)
+- **职责**:进货对方(卖原材料给你的厂家),**外加本公司**(用 `is_self=1` 标记)。合同模板通过 `WHERE is_self=1` 调取本公司的 `company_profiles`/`billing_profiles` 作卖方信息。
+- **关键字段**:`code`、`name`、`contact_person`、`phone`、`address`、`bank_account`、`company_profiles`(TEXT 全文,中文开票资料)、`billing_profiles`(TEXT 全文,外币账户资料)、`is_self`(1=本公司/卖方,0=外部供应商)、`is_active`
+- **唯一索引**:`idx_suppliers_is_self`(`is_self` 字段索引,便于合同模板快速调取)
+- **校验约束**:`check_master_data` 校验 `is_self=1` 恰好 1 条(0 条 WARN"无法调取卖方信息",>1 条 WARN"目前只支持 1 家本公司")
 - **外键**:无
 - **派生字段**:无
 
@@ -188,7 +190,7 @@ erDiagram
 
 #### `sales_contracts` — 销售合同主表
 - **职责**:跟客户签的合同,**外币金额四件套**(详见 §7)。
-- **关键字段**:`contract_no`、`customer_id`、`sign_date`、`delivery_deadline`、金额四件套(`total_amount` + `currency` + `exchange_rate` + `total_amount_cny`)、贸易术语(`trade_terms`/`port_loading`/`port_discharge`/`freight`/`insurance`)、`status`
+- **关键字段**:`contract_no`、`customer_id`、`sign_date`、`delivery_deadline`、金额四件套(`total_amount` + `currency` + `exchange_rate` + `total_amount_cny`)、贸易术语(`trade_terms`/`port_loading`/`port_discharge`/`freight`/`insurance`)、**付款/包装条款**(`payment_term` 自由文本、`packing` 自由文本,2026-07-29 加,从 formal 报价转单时拷贝)、`status`
 - **状态机**:`draft` / `confirmed` / `delivering` / `completed` / `cancelled`
 - **外键**:`customer_id → customers(id)`
 - **派生字段**:✅ `total_amount_cny` = `total_amount` × `exchange_rate`
@@ -337,6 +339,12 @@ erDiagram
   - 派生关系:`parent_quote_id`(**自引用软关联**,正式 QT 指向其简要报价来源;`ON DELETE SET NULL`,类似调拨 `transfer_ref` 的软关联思路)
   - 日期:`quote_date`、`valid_until`(有效期至)
   - 金额四件套(R1):`total_amount` + `currency`(默认 USD) + `exchange_rate` + `total_amount_cny`(派生)
+  - **贸易/付款/包装条款**(2026-07-29 加,对齐 PI/QT 模板,转合同时拷贝到 `sales_contracts`):
+    - `trade_terms` ENUM `FOB`/`CIF`/`CFR`/`EXW`(默认 `FOB`,与 `sales_contracts` 类型对齐)
+    - `port_loading` / `port_discharge`(装运港 / 卸货港,如 `Qingdao` / `Jakarta`)
+    - `payment_term` TEXT(付款条件自由文本,如 `TT 30% DOWN PAYMENT AND THE BALANCE BEFORE COPY OF B/L`)
+    - `packing` TEXT(包装条款自由文本,如 `PACKED IN WOVEN BAGS OF 500 COILS EACH`)
+    - **brief 阶段这 5 字段留空**,formal 阶段补齐;formal → SC 转单时连同明细一起拷贝
   - 状态机:`status` ENUM `draft`/`sent`/`confirmed`/`converted`/`cancelled`
   - 转单回填:`converted_contract_id`(转成销售合同后回填,衔接 `sales_contracts`)
 - **外键**:`customer_id → customers(id)`、`parent_quote_id → quotations(id) ON DELETE SET NULL`(自引用)
