@@ -238,7 +238,7 @@ apply_derived_rules() 按字段顺序处理:
    ├─ 4. weight_per_meter 缺? → 密度公式算
    ├─ 5. weight 缺? → 米重 × 长度 / 1000 (注: 现用密度公式直接算)
    │
-   ├─ 6. volume / volume_subtotal 缺? → 外观尺寸公式
+   ├─ 6. volume 缺? → 外观外径(mm)² × 外观高度(mm) × 0.93 / 1e6
    │
    ▼
 反向校验 (填了的字段都跟公式比 5%):

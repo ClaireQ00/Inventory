@@ -39,8 +39,7 @@ allowed-tools: Read, Grep, Glob, Bash(python3:*)
 | --- | --- | --- | --- | --- | --- |
 | A1 | `outer_diameter` 外径 | `inner_diameter + thickness × 2` | mm | 0.05 mm | 类比：管子外径 = 内径 + 两边壁厚 |
 | A2 | `id_x_od` 内径外径串 | `"{inner}x{outer}"` | 字符串 | — | 例：`32x40.36` |
-| A4 | `volume` 单件体积 | `appearance_outer² × appearance_height × 0.93 / 1e6` | m³ (CBM) | 0.001 m³ | 外观尺寸(cm)，0.93是装箱系数 |
-| A4b | `volume_subtotal` 体积小计 | 同 A4 (products 表里语义等价) | m³ | 0.001 m³ | 兼容字段 |
+| A4 | `volume` 单件体积 | `appearance_outer(mm)² × appearance_height(mm) × 0.93 / 1e6` | m³ (CBM) | 0.001 m³ | 外观尺寸(mm)，0.93 是圆盘装箱系数，1e6 把 mm³ 换算成 m³ |
 
 > **A3 单件重量 / E1 米重 / 厚度反推 / 密度公式** → 见 `product-params` skill（依赖产品类别）
 
@@ -80,9 +79,9 @@ allowed-tools: Read, Grep, Glob, Bash(python3:*)
 ## 3. 外观尺寸（appearance_outer / appearance_height）
 
 - 这些字段**手填**（卡尺测量），不参与公式计算
-- 单位：cm（不是 mm！）
+- 单位：mm（跟内径/外径/厚度一致，不是 cm）
 - 用于计算 `volume`（单件体积）
-- 外贸单据上的 **Unit Size（长x宽x高 cm）** = 这两个字段的来源
+- 外贸单据上的 **Unit Size** 如果写的是 cm，**先乘 10 换算成 mm** 再录入；公式 `appearance_outer² × appearance_height × 0.93 / 1e6` 里 1e6 是把 mm³ 换算成 m³，单位错了体积会差 1000 倍
 - 客户可以提供一张"产品外观尺寸对照表"，未来会用一个独立的 skill（`appearance-size-recommender`）从历史数据里推荐合理的外观尺寸
 
 ---
@@ -95,7 +94,7 @@ allowed-tools: Read, Grep, Glob, Bash(python3:*)
 | 长度 `length` | **m** | 米 |
 | 米重 `weight_per_meter` | **g/m** | 克每米 |
 | 单件重量 `weight` | **kg** | 千克 |
-| 外观外径/高度 | **cm** | 厘米（容易踩坑！） |
+| 外观外径/高度 | **mm** | 毫米（跟内径/外径一致） |
 | 单件体积 `volume` | **CBM (m³)** | 立方米 |
 | 金额 | **CNY** | 人民币元 |
 | 数量 `quantity` | 件/卷 | 整数 |
@@ -165,7 +164,7 @@ python3 tools/csv_to_sql.py data/csv/purchase_order_items.csv purchase_order_ite
 bash scripts/run_local_validation.sh
 ```
 
-这会跑全部 8 步校验，包括跨表体积校验。
+这会跑全部 15 步校验，包括跨表体积校验（第 8 步）。
 
 ---
 
@@ -192,7 +191,7 @@ bash scripts/run_local_validation.sh
 
 ```python
 def check_xxx(conn, report):
-    print("[N/8] 校验 xxx...")
+    print("[N/15] 校验 xxx...")
     cur = conn.cursor()
     cur.execute("SELECT ... FROM ...")
     for ...:
