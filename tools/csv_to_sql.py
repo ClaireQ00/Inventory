@@ -871,15 +871,27 @@ def convert_csv_to_sql(csv_path, table_name, output_sql_path, mode="insert"):
 
 
 def _looks_like_number(s):
-    """判断字符串是不是数值 (避免把电话号码当数字处理)"""
+    """判断字符串是不是数值 (避免把电话号码/银行账号当数字处理)
+
+    2026-07-30 修复: 之前纯数字字符串(如电话号 081297100933、银行账号
+    6220000015815815) 会被 float() 成功转换, 然后通过 str(num) 输出
+    '81297100933.0' 灌进 MySQL, phone/bank_account 这种本质是字符串的
+    字段被破坏。
+
+    新规则: 只在"看起来是计量数值"时才返回 True:
+      - 含小数点 (3.14, 0.93)
+      - 或 纯整数且长度 ≤ 10 (id/quantity 这种)
+    长度 > 10 的纯数字串一定是 phone/account/code, 不当数字处理。
+    """
     s = str(s).strip()
     if s == "":
         return False
-    # 带字母/中文/超长字符串都不算数值 (比如 '1-1/4"' 这种规格不能当数字)
+    # 带字母/中文/分隔符的不算数值 (比如 '1-1/4"' 这种规格)
     if any(c in s for c in ["-", "/", '"', "'", "(", ")", "x", "Ｘ"]):
         return False
-    # 长度超过 16 也不像数值 (避免电话号 13xxxxxxxxx 被转成浮点丢精度)
-    if len(s) > 16:
+    # 长度超过 10 的纯数字串一定是电话号/银行账号/单号, 不当数字处理
+    # (FLOAT 精度上限本来也只到 15-16 位有效数字, 16 位银行账号会被四舍五入)
+    if len(s) > 10 and "." not in s:
         return False
     try:
         float(s)

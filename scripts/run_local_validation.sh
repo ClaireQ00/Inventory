@@ -47,6 +47,15 @@ else
   fatal "敏感数据检查未通过, 请先处理再继续"
 fi
 
+# ---------- 2b. 模板 ↔ Schema 同步检查 ----------
+info "步骤 2b/4: 检查模板字段与 schema 一致..."
+if bash scripts/check-template-schema-sync.sh; then
+  info "  模板字段一致"
+else
+  # 不致命, 只 warn: 用户可能临时改 schema 测试, 不强制阻止校验
+  warn "  模板字段与 schema 不一致, 详见上面输出 (不阻止校验, 但建议尽快同步)"
+fi
+
 # ---------- 3. 准备数据 ----------
 info "步骤 3/4: 准备 CSV 数据..."
 

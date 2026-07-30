@@ -1,2 +1,0 @@
-table_name,record_id,action,old_values,new_values,operator,remark
-sales_contracts,1,UPDATE,"{""status"": ""draft""}","{""status"": ""confirmed""}",张经理,示例审计日志 (action: INSERT/UPDATE/DELETE; old_values/new_values 是 JSON 文本; 本表第1阶段只建结构, 业务逻辑后续做)

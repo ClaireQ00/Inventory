@@ -89,16 +89,23 @@ for csv_file in "$CSV_DIR"/*.csv; do
   # 第二步: 灌进 MySQL (通过容器内的 mysql 客户端执行)
   # 包一层外键检查开关: REPLACE INTO 在被外键引用时会触发 DELETE, 被约束拦截 (ERROR 1451)。
   # 灌数阶段先关掉, 灌完恢复, 不影响表里已定义的约束本身。
+  #
+  # ⚠️ pipefail 陷阱: set -e + 管道会在 mysql 非零退出时直接终止整个脚本,
+  # 后续表就灌不到了。用 `|| true` + PIPESTATUS 显式接住退出码, 让单表失败
+  # 只计入 FAILED 计数器, 不影响其他表。
+  set +e
   {
     echo "SET FOREIGN_KEY_CHECKS=0;"
     cat "$out_sql"
     echo "SET FOREIGN_KEY_CHECKS=1;"
-  } | docker exec -i "$CONTAINER" mysql -u"$DB_USER" -p"$DB_PASSWORD" "$DB_NAME" 2>/dev/null
-  if [[ ${PIPESTATUS[1]} -eq 0 ]]; then
+  } | docker exec -i "$CONTAINER" mysql -u"$DB_USER" -p"$DB_PASSWORD" "$DB_NAME" 2>&1 | grep -v "Using a password"
+  PIPE_STATUS=("${PIPESTATUS[@]}")
+  set -e
+  if [[ "${PIPE_STATUS[1]}" -eq 0 ]]; then
     info "  ✓ ${table_name}: 已导入 ($(wc -l < "$out_sql" | tr -d ' ') 行 SQL)"
     SUCCESS=$((SUCCESS + 1))
   else
-    warn "  ✗ ${table_name}: 导入 MySQL 失败"
+    warn "  ✗ ${table_name}: 导入 MySQL 失败 (mysql 退出码 ${PIPE_STATUS[1]})"
     FAILED=$((FAILED + 1))
   fi
 done

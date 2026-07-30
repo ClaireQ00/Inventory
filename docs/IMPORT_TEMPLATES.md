@@ -2,9 +2,53 @@
 
 本目录已提供一组 CSV 模板文件，用于填充真实数据并验证当前外贸进销存流程。建议将真实数据文件保存在本地 `data/` 或 `private/` 目录中，并确保这些目录被 `.gitignore` 忽略。
 
+## ⚠️ 填 CSV 时最容易踩的坑（2026-07-30 真实试用总结）
+
+### 坑 1：手数逗号导致列数对不齐（最高频！）
+
+CSV 每行的**逗号数必须跟表头一致**。空值不能省略逗号——`,,` 是两个空值，不是"少了两列"。
+
+```
+表头: code,name,phone,is_active,remark        ← 5 列, 4 个逗号
+正确: Q025,印尼大雄,0812,1,客户               ← 4 个逗号, 5 列对齐
+错误: Q025,印尼大雄,0812,1                     ← 3 个逗号, remark 丢失
+错误: Q025,印尼大雄,0812,,1,客户               ← 5 个逗号, 多了一列
+```
+
+**强烈建议**：不要手写 CSV，用 Excel/Numbers 直接打开填，或用 Python `csv.writer` 生成。
+配套检查脚本：`bash scripts/check-template-schema-sync.sh`（schema 加字段后自动报警模板没同步）。
+
+### 坑 2：派生字段不要手填，让脚本自动算
+
+外径 / 体积 / 金额小计 / unit_price / subtotal 等**派生字段**，
+留空即可——`tools/csv_to_sql.py::DERIVED_RULES` 会按公式自动算后填进去。
+手填的话如果跟公式对不上（容差内），会**报错阻止生成 SQL**。
+
+详见 `.claude/skills/derived-fields/SKILL.md` §1 公式一览。
+
+### 坑 3：phone / bank_account 这种"纯数字字符串"会被误判
+
+电话号 / 银行账号 / 单号 即使看起来像数字，本质是字符串。
+`csv_to_sql.py::_looks_like_number` 已加保护：**长度 > 10 的纯数字串不当数字处理**。
+所以 `081297100933` 不会被转成 `81297100933.0`，但 `1`、`100`、`3.14` 这种短数字仍按数字处理（保留小数点）。
+
+如果遇到奇怪的"数字加 .0"问题，看这个函数。
+
+### 坑 4：业务编号引用要稳（customer_id 等）
+
+业务表之间的外键引用（如 quotations.customer_id → customers.id）依赖 **MySQL AUTO_INCREMENT**。
+反复 TRUNCATE / REPLACE INTO 会让 id 漂移，导致外键失效。
+
+**正确流程**：先灌基础资料 4 张表（customers/suppliers/warehouses/products）→ 记下 id →
+再用对应 id 灌业务表（quotations/sales_contracts/...）。
+
+阶段二计划：把外键引用改成业务编号（customer.code 等），彻底摆脱 id 漂移。
+
+---
+
 ## 模板位置
 
-- `sample/templates/`（共 24 个模板）
+- `sample/templates/`（共 23 个模板，audit_logs 阶段一是空壳无模板）
 
 ## 完整模板清单（按业务模块分组）
 
