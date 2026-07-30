@@ -134,12 +134,15 @@ CREATE TABLE suppliers (
     bank_account    VARCHAR(64)  DEFAULT ''         COMMENT '银行账号',
     company_profiles TEXT         DEFAULT NULL      COMMENT '供应商公司资料全文 (合同模板调取, 可多行, 含中文开票信息)',
     billing_profiles TEXT         DEFAULT NULL      COMMENT '供应商开票/收款资料全文 (合同模板调取, 可多行, 含外币账户信息)',
+    is_self         TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '是否本公司(1=自己公司/卖方, 0=外部供应商)。合同模板通过 WHERE is_self=1 调取卖方信息',
     is_active       TINYINT(1)   NOT NULL DEFAULT 1 COMMENT '是否启用',
     remark          VARCHAR(512) DEFAULT ''         COMMENT '备注',
     created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
                                  ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间'
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='供应商名录';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='供应商名录 (含本公司: is_self=1)';
+
+CREATE INDEX idx_suppliers_is_self ON suppliers(is_self);
 
 -- ------------------------------------------------------------
 -- 1.4 客户表 customers
@@ -250,6 +253,9 @@ CREATE TABLE sales_contracts (
     -- 状态
     status          ENUM('draft','confirmed','delivering','completed','cancelled')
                                 NOT NULL DEFAULT 'draft' COMMENT '状态: 草稿/已确认/发货中/已完成/已取消',
+    -- 付款/包装条款 (2026-07-29 加, 从 quotations 转单时拷贝过来)
+    payment_term    TEXT                            COMMENT '付款条件自由文本 (如 "TT 30% AS DOWN PAYMENT AND THE BALANCE BEFORE COPY OF B/L")',
+    packing         TEXT                            COMMENT '包装条款描述 (如 "PACKED IN WOVEN BAGS OF 500 COILS EACH")',
     remark          VARCHAR(512) DEFAULT ''         COMMENT '备注',
     created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -771,7 +777,13 @@ CREATE TABLE quotations (
     status              ENUM('draft','sent','confirmed','converted','cancelled')
                         NOT NULL DEFAULT 'draft'      COMMENT '状态: 草稿/已发/已确认/已转合同/已取消',
     converted_contract_id INT        DEFAULT NULL      COMMENT '转成的销售合同ID(转后回填)',
-    remark              VARCHAR(512) DEFAULT ''        COMMENT '备注',
+    -- 贸易/付款/包装条款 (2026-07-29 加, 对齐 QT 模板, 转合同时拷贝到 sales_contracts)
+    trade_terms     ENUM('FOB','CIF','CFR','EXW') NOT NULL DEFAULT 'FOB' COMMENT '贸易术语(Incoterms 2020), 与 sales_contracts 类型对齐',
+    port_loading    VARCHAR(64)  DEFAULT ''         COMMENT '装运港(如 Qingdao)',
+    port_discharge  VARCHAR(64)  DEFAULT ''         COMMENT '卸货港(如 Jakarta)',
+    payment_term    TEXT                            COMMENT '付款条件自由文本 (如 "TT 30% AS DOWN PAYMENT AND THE BALANCE BEFORE COPY OF B/L")',
+    packing         TEXT                            COMMENT '包装条款描述 (如 "PACKED IN WOVEN BAGS OF 500 COILS EACH")',
+    remark          VARCHAR(512) DEFAULT ''        COMMENT '备注',
     created_at          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
                                      ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',

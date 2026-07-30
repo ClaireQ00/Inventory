@@ -1,2 +1,21 @@
-code,name,contact_person,phone,address,bank_account,is_active,remark
-SUP-001,上海华孚塑化有限公司,王经理,13800000001,上海市金山区xx路1号,62284801111111111,1,主要 PE 原料供应商
+code,name,contact_person,phone,address,bank_account,company_profiles,billing_profiles,is_self,is_active,remark
+SUP-001,上海华孚塑化有限公司,王经理,13800000001,上海市金山区xx路1号,62284801111111111,"公司名称：上海华孚塑化有限公司
+纳税人识别号：91110100XXXXXXXXXX
+地址：上海市金山区xx路1号
+电话：021-XXXXXXXX
+账号：62284801111111111
+开户银行：XX银行XX支行",,0,1,主要 PE 原料供应商 (company_profiles=中文开票资料可多行)
+SUP-002,潍坊永利塑胶科技有限公司,郝经理,13800000002,山东省潍坊市昌乐县,62284802222222222,"公司名称：潍坊永利塑胶科技有限公司
+纳税人识别号：91370725XXXXXXXXXX
+地址：山东省潍坊市昌乐县
+电话：0536-XXXXXXXX
+账号：62284802222222222
+开户银行：XX银行XX支行","WEIFANG YONGLI PLASTIC TECHNOLOGY CO.,LTD
+Add: XXX, Weifang, Shandong, China
+TEL: 0086-536-XXXXXXX
+E-mail: xxx@xxx.com
+
+Bank Name: XX Bank, XX Branch
+Account Name: WEIFANG YONGLI PLASTIC TECHNOLOGY CO.,LTD
+Swift Code: XXXXXXXX
+A/C No.: 62284802222222222",1,1,本公司(卖方信息源,合同模板通过 WHERE is_self=1 调取, billing_profiles=外币账户信息)

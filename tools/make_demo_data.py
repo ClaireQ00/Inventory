@@ -90,13 +90,14 @@ def main():
         ],
     )
 
-    # 3. 供应商
+    # 3. 供应商 (含本公司 SUP-003, is_self=1, 用于合同模板调取卖方信息)
     write_csv(
         "suppliers.csv",
-        ["id", "code", "name", "contact_person", "phone", "address", "is_active"],
+        ["id", "code", "name", "contact_person", "phone", "address", "is_self", "is_active"],
         [
-            [1, "SUP-001", "DEMO塑胶原料厂", "张经理", "13800000001", "浙江省DEMO市", 1],
-            [2, "SUP-002", "DEMO包装材料厂", "李经理", "13800000002", "浙江省DEMO市", 1],
+            [1, "SUP-001", "DEMO塑胶原料厂", "张经理", "13800000001", "浙江省DEMO市", 0, 1],
+            [2, "SUP-002", "DEMO包装材料厂", "李经理", "13800000002", "浙江省DEMO市", 0, 1],
+            [3, "SUP-003", "DEMO 本公司 (卖方)", "DEMO老板", "13800000003", "山东省DEMO市", 1, 1],
         ],
     )
 
@@ -141,12 +142,15 @@ def main():
         ["id", "contract_no", "customer_id", "sign_date", "delivery_deadline",
          "currency", "total_amount", "exchange_rate", "total_amount_cny",
          "trade_terms", "port_loading", "port_discharge", "freight", "insurance",
-         "status", "remark"],
+         "status", "payment_term", "packing", "remark"],
         [
             [1, "SC20260720001", 1, "2026-07-15", "2026-08-15",
              "USD", 8634.5688, 7.15, 61737.1669,
              "FOB", "Qingdao", "Jakarta", 0, 0,
-             "confirmed", "演示合同"],
+             "confirmed",
+             "TT 30% DOWN + BALANCE BEFORE COPY OF B/L",
+             "PACKED IN WOVEN BAGS OF 500 COILS EACH",
+             "演示合同"],
         ],
     )
 
@@ -318,16 +322,26 @@ def main():
         "quotations.csv",
         ["quote_no", "customer_id", "quote_type", "parent_quote_id", "version",
          "quote_date", "valid_until", "total_amount", "currency", "exchange_rate",
-         "total_amount_cny", "status", "converted_contract_id", "remark"],
+         "total_amount_cny", "status", "converted_contract_id",
+         "trade_terms", "port_loading", "port_discharge", "payment_term", "packing",
+         "remark"],
         [
             # QT001: Q025 简要报价, 客户A(id=1), 总价 1167.60 USD × 7.25 = 8465.10 CNY
+            # brief 阶段不带贸易/付款/包装条款 (确认后才补)
             ["QT20260729001", 1, "brief", "", 1,
              "2026-07-29", "2026-08-05", 1167.60, "USD", 7.25,
-             8465.10, "draft", "", "Q025 简要报价 (R10 系数定价)"],
+             8465.10, "draft", "",
+             "", "", "", "", "",
+             "Q025 简要报价 (R10 系数定价)"],
             # QT002: 正式 QT, 从 QT001 派生 (parent_quote_id=1), 暂无明细故金额=0
+            # formal 阶段带完整 5 个外贸条款字段
             ["QT20260729002", 1, "formal", 1, 1,
              "2026-07-29", "2026-08-05", 0, "USD", 7.25,
-             0, "draft", "", "从 QT001 派生的正式 QT (待补明细)"],
+             0, "draft", "",
+             "FOB", "Qingdao", "Jakarta",
+             "TT 30% DOWN + BALANCE BEFORE COPY OF B/L",
+             "PACKED IN WOVEN BAGS OF 500 COILS EACH",
+             "从 QT001 派生的正式 QT (待补明细)"],
         ],
     )
 

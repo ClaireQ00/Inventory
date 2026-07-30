@@ -1,2 +1,2 @@
-contract_no,customer_id,sign_date,delivery_deadline,currency,total_amount,exchange_rate,total_amount_cny,trade_terms,port_loading,port_discharge,freight,insurance,status,remark
-SC20240731001,1,2024-07-31,2024-08-15,USD,15000.00,7.15,107250.00,FOB,Qingdao,Jakarta,0,0,draft,示例销售合同 (currency 默认 USD; exchange_rate 当期月汇率; total_amount_cny=amount×rate; trade_terms: FOB/CIF/CFR/EXW)
+contract_no,customer_id,sign_date,delivery_deadline,currency,total_amount,exchange_rate,total_amount_cny,trade_terms,port_loading,port_discharge,freight,insurance,status,payment_term,packing,remark
+SC20240731001,1,2024-07-31,2024-08-15,USD,15000.00,7.15,107250.00,FOB,Qingdao,Jakarta,0,0,draft,TT 30% DOWN + BALANCE BEFORE COPY OF B/L,PACKED IN WOVEN BAGS OF 500 COILS EACH,示例销售合同 (trade_terms: FOB/CIF/CFR/EXW; payment_term/packing 从 quotations 转单拷贝)

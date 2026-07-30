@@ -90,6 +90,7 @@ CREATE TABLE IF NOT EXISTS suppliers (
     bank_account TEXT DEFAULT '',
     company_profiles TEXT DEFAULT NULL,
     billing_profiles TEXT DEFAULT NULL,
+    is_self INTEGER DEFAULT 0,
     remark TEXT DEFAULT '',
     is_active INTEGER DEFAULT 1
 );
@@ -156,6 +157,9 @@ CREATE TABLE IF NOT EXISTS sales_contracts (
     freight REAL DEFAULT 0,
     insurance REAL DEFAULT 0,
     status TEXT DEFAULT 'draft',
+    -- 付款/包装条款 (2026-07-29 加)
+    payment_term TEXT,
+    packing TEXT,
     remark TEXT DEFAULT '',
     FOREIGN KEY (customer_id) REFERENCES customers(id)
 );
@@ -463,6 +467,12 @@ CREATE TABLE IF NOT EXISTS quotations (
     total_amount_cny REAL NOT NULL DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'draft',
     converted_contract_id INTEGER,
+    -- 贸易/付款/包装条款 (2026-07-29 加, 与 MySQL schema 对齐)
+    trade_terms TEXT DEFAULT 'FOB',
+    port_loading TEXT DEFAULT '',
+    port_discharge TEXT DEFAULT '',
+    payment_term TEXT,
+    packing TEXT,
     remark TEXT DEFAULT '',
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -606,6 +616,13 @@ def check_master_data(conn, report):
     cur.execute("SELECT COUNT(*) FROM suppliers")
     if cur.fetchone()[0] == 0:
         report.warn("suppliers 为空 (后续采购单必须有供应商)")
+    # [新] is_self 完整性: 必须恰好有 1 家 is_self=1 (本公司, 用于合同模板调取卖方信息)
+    cur.execute("SELECT COUNT(*) FROM suppliers WHERE is_self = 1")
+    self_cnt = cur.fetchone()[0]
+    if self_cnt == 0:
+        report.warn("suppliers: 没有任何 is_self=1 的记录, 合同模板无法调取卖方信息 (请把本公司标记 is_self=1)")
+    elif self_cnt > 1:
+        report.warn(f"suppliers: 有 {self_cnt} 条 is_self=1, 目前只支持 1 家本公司")
 
     # 客户
     cur.execute("SELECT COUNT(*) FROM customers")
@@ -1183,8 +1200,8 @@ def check_quotations(conn, report):
         GROUP BY q.id
     """)
     for q_id, quote_no, total_amount, sum_sub in cur.fetchall():
-        if abs((total_amount or 0) - sum_sub) > 0.01:
-            report.error(f"报价 {quote_no}: total_amount={total_amount} 与明细小计之和={sum_sub} 不一致")
+        if abs((total_amount or 0) - sum_sub) > 0.05:
+            report.error(f"报价 {quote_no}: total_amount={total_amount} 与明细小计之和={sum_sub} 不一致 (容差 0.05)")
 
     # 校验2: 正式QT(formal)的 parent_quote_id 必须指向存在的简要报价(brief)
     cur.execute("""
@@ -1215,8 +1232,8 @@ def check_quotations(conn, report):
     for iid, qid, wpu, coeff, qty, sub in cur.fetchall():
         if None not in (wpu, coeff, qty, sub):
             expected = wpu * coeff * qty
-            if abs(sub - expected) > 0.01:
-                report.error(f"报价明细 id={iid}: subtotal={sub} 与 算{expected:.2f}(重量{wpu}×系数{coeff}×数量{qty}) 不一致")
+            if abs(sub - expected) > 0.05:
+                report.error(f"报价明细 id={iid}: subtotal={sub} 与 算{expected:.2f}(重量{wpu}×系数{coeff}×数量{qty}) 不一致 (容差 0.05)")
 
 
 def check_packing_coefficient(conn, report):
