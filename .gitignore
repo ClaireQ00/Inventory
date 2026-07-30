@@ -13,6 +13,12 @@ data/
 private/
 .env
 .env.*
+# 例外: .env.example 是模板, 必须进仓库供新人复制
+!.env.example
+
+# Docker 运行时数据 (含真实业务数据, 不进仓库)
+mysql-data/
+nocodb-data/
 
 # Misc
 *.log
