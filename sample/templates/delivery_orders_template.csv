@@ -1,2 +1,2 @@
-delivery_no,customer_id,delivery_date,receiver,receiver_phone,receiver_address,transport_no,status,remark
-DN20240731001,1,2024-08-01,李四,13800000011,马来西亚 吉隆坡,TRANS001,draft,示例发货单
+delivery_no,customer_id,delivery_date,receiver,receiver_phone,receiver_address,transport_no,total_volume,status,remark
+DN20240731001,1,2024-08-01,李四,13800000011,马来西亚 吉隆坡,TRANS001,0,draft,示例发货单 (total_volume = Σ delivery_order_items.volume_subtotal; 展示统计, 不是报关数)

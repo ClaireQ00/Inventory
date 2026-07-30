@@ -118,6 +118,7 @@ CREATE TABLE IF NOT EXISTS purchase_orders (
     order_date TEXT NOT NULL,
     expected_date TEXT,
     total_amount REAL DEFAULT 0,
+    total_volume REAL DEFAULT 0,
     status TEXT DEFAULT 'draft',
     remark TEXT DEFAULT '',
     FOREIGN KEY (supplier_id) REFERENCES suppliers(id)
@@ -150,6 +151,7 @@ CREATE TABLE IF NOT EXISTS sales_contracts (
     currency TEXT DEFAULT 'USD',
     exchange_rate REAL DEFAULT 0,
     total_amount_cny REAL DEFAULT 0,
+    total_volume REAL DEFAULT 0,
     -- 贸易术语
     trade_terms TEXT DEFAULT 'FOB',
     port_loading TEXT DEFAULT '',
@@ -266,6 +268,7 @@ CREATE TABLE IF NOT EXISTS delivery_orders (
     receiver_phone TEXT DEFAULT '',
     receiver_address TEXT DEFAULT '',
     transport_no TEXT DEFAULT '',
+    total_volume REAL DEFAULT 0,
     status TEXT DEFAULT 'draft',
     remark TEXT DEFAULT '',
     FOREIGN KEY (customer_id) REFERENCES customers(id)
@@ -465,6 +468,7 @@ CREATE TABLE IF NOT EXISTS quotations (
     currency TEXT NOT NULL DEFAULT 'USD',
     exchange_rate REAL NOT NULL DEFAULT 0,
     total_amount_cny REAL NOT NULL DEFAULT 0,
+    total_volume REAL NOT NULL DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'draft',
     converted_contract_id INTEGER,
     -- 贸易/付款/包装条款 (2026-07-29 加, 与 MySQL schema 对齐)
@@ -631,7 +635,7 @@ def check_master_data(conn, report):
 
 
 def check_purchase_orders(conn, report):
-    """采购单: 金额 = 明细小计之和"""
+    """采购单: 金额 = 明细小计之和; 体积 = 明细体积小计之和(展示统计, WARN)"""
     cur = conn.cursor()
     cur.execute(
         """
@@ -646,6 +650,23 @@ def check_purchase_orders(conn, report):
         if abs((total_amount or 0) - sum_sub) > 0.01:
             report.error(
                 f"采购单 {po_no}: total_amount={total_amount} 与明细小计之和={sum_sub} 不一致"
+            )
+
+    # 体积校验 (展示用统计, WARN 级, 不阻断)
+    cur.execute(
+        """
+        SELECT po.id, po.po_no, po.total_volume,
+               COALESCE(SUM(poi.volume_subtotal), 0) AS sum_vol
+        FROM purchase_orders po
+        LEFT JOIN purchase_order_items poi ON poi.po_id = po.id
+        GROUP BY po.id
+        """
+    )
+    for po_id, po_no, total_vol, sum_vol in cur.fetchall():
+        if abs((total_vol or 0) - sum_vol) > 0.01:
+            report.warn(
+                f"采购单 {po_no}: total_volume={total_vol or 0} "
+                f"与 Σ明细 volume_subtotal={round(sum_vol, 4)} 不符 (展示统计, 不阻断)"
             )
 
 
@@ -677,7 +698,7 @@ def check_stock_in_vs_purchase(conn, report):
 
 
 def check_sales_contracts(conn, report):
-    """销售合同: 金额 = 明细小计之和"""
+    """销售合同: 金额 = 明细小计之和; 体积 = 明细体积小计之和(展示统计, WARN)"""
     cur = conn.cursor()
     cur.execute(
         """
@@ -692,6 +713,23 @@ def check_sales_contracts(conn, report):
         if abs((total_amount or 0) - sum_sub) > 0.01:
             report.error(
                 f"合同 {contract_no}: total_amount={total_amount} 与明细={sum_sub} 不一致"
+            )
+
+    # 体积校验 (展示用统计, WARN 级, 不阻断)
+    cur.execute(
+        """
+        SELECT sc.id, sc.contract_no, sc.total_volume,
+               COALESCE(SUM(sci.volume_subtotal), 0) AS sum_vol
+        FROM sales_contracts sc
+        LEFT JOIN sales_contract_items sci ON sci.contract_id = sc.id
+        GROUP BY sc.id
+        """
+    )
+    for sc_id, contract_no, total_vol, sum_vol in cur.fetchall():
+        if abs((total_vol or 0) - sum_vol) > 0.01:
+            report.warn(
+                f"合同 {contract_no}: total_volume={total_vol or 0} "
+                f"与 Σ明细 volume_subtotal={round(sum_vol, 4)} 不符 (展示统计, 不阻断)"
             )
 
 
@@ -931,6 +969,32 @@ def check_volume_subtotals(conn, report):
                     f"{label} ID={item_id} / 物料 {mid}: "
                     f"volume_subtotal={actual} 与 单件体积×数量={expected} 不符"
                 )
+
+
+def check_delivery_order_volume(conn, report):
+    """
+    发货单总体积 = Σ delivery_order_items.volume_subtotal
+
+    展示用统计字段 (给客户看"这张单总共多少立方"), 不是报关数据。
+    跟 shipping_records.total_cbm (装柜后真实数) 是两个概念, 不互通。
+    WARN 级 (不阻断), 容差 0.01 CBM。
+    """
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT d.id, d.delivery_no, d.total_volume,
+               COALESCE(SUM(doi.volume_subtotal), 0) AS sum_vol
+        FROM delivery_orders d
+        LEFT JOIN delivery_order_items doi ON doi.delivery_id = d.id
+        GROUP BY d.id
+        """
+    )
+    for do_id, delivery_no, total_vol, sum_vol in cur.fetchall():
+        if abs((total_vol or 0) - sum_vol) > 0.01:
+            report.warn(
+                f"发货单 {delivery_no}: total_volume={total_vol or 0} "
+                f"与 Σ明细 volume_subtotal={round(sum_vol, 4)} 不符 (展示统计, 不阻断)"
+            )
 
 
 def check_shipping_vs_delivery(conn, report):
@@ -1203,6 +1267,20 @@ def check_quotations(conn, report):
         if abs((total_amount or 0) - sum_sub) > 0.05:
             report.error(f"报价 {quote_no}: total_amount={total_amount} 与明细小计之和={sum_sub} 不一致 (容差 0.05)")
 
+    # 校验1b: 报价主表 total_volume = Σ 明细 total_volume (展示统计, WARN)
+    cur.execute("""
+        SELECT q.id, q.quote_no, q.total_volume, COALESCE(SUM(qi.total_volume), 0)
+        FROM quotations q
+        LEFT JOIN quotation_items qi ON qi.quote_id = q.id
+        GROUP BY q.id
+    """)
+    for q_id, quote_no, total_vol, sum_vol in cur.fetchall():
+        if abs((total_vol or 0) - sum_vol) > 0.01:
+            report.warn(
+                f"报价 {quote_no}: total_volume={total_vol or 0} "
+                f"与 Σ明细 total_volume={round(sum_vol, 4)} 不符 (展示统计, 不阻断)"
+            )
+
     # 校验2: 正式QT(formal)的 parent_quote_id 必须指向存在的简要报价(brief)
     cur.execute("""
         SELECT q.id, q.quote_no, q.parent_quote_id, p.quote_type
@@ -1339,6 +1417,7 @@ def run_validation(conn, report):
         (check_stock_out_vs_inventory, "校验出库数 vs 累计入库 (负库存报警)"),
         (check_reconciliation,         "库存对账"),
         (check_volume_subtotals,       "校验明细表体积小计"),
+        (check_delivery_order_volume,  "校验发货单总体积 (展示统计)"),
         (check_shipping_vs_delivery,   "校验报关实际数 vs 发货单计划数 (UCP600 ±5% 容差)"),
         (check_credit_notes_balance,   "校验贷记单闭环 (pending 不能挂超过 30 天)"),
         (check_exchange_rates,         "校验汇率表完整性 (每月每币种至少一条)"),

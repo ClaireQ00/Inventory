@@ -188,6 +188,7 @@ CREATE TABLE purchase_orders (
     order_date      DATE         NOT NULL           COMMENT '下单日期',
     expected_date   DATE         DEFAULT NULL       COMMENT '预计到货日期',
     total_amount    DECIMAL(14,2) NOT NULL DEFAULT 0.00 COMMENT '采购总金额(CNY)',
+    total_volume    DECIMAL(10,4) NOT NULL DEFAULT 0.0000 COMMENT '采购单总体积(CBM, 展示统计) = Σ purchase_order_items.volume_subtotal',
     status          ENUM('draft','confirmed','partial_received','received','cancelled')
                                 NOT NULL DEFAULT 'draft' COMMENT '状态: 草稿/已确认/部分到货/已全部到货/已取消',
     remark          VARCHAR(512) DEFAULT ''         COMMENT '备注',
@@ -248,6 +249,7 @@ CREATE TABLE sales_contracts (
     currency        VARCHAR(3)   NOT NULL DEFAULT 'USD' COMMENT '币种(ISO 4217 三字母): USD/EUR/IDR...',
     exchange_rate   DECIMAL(10,4) NOT NULL DEFAULT 0 COMMENT '签约日汇率(原币种→CNY)',
     total_amount_cny DECIMAL(14,2) NOT NULL DEFAULT 0.00 COMMENT '合同总金额(折算CNY) = total_amount × exchange_rate',
+    total_volume    DECIMAL(10,4) NOT NULL DEFAULT 0.0000 COMMENT '合同总体积(CBM, 展示统计) = Σ sales_contract_items.volume_subtotal',
     -- 贸易术语 (Incoterms 2020)
     trade_terms     ENUM('FOB','CIF','CFR','EXW') NOT NULL DEFAULT 'FOB' COMMENT '贸易术语: FOB/CIF/CFR/EXW',
     port_loading    VARCHAR(64)  DEFAULT ''         COMMENT '装运港(如 Qingdao)',
@@ -471,6 +473,7 @@ CREATE TABLE delivery_orders (
     receiver_phone  VARCHAR(32)  DEFAULT ''         COMMENT '收货电话',
     receiver_address VARCHAR(255) DEFAULT ''        COMMENT '收货地址',
     transport_no    VARCHAR(64)  DEFAULT ''         COMMENT '物流单号',
+    total_volume    DECIMAL(10,4) NOT NULL DEFAULT 0.0000 COMMENT '发货单总体积(CBM, 展示统计) = Σ delivery_order_items.volume_subtotal',
     status          ENUM('draft','confirmed','shipped','delivered','cancelled')
                                 NOT NULL DEFAULT 'draft' COMMENT '状态: 草稿/已确认/已装船/客户已签收/已取消',
     remark          VARCHAR(512) DEFAULT ''         COMMENT '备注',
@@ -778,6 +781,7 @@ CREATE TABLE quotations (
     currency            VARCHAR(3)   NOT NULL DEFAULT 'USD' COMMENT '币种(ISO 4217): USD/EUR/IDR...',
     exchange_rate       DECIMAL(10,4) NOT NULL DEFAULT 0 COMMENT '汇率(原币种→CNY)',
     total_amount_cny    DECIMAL(14,2) NOT NULL DEFAULT 0.00 COMMENT '报价总金额(折算CNY) = total_amount × exchange_rate',
+    total_volume        DECIMAL(10,4) NOT NULL DEFAULT 0.0000 COMMENT '报价总体积(CBM, 展示统计) = Σ quotation_items.total_volume',
     status              ENUM('draft','sent','confirmed','converted','cancelled')
                         NOT NULL DEFAULT 'draft'      COMMENT '状态: 草稿/已发/已确认/已转合同/已取消',
     converted_contract_id INT        DEFAULT NULL      COMMENT '转成的销售合同ID(转后回填)',

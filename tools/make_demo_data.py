@@ -112,12 +112,13 @@ def main():
     )
 
     # 5. 采购单 (注意金额跟明细对得上)
+    #    total_volume = Σ volume_subtotal = 0.446 + 0.253 = 0.699 (展示统计, 非报关数)
     write_csv(
         "purchase_orders.csv",
         ["id", "po_no", "supplier_id", "order_date", "expected_date",
-         "total_amount", "status", "remark"],
+         "total_amount", "total_volume", "status", "remark"],
         [
-            [1, "PO20260726001", 1, "2026-07-20", "2026-07-25", 20000, "confirmed", "演示采购单1"],
+            [1, "PO20260726001", 1, "2026-07-20", "2026-07-25", 20000, 0.699, "confirmed", "演示采购单1"],
         ],
     )
 
@@ -137,15 +138,18 @@ def main():
     # 7. 销售合同
     #    [改] 加金额四件套 + 贸易条款
     #    R11: 件价改后 total = 8634.57 USD × 7.15 = 61737.17 CNY
+    #    total_volume = Σ volume_subtotal = 0.3568 + 0.3542 = 0.711 (展示统计, 非报关数)
     write_csv(
         "sales_contracts.csv",
         ["id", "contract_no", "customer_id", "sign_date", "delivery_deadline",
          "currency", "total_amount", "exchange_rate", "total_amount_cny",
+         "total_volume",
          "trade_terms", "port_loading", "port_discharge", "freight", "insurance",
          "status", "payment_term", "packing", "remark"],
         [
             [1, "SC20260720001", 1, "2026-07-15", "2026-08-15",
              "USD", 8634.5688, 7.15, 61737.1669,
+             0.711,
              "FOB", "Qingdao", "Jakarta", 0, 0,
              "confirmed",
              "TT 30% DOWN + BALANCE BEFORE COPY OF B/L",
@@ -194,13 +198,16 @@ def main():
     )
 
     # 11. 发货单 (跟客户 1 关联)
+    #     total_volume = Σ volume_subtotal = 0.223 + 0.253 = 0.476 (展示统计, 非报关数)
     write_csv(
         "delivery_orders.csv",
         ["id", "delivery_no", "customer_id", "delivery_date", "receiver",
-         "receiver_phone", "receiver_address", "transport_no", "status", "remark"],
+         "receiver_phone", "receiver_address", "transport_no",
+         "total_volume", "status", "remark"],
         [
             [1, "DN20260726001", 1, "2026-07-26", "Mr.A 收货人",
-             "+86-000-00000001", "上海市DEMO路", "SF-DEMO-0001", "confirmed", "首批发货"],
+             "+86-000-00000001", "上海市DEMO路", "SF-DEMO-0001",
+             0.476, "confirmed", "首批发货"],
         ],
     )
 
@@ -316,13 +323,14 @@ def main():
     #        明细2 subtotal (DEMO-M-002, 41kg × 1.112 × 10) = 455.92
     #        合计 = 711.68 + 455.92 = 1167.60
     #      total_amount_cny 派生 (DERIVED_RULES 算): 1167.60 × 7.25 = 8465.10
+    #      total_volume (展示统计) = Σ quotation_items.total_volume = 0.446 + 0.253 = 0.699
     #
-    #      QT002 是从 QT001 派生的正式报价 (parent_quote_id=1), 暂无明细 → total_amount=0
+    #      QT002 是从 QT001 派生的正式报价 (parent_quote_id=1), 暂无明细 → total_amount=0, total_volume=0
     write_csv(
         "quotations.csv",
         ["quote_no", "customer_id", "quote_type", "parent_quote_id", "version",
          "quote_date", "valid_until", "total_amount", "currency", "exchange_rate",
-         "total_amount_cny", "status", "converted_contract_id",
+         "total_amount_cny", "total_volume", "status", "converted_contract_id",
          "trade_terms", "port_loading", "port_discharge", "payment_term", "packing",
          "remark"],
         [
@@ -330,14 +338,14 @@ def main():
             # brief 阶段不带贸易/付款/包装条款 (确认后才补)
             ["QT20260729001", 1, "brief", "", 1,
              "2026-07-29", "2026-08-05", 1167.60, "USD", 7.25,
-             8465.10, "draft", "",
+             8465.10, 0.699, "draft", "",
              "", "", "", "", "",
              "Q025 简要报价 (R10 系数定价)"],
             # QT002: 正式 QT, 从 QT001 派生 (parent_quote_id=1), 暂无明细故金额=0
             # formal 阶段带完整 5 个外贸条款字段
             ["QT20260729002", 1, "formal", 1, 1,
              "2026-07-29", "2026-08-05", 0, "USD", 7.25,
-             0, "draft", "",
+             0, 0, "draft", "",
              "FOB", "Qingdao", "Jakarta",
              "TT 30% DOWN + BALANCE BEFORE COPY OF B/L",
              "PACKED IN WOVEN BAGS OF 500 COILS EACH",
