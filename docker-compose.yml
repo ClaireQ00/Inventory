@@ -1,0 +1,76 @@
+# ============================================================
+# Inventory 项目 - 一键环境编排 (兼容本地开发 + NAS 生产部署)
+# ------------------------------------------------------------
+# 启动两个服务:
+#   db      : MySQL 8, 启动时自动建表 + 灌基础数据 (执行 sql/*.sql)
+#   adminer : 网页版数据库管理器, 浏览器打开就能看表/查数据
+#
+# ┌─ 本地开发 (开发者在自己的电脑跑)
+# │   cp .env.example .env
+# │   docker compose up -d
+# │   浏览器打开 http://localhost:8080
+# │
+# └─ NAS 生产部署 (绿联 DXP4800 Plus 等, 给团队远程访问)
+#     详见 docs/NAS_DEPLOY.md
+#     本文件已按"最小暴露"原则配置: 数据库只绑 127.0.0.1, 公网连不到;
+#     只有 Adminer (网页) 对外, 用作团队查询入口。
+#
+# 常用命令:
+#   docker compose up -d            启动 (后台)
+#   docker compose logs -f db       看 MySQL 启动日志
+#   docker compose down             停止并删除容器 (数据保留)
+#   docker compose down             停止 (数据保留在 ./mysql-data)
+#   docker compose down && rm -rf mysql-data   彻底清空数据 (慎用!)
+# ============================================================
+
+services:
+  db:
+    image: mysql:8.0
+    container_name: inventory-db
+    restart: unless-stopped
+    # 字符集与项目 schema (utf8mb4 / utf8mb4_unicode_ci) 保持一致
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-inventory_db}
+      MYSQL_USER: ${MYSQL_USER:-inventory}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      TZ: Asia/Shanghai
+    ports:
+      # ⚠️ 安全关键: 绑定 127.0.0.1 而非 0.0.0.0
+      # 效果: 只有"宿主机本机"能连这个数据库, 局域网/公网都连不到。
+      #   - 本地开发: 在本机用 mysql 客户端连 127.0.0.1:3306 调试, 没问题
+      #   - NAS 生产: 数据库被锁在 NAS 本机, 公网穿透进来也只到 Adminer, 碰不到 DB
+      # 如果以后确实要让局域网其他机器直连 DB, 把 127.0.0.1 改成 NAS 内网 IP
+      - "127.0.0.1:3306:3306"
+    volumes:
+      # 数据持久化: 绑定挂载到项目下 mysql-data 目录 (而不是匿名卷)
+      # 好处: 数据可见、可备份、换机器可整体搬走。NAS 上也方便在文件管理里看到。
+      - ./mysql-data:/var/lib/mysql
+      # 首次启动自动按文件名顺序执行 sql/ 下的脚本建表+灌数据
+      # MySQL 官方镜像约定: 挂载到 /docker-entrypoint-initdb.d/
+      - ./sql:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  adminer:
+    image: adminer:4-standalone
+    container_name: inventory-adminer
+    restart: unless-stopped
+    ports:
+      # Adminer 网页: 这是唯一对外的入口
+      #   本地: http://localhost:8080
+      #   NAS : http://NAS内网IP:8080  或经 DDNS+端口转发后 http://你的域名:8080
+      - "${ADMINER_PORT:-8080}:8080"
+    environment:
+      # 默认连本编排里的 db 容器, 登录页服务器栏不用手填
+      ADMINER_DEFAULT_SERVER: db
+    depends_on:
+      db:
+        condition: service_healthy
