@@ -29,9 +29,15 @@ services:
     container_name: inventory-db
     restart: unless-stopped
     # 字符集与项目 schema (utf8mb4 / utf8mb4_unicode_ci) 保持一致
+    # ─ server 端: character-set-server / collation-server 决定新建库/表的默认字符集
+    # ─ client 端: character-set-client-handshake=FALSE + init_connect 强制每个连接进来
+    #   都先 SET NAMES utf8mb4, 解决 Adminer/mysql 客户端默认 latin1 导致中文乱码问题
+    # (否则 SHOW VARIABLES LIKE 'character_set_client' 会看到 latin1, 注释里的中文显示成 ???)
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
+      - --character-set-client-handshake=FALSE
+      - --init-connect=SET NAMES utf8mb4
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-inventory_db}
