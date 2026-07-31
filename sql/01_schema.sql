@@ -17,6 +17,12 @@
 --   4. 金额用 DECIMAL, 不用 FLOAT
 --   5. 物料字典(products)不带价格, 价格跟业务单据走
 --
+-- 外键设计原则 (2026-07-30 升级, ADR-0004):
+--   * 主表双键并存: INT 自增 PK `id` + 业务编号 `code`/`material_id`/`*_no` UNIQUE
+--   * 硬外键全部用业务编号引用 (如 quotations.customer_code → customers.code)
+--   * 软关联(多态)字段保留 INT: stock_logs.source_id / audit_logs.record_id
+--   * 动机: 避免 AUTO_INCREMENT 漂移导致外键失效 (详见 docs/IMPORT_TEMPLATES.md 坑 4)
+--
 -- products 表字段来源:
 --   [S1] = 物料.xlsx 的 Sheet1 (物料台账)
 --   [S2] = 物料.xlsx 的 WXSC-Quot-260424-2.3 (报价单)
@@ -184,7 +190,7 @@ DROP TABLE IF EXISTS purchase_orders;
 CREATE TABLE purchase_orders (
     id              INT AUTO_INCREMENT PRIMARY KEY COMMENT '采购单内部ID',
     po_no           VARCHAR(32)  NOT NULL UNIQUE    COMMENT '采购单号(如 PO20260726001)',
-    supplier_id     INT          NOT NULL           COMMENT '供应商ID',
+    supplier_code   VARCHAR(32)  NOT NULL           COMMENT '供应商编号(关联 suppliers.code)',
     order_date      DATE         NOT NULL           COMMENT '下单日期',
     expected_date   DATE         DEFAULT NULL       COMMENT '预计到货日期',
     total_amount    DECIMAL(14,2) NOT NULL DEFAULT 0.00 COMMENT '采购总金额(CNY)',
@@ -196,11 +202,11 @@ CREATE TABLE purchase_orders (
     updated_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
                                  ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
 
-    CONSTRAINT fk_po_supplier FOREIGN KEY (supplier_id) REFERENCES suppliers(id)
+    CONSTRAINT fk_po_supplier FOREIGN KEY (supplier_code) REFERENCES suppliers(code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='采购单主表';
 
 CREATE INDEX idx_po_no        ON purchase_orders(po_no);
-CREATE INDEX idx_po_supplier  ON purchase_orders(supplier_id);
+CREATE INDEX idx_po_supplier  ON purchase_orders(supplier_code);
 CREATE INDEX idx_po_status    ON purchase_orders(status);
 
 -- ------------------------------------------------------------
@@ -210,8 +216,8 @@ CREATE INDEX idx_po_status    ON purchase_orders(status);
 DROP TABLE IF EXISTS purchase_order_items;
 CREATE TABLE purchase_order_items (
     id              INT AUTO_INCREMENT PRIMARY KEY COMMENT '明细ID',
-    po_id           INT          NOT NULL           COMMENT '采购单ID',
-    product_id      INT          NOT NULL           COMMENT '物料ID',
+    po_no           VARCHAR(32)  NOT NULL           COMMENT '采购单号(关联 purchase_orders.po_no)',
+    material_id     VARCHAR(32)  NOT NULL           COMMENT '物料编号(关联 products.material_id)',
     quantity        INT          NOT NULL           COMMENT '采购数量(件/卷)',
     unit_price      DECIMAL(12,2) NOT NULL          COMMENT '采购单价(CNY/件)',
     subtotal        DECIMAL(14,2) NOT NULL          COMMENT '小计金额(CNY) = quantity*unit_price',
@@ -219,14 +225,14 @@ CREATE TABLE purchase_order_items (
     received_qty    INT          NOT NULL DEFAULT 0 COMMENT '已收货数量',
     remark          VARCHAR(255) DEFAULT ''         COMMENT '备注',
 
-    CONSTRAINT fk_poi_po      FOREIGN KEY (po_id)      REFERENCES purchase_orders(id) ON DELETE CASCADE,
-    CONSTRAINT fk_poi_product FOREIGN KEY (product_id) REFERENCES products(id),
+    CONSTRAINT fk_poi_po      FOREIGN KEY (po_no)      REFERENCES purchase_orders(po_no) ON DELETE CASCADE,
+    CONSTRAINT fk_poi_product FOREIGN KEY (material_id) REFERENCES products(material_id),
 
-    UNIQUE KEY uk_poi_po_product (po_id, product_id)
+    UNIQUE KEY uk_poi_po_material (po_no, material_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='采购单明细';
 
-CREATE INDEX idx_poi_po       ON purchase_order_items(po_id);
-CREATE INDEX idx_poi_product  ON purchase_order_items(product_id);
+CREATE INDEX idx_poi_po       ON purchase_order_items(po_no);
+CREATE INDEX idx_poi_product  ON purchase_order_items(material_id);
 
 -- ============================================================
 -- 模块三: 销售合同管理
@@ -241,7 +247,7 @@ DROP TABLE IF EXISTS sales_contracts;
 CREATE TABLE sales_contracts (
     id              INT AUTO_INCREMENT PRIMARY KEY COMMENT '合同内部ID',
     contract_no     VARCHAR(32)  NOT NULL UNIQUE    COMMENT '合同号(如 SC20260726001)',
-    customer_id     INT          NOT NULL           COMMENT '客户ID',
+    customer_code   VARCHAR(32)  NOT NULL           COMMENT '客户编号(关联 customers.code)',
     sign_date       DATE         NOT NULL           COMMENT '签订日期',
     delivery_deadline DATE       DEFAULT NULL       COMMENT '交货截止日期',
     -- 金额 (外贸默认外币计价, 记账本位币 CNY)
@@ -267,23 +273,30 @@ CREATE TABLE sales_contracts (
     updated_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
                                  ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
 
-    CONSTRAINT fk_sc_customer FOREIGN KEY (customer_id) REFERENCES customers(id)
+    CONSTRAINT fk_sc_customer FOREIGN KEY (customer_code) REFERENCES customers(code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='销售合同主表';
 
 CREATE INDEX idx_sc_no        ON sales_contracts(contract_no);
-CREATE INDEX idx_sc_customer  ON sales_contracts(customer_id);
+CREATE INDEX idx_sc_customer  ON sales_contracts(customer_code);
 CREATE INDEX idx_sc_status    ON sales_contracts(status);
 
 -- ------------------------------------------------------------
 -- 3.2 销售合同明细表 sales_contract_items
 -- 类比: 合同的"商品行"
 -- 重点字段: quantity(合同数) / delivered_qty(已发数) / pending_qty(未发数)
+--
+-- ⚠️ 行号设计 (2026-07-30 加, ADR-0004):
+--   item_no = 明细行号(同合同内唯一, 如 001/002/...)
+--   作用: 给下游表(delivery_order_items/credit_notes)引用本行的稳定业务编号,
+--         避免 AUTO_INCREMENT id 漂移导致外键失效。
+--   规则: 录入时按行递增, 同一个 contract_no 内不可重复。
 -- ------------------------------------------------------------
 DROP TABLE IF EXISTS sales_contract_items;
 CREATE TABLE sales_contract_items (
     id              INT AUTO_INCREMENT PRIMARY KEY COMMENT '明细ID',
-    contract_id     INT          NOT NULL           COMMENT '合同ID',
-    product_id      INT          NOT NULL           COMMENT '物料ID',
+    contract_no     VARCHAR(32)  NOT NULL           COMMENT '合同号(关联 sales_contracts.contract_no)',
+    item_no         VARCHAR(32)  NOT NULL           COMMENT '明细行号(同合同内唯一, 如 001, 下游引用)',
+    material_id     VARCHAR(32)  NOT NULL           COMMENT '物料编号(关联 products.material_id)',
     quantity        INT          NOT NULL           COMMENT '合同数量(件/卷)',
     unit_price      DECIMAL(12,2) NOT NULL          COMMENT '合同单价(原币种/件, 币种跟随主表 sales_contracts.currency)',
     subtotal        DECIMAL(14,2) NOT NULL          COMMENT '小计金额(原币种) = quantity*unit_price',
@@ -291,14 +304,18 @@ CREATE TABLE sales_contract_items (
     delivered_qty   INT          NOT NULL DEFAULT 0 COMMENT '已发货数量(由发货单回写)',
     remark          VARCHAR(255) DEFAULT ''         COMMENT '备注',
 
-    CONSTRAINT fk_sci_contract FOREIGN KEY (contract_id) REFERENCES sales_contracts(id) ON DELETE CASCADE,
-    CONSTRAINT fk_sci_product  FOREIGN KEY (product_id)  REFERENCES products(id),
+    CONSTRAINT fk_sci_contract FOREIGN KEY (contract_no) REFERENCES sales_contracts(contract_no) ON DELETE CASCADE,
+    CONSTRAINT fk_sci_product  FOREIGN KEY (material_id)  REFERENCES products(material_id),
 
-    UNIQUE KEY uk_sci_contract_product (contract_id, product_id)
+    -- 两套唯一键共存 (ADR-0004 决策 5):
+    --   uk_sci_contract_itemno   = 行号唯一(下游外键引用基础)
+    --   uk_sci_contract_material = 同合同同物料不可重复(防录入重复)
+    UNIQUE KEY uk_sci_contract_itemno   (contract_no, item_no),
+    UNIQUE KEY uk_sci_contract_material (contract_no, material_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='销售合同明细';
 
-CREATE INDEX idx_sci_contract ON sales_contract_items(contract_id);
-CREATE INDEX idx_sci_product  ON sales_contract_items(product_id);
+CREATE INDEX idx_sci_contract ON sales_contract_items(contract_no);
+CREATE INDEX idx_sci_product  ON sales_contract_items(material_id);
 
 -- ============================================================
 -- 模块四: 库存管理
@@ -311,21 +328,21 @@ CREATE INDEX idx_sci_product  ON sales_contract_items(product_id);
 -- ------------------------------------------------------------
 DROP TABLE IF EXISTS inventory;
 CREATE TABLE inventory (
-    id           INT AUTO_INCREMENT PRIMARY KEY COMMENT '库存记录ID',
-    product_id   INT          NOT NULL COMMENT '物料ID',
-    warehouse_id INT          NOT NULL COMMENT '仓库ID',
-    quantity     INT          NOT NULL DEFAULT 0 COMMENT '当前库存数量(件/卷)',
-    updated_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
+    id              INT AUTO_INCREMENT PRIMARY KEY COMMENT '库存记录ID',
+    material_id     VARCHAR(32)  NOT NULL COMMENT '物料编号(关联 products.material_id)',
+    warehouse_code  VARCHAR(32)  NOT NULL COMMENT '仓库编号(关联 warehouses.code)',
+    quantity        INT          NOT NULL DEFAULT 0 COMMENT '当前库存数量(件/卷)',
+    updated_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
                                 ON UPDATE CURRENT_TIMESTAMP COMMENT '最后更新时间',
 
-    UNIQUE KEY uk_product_warehouse (product_id, warehouse_id),
+    UNIQUE KEY uk_material_warehouse (material_id, warehouse_code),
 
-    CONSTRAINT fk_inv_product   FOREIGN KEY (product_id)   REFERENCES products(id),
-    CONSTRAINT fk_inv_warehouse FOREIGN KEY (warehouse_id) REFERENCES warehouses(id)
+    CONSTRAINT fk_inv_product   FOREIGN KEY (material_id)    REFERENCES products(material_id),
+    CONSTRAINT fk_inv_warehouse FOREIGN KEY (warehouse_code) REFERENCES warehouses(code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='当前库存';
 
-CREATE INDEX idx_inv_product   ON inventory(product_id);
-CREATE INDEX idx_inv_warehouse ON inventory(warehouse_id);
+CREATE INDEX idx_inv_product   ON inventory(material_id);
+CREATE INDEX idx_inv_warehouse ON inventory(warehouse_code);
 
 -- ------------------------------------------------------------
 -- 4.2 入库单主表 stock_in
@@ -338,8 +355,8 @@ CREATE TABLE stock_in (
     in_no           VARCHAR(32)  NOT NULL UNIQUE    COMMENT '入库单号(如 IN20260726001)',
     in_type         ENUM('purchase','production','transfer','return')
                                 NOT NULL DEFAULT 'purchase' COMMENT '入库类型: 采购/生产/调拨/退货',
-    warehouse_id    INT          NOT NULL           COMMENT '入库仓库ID',
-    po_id           INT          DEFAULT NULL       COMMENT '关联采购单ID(采购入库时填)',
+    warehouse_code  VARCHAR(32)  NOT NULL           COMMENT '入库仓库编号(关联 warehouses.code)',
+    po_no           VARCHAR(32)  DEFAULT NULL       COMMENT '关联采购单号(采购入库时填, 关联 purchase_orders.po_no)',
     operator        VARCHAR(32)  DEFAULT ''         COMMENT '操作人',
     in_date         DATE         NOT NULL           COMMENT '入库日期',
     status          ENUM('draft','confirmed','cancelled')
@@ -350,13 +367,13 @@ CREATE TABLE stock_in (
     updated_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
                                  ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
 
-    CONSTRAINT fk_si_warehouse FOREIGN KEY (warehouse_id) REFERENCES warehouses(id),
-    CONSTRAINT fk_si_po        FOREIGN KEY (po_id)        REFERENCES purchase_orders(id)
+    CONSTRAINT fk_si_warehouse FOREIGN KEY (warehouse_code) REFERENCES warehouses(code),
+    CONSTRAINT fk_si_po        FOREIGN KEY (po_no)          REFERENCES purchase_orders(po_no)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='入库单主表';
 
 CREATE INDEX idx_si_no        ON stock_in(in_no);
-CREATE INDEX idx_si_warehouse ON stock_in(warehouse_id);
-CREATE INDEX idx_si_po        ON stock_in(po_id);
+CREATE INDEX idx_si_warehouse ON stock_in(warehouse_code);
+CREATE INDEX idx_si_po        ON stock_in(po_no);
 CREATE INDEX idx_si_transfer  ON stock_in(transfer_ref);
 
 -- ------------------------------------------------------------
@@ -365,17 +382,17 @@ CREATE INDEX idx_si_transfer  ON stock_in(transfer_ref);
 DROP TABLE IF EXISTS stock_in_items;
 CREATE TABLE stock_in_items (
     id              INT AUTO_INCREMENT PRIMARY KEY COMMENT '明细ID',
-    stock_in_id     INT          NOT NULL           COMMENT '入库单ID',
-    product_id      INT          NOT NULL           COMMENT '物料ID',
+    in_no           VARCHAR(32)  NOT NULL           COMMENT '入库单号(关联 stock_in.in_no)',
+    material_id     VARCHAR(32)  NOT NULL           COMMENT '物料编号(关联 products.material_id)',
     quantity        INT          NOT NULL           COMMENT '入库数量(件/卷)',
     remark          VARCHAR(255) DEFAULT ''         COMMENT '备注',
 
-    CONSTRAINT fk_sii_si      FOREIGN KEY (stock_in_id) REFERENCES stock_in(id) ON DELETE CASCADE,
-    CONSTRAINT fk_sii_product FOREIGN KEY (product_id)  REFERENCES products(id)
+    CONSTRAINT fk_sii_si      FOREIGN KEY (in_no)      REFERENCES stock_in(in_no) ON DELETE CASCADE,
+    CONSTRAINT fk_sii_product FOREIGN KEY (material_id) REFERENCES products(material_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='入库单明细';
 
-CREATE INDEX idx_sii_si      ON stock_in_items(stock_in_id);
-CREATE INDEX idx_sii_product ON stock_in_items(product_id);
+CREATE INDEX idx_sii_si      ON stock_in_items(in_no);
+CREATE INDEX idx_sii_product ON stock_in_items(material_id);
 
 -- ------------------------------------------------------------
 -- 4.4 出库单主表 stock_out
@@ -388,8 +405,8 @@ CREATE TABLE stock_out (
     out_no          VARCHAR(32)  NOT NULL UNIQUE    COMMENT '出库单号(如 OUT20260726001)',
     out_type        ENUM('sale','production','transfer','scrap')
                                 NOT NULL DEFAULT 'sale' COMMENT '出库类型: 销售/生产/调拨/报废',
-    warehouse_id    INT          NOT NULL           COMMENT '出库仓库ID',
-    delivery_id     INT          DEFAULT NULL       COMMENT '关联发货单ID(销售出库时填)',
+    warehouse_code  VARCHAR(32)  NOT NULL           COMMENT '出库仓库编号(关联 warehouses.code)',
+    delivery_no     VARCHAR(32)  DEFAULT NULL       COMMENT '关联发货单号(销售出库时填, 关联 delivery_orders.delivery_no)',
     operator        VARCHAR(32)  DEFAULT ''         COMMENT '操作人',
     out_date        DATE         NOT NULL           COMMENT '出库日期',
     status          ENUM('draft','confirmed','cancelled')
@@ -400,13 +417,13 @@ CREATE TABLE stock_out (
     updated_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
                                  ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
 
-    CONSTRAINT fk_so_warehouse FOREIGN KEY (warehouse_id) REFERENCES warehouses(id),
-    CONSTRAINT fk_so_delivery FOREIGN KEY (delivery_id)   REFERENCES delivery_orders(id)
+    CONSTRAINT fk_so_warehouse FOREIGN KEY (warehouse_code) REFERENCES warehouses(code),
+    CONSTRAINT fk_so_delivery FOREIGN KEY (delivery_no)     REFERENCES delivery_orders(delivery_no)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='出库单主表';
 
 CREATE INDEX idx_so_no        ON stock_out(out_no);
-CREATE INDEX idx_so_warehouse ON stock_out(warehouse_id);
-CREATE INDEX idx_so_delivery  ON stock_out(delivery_id);
+CREATE INDEX idx_so_warehouse ON stock_out(warehouse_code);
+CREATE INDEX idx_so_delivery  ON stock_out(delivery_no);
 CREATE INDEX idx_so_transfer  ON stock_out(transfer_ref);
 
 -- ------------------------------------------------------------
@@ -415,17 +432,17 @@ CREATE INDEX idx_so_transfer  ON stock_out(transfer_ref);
 DROP TABLE IF EXISTS stock_out_items;
 CREATE TABLE stock_out_items (
     id              INT AUTO_INCREMENT PRIMARY KEY COMMENT '明细ID',
-    stock_out_id    INT          NOT NULL           COMMENT '出库单ID',
-    product_id      INT          NOT NULL           COMMENT '物料ID',
+    out_no          VARCHAR(32)  NOT NULL           COMMENT '出库单号(关联 stock_out.out_no)',
+    material_id     VARCHAR(32)  NOT NULL           COMMENT '物料编号(关联 products.material_id)',
     quantity        INT          NOT NULL           COMMENT '出库数量(件/卷)',
     remark          VARCHAR(255) DEFAULT ''         COMMENT '备注',
 
-    CONSTRAINT fk_soi_so      FOREIGN KEY (stock_out_id) REFERENCES stock_out(id) ON DELETE CASCADE,
-    CONSTRAINT fk_soi_product FOREIGN KEY (product_id)   REFERENCES products(id)
+    CONSTRAINT fk_soi_so      FOREIGN KEY (out_no)      REFERENCES stock_out(out_no) ON DELETE CASCADE,
+    CONSTRAINT fk_soi_product FOREIGN KEY (material_id) REFERENCES products(material_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='出库单明细';
 
-CREATE INDEX idx_soi_so      ON stock_out_items(stock_out_id);
-CREATE INDEX idx_soi_product ON stock_out_items(product_id);
+CREATE INDEX idx_soi_so      ON stock_out_items(out_no);
+CREATE INDEX idx_soi_product ON stock_out_items(material_id);
 
 -- ------------------------------------------------------------
 -- 4.6 出入库流水表 stock_logs
@@ -436,22 +453,22 @@ CREATE INDEX idx_soi_product ON stock_out_items(product_id);
 DROP TABLE IF EXISTS stock_logs;
 CREATE TABLE stock_logs (
     id              BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '流水ID',
-    product_id      INT          NOT NULL COMMENT '物料ID',
-    warehouse_id    INT          NOT NULL COMMENT '仓库ID',
+    material_id     VARCHAR(32)  NOT NULL COMMENT '物料编号(关联 products.material_id)',
+    warehouse_code  VARCHAR(32)  NOT NULL COMMENT '仓库编号(关联 warehouses.code)',
     change_qty      INT          NOT NULL COMMENT '变动数量(入库为正,出库为负)',
     after_qty       INT          NOT NULL COMMENT '变动后该仓该物料库存',
     source_type     ENUM('stock_in','stock_out','adjust')
                                 NOT NULL COMMENT '来源类型: 入库单/出库单/盘点调整',
-    source_id       INT          DEFAULT NULL COMMENT '来源单据ID(关联stock_in/stock_out的主键)',
-    source_no       VARCHAR(32)  DEFAULT ''  COMMENT '来源单号(冗余, 方便查询)',
+    source_id       INT          DEFAULT NULL COMMENT '来源单据内部ID(多态软链接, 关联 stock_in.id 或 stock_out.id, 不加 FK)',
+    source_no       VARCHAR(32)  DEFAULT ''  COMMENT '来源单号(冗余业务编号, 方便查询)',
     remark          VARCHAR(255) DEFAULT ''  COMMENT '备注',
     created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '发生时间',
 
-    CONSTRAINT fk_log_product   FOREIGN KEY (product_id)   REFERENCES products(id),
-    CONSTRAINT fk_log_warehouse FOREIGN KEY (warehouse_id) REFERENCES warehouses(id)
+    CONSTRAINT fk_log_product   FOREIGN KEY (material_id)    REFERENCES products(material_id),
+    CONSTRAINT fk_log_warehouse FOREIGN KEY (warehouse_code) REFERENCES warehouses(code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='出入库流水';
 
-CREATE INDEX idx_log_product_warehouse_time ON stock_logs(product_id, warehouse_id, created_at);
+CREATE INDEX idx_log_product_warehouse_time ON stock_logs(material_id, warehouse_code, created_at);
 CREATE INDEX idx_log_source                ON stock_logs(source_type, source_id);
 
 -- ============================================================
@@ -467,7 +484,7 @@ DROP TABLE IF EXISTS delivery_orders;
 CREATE TABLE delivery_orders (
     id              INT AUTO_INCREMENT PRIMARY KEY COMMENT '发货单内部ID',
     delivery_no     VARCHAR(32)  NOT NULL UNIQUE    COMMENT '发货单号(如 DN20260726001)',
-    customer_id     INT          NOT NULL           COMMENT '客户ID',
+    customer_code   VARCHAR(32)  NOT NULL           COMMENT '客户编号(关联 customers.code)',
     delivery_date   DATE         NOT NULL           COMMENT '发货日期',
     receiver        VARCHAR(32)  DEFAULT ''         COMMENT '收货人',
     receiver_phone  VARCHAR(32)  DEFAULT ''         COMMENT '收货电话',
@@ -481,11 +498,11 @@ CREATE TABLE delivery_orders (
     updated_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
                                  ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
 
-    CONSTRAINT fk_do_customer FOREIGN KEY (customer_id) REFERENCES customers(id)
+    CONSTRAINT fk_do_customer FOREIGN KEY (customer_code) REFERENCES customers(code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='发货单主表';
 
 CREATE INDEX idx_do_no       ON delivery_orders(delivery_no);
-CREATE INDEX idx_do_customer ON delivery_orders(customer_id);
+CREATE INDEX idx_do_customer ON delivery_orders(customer_code);
 CREATE INDEX idx_do_status   ON delivery_orders(status);
 
 -- ------------------------------------------------------------
@@ -503,9 +520,11 @@ CREATE INDEX idx_do_status   ON delivery_orders(status);
 DROP TABLE IF EXISTS delivery_order_items;
 CREATE TABLE delivery_order_items (
     id                  INT AUTO_INCREMENT PRIMARY KEY COMMENT '明细ID',
-    delivery_id         INT          NOT NULL           COMMENT '发货单ID',
-    contract_item_id    INT          DEFAULT NULL       COMMENT '关联合同明细ID(回写已发数量用)',
-    product_id          INT          NOT NULL           COMMENT '物料ID',
+    delivery_no         VARCHAR(32)  NOT NULL           COMMENT '发货单号(关联 delivery_orders.delivery_no)',
+    -- 合同明细引用(复合外键): 同一行 contract_no + contract_item_no 必须存在于 sales_contract_items
+    contract_no         VARCHAR(32)  DEFAULT NULL       COMMENT '关联合同号(关联 sales_contracts.contract_no, 跟 contract_item_no 组合)',
+    contract_item_no    VARCHAR(32)  DEFAULT NULL       COMMENT '关联合同明细行号(跟 contract_no 组合, 引用 sales_contract_items.item_no, 回写已发数量用)',
+    material_id         VARCHAR(32)  NOT NULL           COMMENT '物料编号(关联 products.material_id)',
     quantity            INT          NOT NULL           COMMENT '计划发货数量(件/卷, 商务承诺)',
     actual_quantity     INT          NOT NULL DEFAULT 0 COMMENT '实际发货数量(装柜后填, 默认=quantity, 短装时<quantity)',
     short_qty           INT          GENERATED ALWAYS AS (quantity - actual_quantity) STORED COMMENT '短装数(自动算=计划-实际, 正=短装, 负=超装)',
@@ -514,7 +533,7 @@ CREATE TABLE delivery_order_items (
     -- 业务背景: 简要报价按 公斤系数(USD/KG) × 单重 定价; 后续制作发货单(Packing Plan)时,
     --           要用"报价单的公斤价"正算"应等于的合同单价", 与实际合同单价对比, 差 0.001 内正常。
     -- 正算公式(丙方案): expected_unit_price = 报价系数 × 汇率 × 单重  (原币种/件)
-    --   - 报价系数: 取 quotation_items.price_coefficient (通过 contract_item_id 反查报价明细)
+    --   - 报价系数: 取 quotation_items.price_coefficient (通过 contract_item_no 反查报价明细)
     --   - 汇率   : 取 sales_contracts.exchange_rate
     --   - 单重   : 取 products.weight
     -- 差异 = 实际合同单价(sales_contract_items.unit_price) − expected_unit_price
@@ -523,14 +542,14 @@ CREATE TABLE delivery_order_items (
     coeff_check_status   VARCHAR(16)  DEFAULT 'pending' COMMENT '[R11]核对结论: pass(|diff|≤0.001) / warn(超差) / pending(缺数据)',
     remark              VARCHAR(255) DEFAULT ''         COMMENT '备注',
 
-    CONSTRAINT fk_doi_delivery     FOREIGN KEY (delivery_id)      REFERENCES delivery_orders(id) ON DELETE CASCADE,
-    CONSTRAINT fk_doi_contract_item FOREIGN KEY (contract_item_id) REFERENCES sales_contract_items(id),
-    CONSTRAINT fk_doi_product      FOREIGN KEY (product_id)       REFERENCES products(id)
+    CONSTRAINT fk_doi_delivery     FOREIGN KEY (delivery_no)                          REFERENCES delivery_orders(delivery_no) ON DELETE CASCADE,
+    CONSTRAINT fk_doi_contract_item FOREIGN KEY (contract_no, contract_item_no)       REFERENCES sales_contract_items(contract_no, item_no),
+    CONSTRAINT fk_doi_product      FOREIGN KEY (material_id)                          REFERENCES products(material_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='发货单明细';
 
-CREATE INDEX idx_doi_delivery      ON delivery_order_items(delivery_id);
-CREATE INDEX idx_doi_contract_item ON delivery_order_items(contract_item_id);
-CREATE INDEX idx_doi_product       ON delivery_order_items(product_id);
+CREATE INDEX idx_doi_delivery      ON delivery_order_items(delivery_no);
+CREATE INDEX idx_doi_contract_item ON delivery_order_items(contract_no, contract_item_no);
+CREATE INDEX idx_doi_product       ON delivery_order_items(material_id);
 
 -- ============================================================
 -- 模块六: 报关 (外贸出口专用)
@@ -552,7 +571,7 @@ DROP TABLE IF EXISTS shipping_records;
 CREATE TABLE shipping_records (
     id               INT AUTO_INCREMENT PRIMARY KEY COMMENT 'ID',
     shipping_no      VARCHAR(32)   NOT NULL UNIQUE  COMMENT '报关单号(SH2026-001)',
-    delivery_id      INT           NOT NULL         COMMENT '关联发货单ID',
+    delivery_no      VARCHAR(32)   NOT NULL         COMMENT '关联发货单号(关联 delivery_orders.delivery_no)',
     shipping_date    DATE          NOT NULL         COMMENT '装船日期',
     container_no     VARCHAR(32)   DEFAULT ''       COMMENT '集装箱号',
     seal_no          VARCHAR(32)   DEFAULT ''       COMMENT '封条号',
@@ -574,11 +593,11 @@ CREATE TABLE shipping_records (
     created_at       DATETIME      DEFAULT CURRENT_TIMESTAMP,
     updated_at       DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
-    CONSTRAINT fk_sr_delivery FOREIGN KEY (delivery_id) REFERENCES delivery_orders(id)
+    CONSTRAINT fk_sr_delivery FOREIGN KEY (delivery_no) REFERENCES delivery_orders(delivery_no)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='报关单据主表(实际装柜数据)';
 
 CREATE INDEX idx_sr_no       ON shipping_records(shipping_no);
-CREATE INDEX idx_sr_delivery ON shipping_records(delivery_id);
+CREATE INDEX idx_sr_delivery ON shipping_records(delivery_no);
 CREATE INDEX idx_sr_status   ON shipping_records(status);
 
 -- ------------------------------------------------------------
@@ -589,8 +608,8 @@ CREATE INDEX idx_sr_status   ON shipping_records(status);
 DROP TABLE IF EXISTS shipping_record_items;
 CREATE TABLE shipping_record_items (
     id               INT AUTO_INCREMENT PRIMARY KEY COMMENT '明细ID',
-    shipping_id      INT          NOT NULL          COMMENT '报关单ID',
-    product_id       INT          NOT NULL          COMMENT '物料ID',
+    shipping_no      VARCHAR(32)  NOT NULL          COMMENT '报关单号(关联 shipping_records.shipping_no)',
+    material_id      VARCHAR(32)  NOT NULL          COMMENT '物料编号(关联 products.material_id)',
     -- 计划 vs 实际
     planned_qty      INT          NOT NULL DEFAULT 0 COMMENT '计划数量(从发货单带过来)',
     actual_qty       INT          NOT NULL DEFAULT 0 COMMENT '实际装柜数量(必填)',
@@ -604,12 +623,12 @@ CREATE TABLE shipping_record_items (
     subtotal_usd     DECIMAL(12,2) DEFAULT 0        COMMENT '小计(USD) = actual_qty × unit_price_usd',
     remark           VARCHAR(255) DEFAULT ''        COMMENT '备注',
 
-    CONSTRAINT fk_sri_shipping FOREIGN KEY (shipping_id) REFERENCES shipping_records(id) ON DELETE CASCADE,
-    CONSTRAINT fk_sri_product  FOREIGN KEY (product_id)  REFERENCES products(id)
+    CONSTRAINT fk_sri_shipping FOREIGN KEY (shipping_no) REFERENCES shipping_records(shipping_no) ON DELETE CASCADE,
+    CONSTRAINT fk_sri_product  FOREIGN KEY (material_id)  REFERENCES products(material_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='报关单据明细(Packing List + CI 数据源)';
 
-CREATE INDEX idx_sri_shipping ON shipping_record_items(shipping_id);
-CREATE INDEX idx_sri_product  ON shipping_record_items(product_id);
+CREATE INDEX idx_sri_shipping ON shipping_record_items(shipping_no);
+CREATE INDEX idx_sri_product  ON shipping_record_items(material_id);
 
 -- ------------------------------------------------------------
 -- 6.3 贷记单/差异处理主表 credit_notes
@@ -620,9 +639,11 @@ DROP TABLE IF EXISTS credit_notes;
 CREATE TABLE credit_notes (
     id               INT AUTO_INCREMENT PRIMARY KEY COMMENT 'ID',
     cn_no            VARCHAR(32)   NOT NULL UNIQUE  COMMENT '贷记单号(CN2026-001)',
-    shipping_id      INT           NOT NULL         COMMENT '关联报关单',
-    contract_item_id INT           NOT NULL         COMMENT '关联合同明细',
-    product_id       INT           NOT NULL         COMMENT '物料ID',
+    shipping_no      VARCHAR(32)   NOT NULL         COMMENT '关联报关单号(关联 shipping_records.shipping_no)',
+    -- 合同明细引用(复合外键): contract_no + contract_item_no 必须存在于 sales_contract_items
+    contract_no      VARCHAR(32)   NOT NULL         COMMENT '关联合同号(跟 contract_item_no 组合, 引用 sales_contracts.contract_no)',
+    contract_item_no VARCHAR(32)   NOT NULL         COMMENT '关联合同明细行号(跟 contract_no 组合, 引用 sales_contract_items.item_no)',
+    material_id      VARCHAR(32)   NOT NULL         COMMENT '物料编号(关联 products.material_id)',
     -- 差异金额四件套
     diff_qty         INT           NOT NULL         COMMENT '差异数量(正=短装, 负=超装)',
     diff_amount      DECIMAL(12,2) NOT NULL         COMMENT '差异金额(原币种)',
@@ -637,13 +658,13 @@ CREATE TABLE credit_notes (
     created_at       DATETIME      DEFAULT CURRENT_TIMESTAMP,
     updated_at       DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
-    CONSTRAINT fk_cn_shipping      FOREIGN KEY (shipping_id)      REFERENCES shipping_records(id),
-    CONSTRAINT fk_cn_contract_item FOREIGN KEY (contract_item_id) REFERENCES sales_contract_items(id),
-    CONSTRAINT fk_cn_product       FOREIGN KEY (product_id)       REFERENCES products(id)
+    CONSTRAINT fk_cn_shipping      FOREIGN KEY (shipping_no)                     REFERENCES shipping_records(shipping_no),
+    CONSTRAINT fk_cn_contract_item FOREIGN KEY (contract_no, contract_item_no)   REFERENCES sales_contract_items(contract_no, item_no),
+    CONSTRAINT fk_cn_product       FOREIGN KEY (material_id)                     REFERENCES products(material_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='贷记单/差异处理单';
 
 CREATE INDEX idx_cn_no         ON credit_notes(cn_no);
-CREATE INDEX idx_cn_shipping   ON credit_notes(shipping_id);
+CREATE INDEX idx_cn_shipping   ON credit_notes(shipping_no);
 CREATE INDEX idx_cn_resolution ON credit_notes(resolution);
 
 -- ============================================================
@@ -683,10 +704,10 @@ DROP TABLE IF EXISTS receipts;
 CREATE TABLE receipts (
     id              INT AUTO_INCREMENT PRIMARY KEY COMMENT 'ID',
     receipt_no      VARCHAR(32)  NOT NULL UNIQUE   COMMENT '收款单号(如 RC20260815001)',
-    customer_id     INT          NOT NULL          COMMENT '客户ID',
-    contract_id     INT          DEFAULT NULL      COMMENT '关联合同ID(可空, 预收款时无合同)',
-    shipping_id     INT          DEFAULT NULL      COMMENT '关联报关单ID(可空)',
-    delivery_id     INT          DEFAULT NULL      COMMENT '关联发货单ID(可空)',
+    customer_code   VARCHAR(32)  NOT NULL          COMMENT '客户编号(关联 customers.code)',
+    contract_no     VARCHAR(32)  DEFAULT NULL      COMMENT '关联合同号(可空, 预收款时无合同, 关联 sales_contracts.contract_no)',
+    shipping_no     VARCHAR(32)  DEFAULT NULL      COMMENT '关联报关单号(可空, 关联 shipping_records.shipping_no)',
+    delivery_no     VARCHAR(32)  DEFAULT NULL      COMMENT '关联发货单号(可空, 关联 delivery_orders.delivery_no)',
     -- 金额
     amount          DECIMAL(14,2) NOT NULL         COMMENT '收款金额(原币种)',
     currency        VARCHAR(3)   NOT NULL DEFAULT 'USD' COMMENT '币种',
@@ -704,15 +725,15 @@ CREATE TABLE receipts (
     created_at      DATETIME     DEFAULT CURRENT_TIMESTAMP,
     updated_at      DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
-    CONSTRAINT fk_rc_customer  FOREIGN KEY (customer_id) REFERENCES customers(id),
-    CONSTRAINT fk_rc_contract  FOREIGN KEY (contract_id) REFERENCES sales_contracts(id),
-    CONSTRAINT fk_rc_shipping  FOREIGN KEY (shipping_id) REFERENCES shipping_records(id),
-    CONSTRAINT fk_rc_delivery  FOREIGN KEY (delivery_id) REFERENCES delivery_orders(id)
+    CONSTRAINT fk_rc_customer  FOREIGN KEY (customer_code) REFERENCES customers(code),
+    CONSTRAINT fk_rc_contract  FOREIGN KEY (contract_no)   REFERENCES sales_contracts(contract_no),
+    CONSTRAINT fk_rc_shipping  FOREIGN KEY (shipping_no)    REFERENCES shipping_records(shipping_no),
+    CONSTRAINT fk_rc_delivery  FOREIGN KEY (delivery_no)    REFERENCES delivery_orders(delivery_no)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='收款单(客户付款)';
 
 CREATE INDEX idx_rc_no         ON receipts(receipt_no);
-CREATE INDEX idx_rc_customer   ON receipts(customer_id);
-CREATE INDEX idx_rc_contract   ON receipts(contract_id);
+CREATE INDEX idx_rc_customer   ON receipts(customer_code);
+CREATE INDEX idx_rc_contract   ON receipts(contract_no);
 CREATE INDEX idx_rc_paid_date  ON receipts(paid_date);
 CREATE INDEX idx_rc_status     ON receipts(status);
 
@@ -764,15 +785,15 @@ CREATE TABLE quotation_params (
 CREATE INDEX idx_qp_key ON quotation_params(param_key);
 
 -- 9.2 报价主表 quotations (简要报价 + 正式 QT 共用, 状态区分)
--- 关键字段: quote_type(brief/formal) / version(简要报价多版本) / parent_quote_id(派生源)
+-- 关键字段: quote_type(brief/formal) / version(简要报价多版本) / parent_quote_no(派生源)
 -- ------------------------------------------------------------
 DROP TABLE IF EXISTS quotations;
 CREATE TABLE quotations (
     id                  INT AUTO_INCREMENT PRIMARY KEY COMMENT '报价内部ID',
     quote_no            VARCHAR(32)  NOT NULL UNIQUE   COMMENT '报价号(如 QT20260729001)',
-    customer_id         INT          NOT NULL          COMMENT '客户ID',
+    customer_code       VARCHAR(32)  NOT NULL          COMMENT '客户编号(关联 customers.code)',
     quote_type          ENUM('brief','formal') NOT NULL DEFAULT 'brief' COMMENT '类型: brief简要报价/formal正式QT',
-    parent_quote_id     INT          DEFAULT NULL      COMMENT '派生源(正式QT从哪个简要报价派生)',
+    parent_quote_no     VARCHAR(32)  DEFAULT NULL      COMMENT '派生源报价号(正式QT从哪个简要报价派生, 自引用 quotations.quote_no)',
     version             INT          NOT NULL DEFAULT 1 COMMENT '版本(简要报价多版本)',
     quote_date          DATE         NOT NULL          COMMENT '报价日期',
     valid_until         DATE         DEFAULT NULL      COMMENT '报价有效期至',
@@ -784,7 +805,7 @@ CREATE TABLE quotations (
     total_volume        DECIMAL(10,4) NOT NULL DEFAULT 0.0000 COMMENT '报价总体积(CBM, 展示统计) = Σ quotation_items.total_volume',
     status              ENUM('draft','sent','confirmed','converted','cancelled')
                         NOT NULL DEFAULT 'draft'      COMMENT '状态: 草稿/已发/已确认/已转合同/已取消',
-    converted_contract_id INT        DEFAULT NULL      COMMENT '转成的销售合同ID(转后回填)',
+    converted_contract_no VARCHAR(32) DEFAULT NULL    COMMENT '转成的销售合同号(转后回填, 软关联 sales_contracts.contract_no, 无 FK 防循环依赖)',
     -- 贸易/付款/包装条款 (2026-07-29 加, 对齐 QT 模板, 转合同时拷贝到 sales_contracts)
     trade_terms     ENUM('FOB','CIF','CFR','EXW') NOT NULL DEFAULT 'FOB' COMMENT '贸易术语(Incoterms 2020), 与 sales_contracts 类型对齐',
     port_loading    VARCHAR(64)  DEFAULT ''         COMMENT '装运港(如 Qingdao)',
@@ -796,24 +817,29 @@ CREATE TABLE quotations (
     updated_at          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
                                      ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
 
-    CONSTRAINT fk_quo_customer FOREIGN KEY (customer_id) REFERENCES customers(id),
-    CONSTRAINT fk_quo_parent   FOREIGN KEY (parent_quote_id) REFERENCES quotations(id) ON DELETE SET NULL
+    CONSTRAINT fk_quo_customer FOREIGN KEY (customer_code) REFERENCES customers(code),
+    CONSTRAINT fk_quo_parent   FOREIGN KEY (parent_quote_no) REFERENCES quotations(quote_no) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='报价主表(简要报价+正式QT)';
 
 CREATE INDEX idx_quo_no       ON quotations(quote_no);
-CREATE INDEX idx_quo_customer ON quotations(customer_id);
+CREATE INDEX idx_quo_customer ON quotations(customer_code);
 CREATE INDEX idx_quo_type     ON quotations(quote_type);
 CREATE INDEX idx_quo_status   ON quotations(status);
 
 -- 9.3 报价明细表 quotation_items
 -- 定价公式: unit_price = weight_per_unit × price_coefficient (USD/KG)
 -- 派生字段(total_weight/unit_price/subtotal/total_volume)下一步 DERIVED_RULES 实现, 本步先建列
+--
+-- ⚠️ 行号设计 (2026-07-30 加, ADR-0004):
+--   item_no = 明细行号(同报价单内唯一, 如 001/002/...)
+--   作用: 给下游 delivery_order_items 反查报价系数时提供稳定业务编号。
 -- ------------------------------------------------------------
 DROP TABLE IF EXISTS quotation_items;
 CREATE TABLE quotation_items (
     id                  INT AUTO_INCREMENT PRIMARY KEY COMMENT '明细ID',
-    quote_id            INT          NOT NULL           COMMENT '报价ID',
-    product_id          INT          NOT NULL           COMMENT '物料ID(关联products带出重量/体积)',
+    quote_no            VARCHAR(32)  NOT NULL           COMMENT '报价号(关联 quotations.quote_no)',
+    item_no             VARCHAR(32)  NOT NULL           COMMENT '明细行号(同报价单内唯一, 如 001)',
+    material_id         VARCHAR(32)  NOT NULL           COMMENT '物料编号(关联 products.material_id, 带出重量/体积)',
     group_code          VARCHAR(32)  NOT NULL DEFAULT '' COMMENT '分组码(同组共用报价系数, 如 A组-1.112)',
     price_coefficient   DECIMAL(10,4) NOT NULL          COMMENT '报价系数(USD/KG)',
     weight_per_unit     DECIMAL(10,3) NOT NULL          COMMENT '单卷重量(KG, 从products.weight带出可覆盖)',
@@ -826,13 +852,17 @@ CREATE TABLE quotation_items (
     total_volume        DECIMAL(12,6) NOT NULL DEFAULT 0 COMMENT '派生:总体积 = volume × quantity',
     remark              VARCHAR(255) DEFAULT ''         COMMENT '备注',
 
-    CONSTRAINT fk_qi_quote   FOREIGN KEY (quote_id)   REFERENCES quotations(id) ON DELETE CASCADE,
-    CONSTRAINT fk_qi_product FOREIGN KEY (product_id) REFERENCES products(id),
+    CONSTRAINT fk_qi_quote   FOREIGN KEY (quote_no)   REFERENCES quotations(quote_no) ON DELETE CASCADE,
+    CONSTRAINT fk_qi_product FOREIGN KEY (material_id) REFERENCES products(material_id),
 
-    UNIQUE KEY uk_qi_quote_product (quote_id, product_id)
+    -- 两套唯一键共存 (ADR-0004 决策 5):
+    --   uk_qi_quote_itemno   = 行号唯一(下游反查基础)
+    --   uk_qi_quote_material = 同报价单同物料不可重复(防录入重复)
+    UNIQUE KEY uk_qi_quote_itemno   (quote_no, item_no),
+    UNIQUE KEY uk_qi_quote_material (quote_no, material_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='报价明细';
 
-CREATE INDEX idx_qi_quote ON quotation_items(quote_id);
+CREATE INDEX idx_qi_quote ON quotation_items(quote_no);
 CREATE INDEX idx_qi_group ON quotation_items(group_code);
 
 -- 恢复外键检查 (与文件开头的 SET FOREIGN_KEY_CHECKS=0 配对)
