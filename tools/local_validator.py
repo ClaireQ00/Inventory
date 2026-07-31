@@ -53,19 +53,28 @@ CREATE TABLE IF NOT EXISTS products (
     material_type TEXT DEFAULT '',
     spec TEXT DEFAULT '',
     inner_diameter REAL,
+    inner_diameter_inch TEXT DEFAULT '',
     outer_diameter REAL,
     id_x_od TEXT DEFAULT '',
     thickness REAL,
     length REAL,
-    weight_per_meter REAL,
-    weight REAL,
     virtual_weight REAL,
     virtual_length REAL,
+    wire_spacing TEXT DEFAULT '',
+    weight_per_meter REAL,
+    weight REAL,
     appearance_inner REAL,
     appearance_outer REAL,
     appearance_height REAL,
-    pressure REAL,
     volume REAL,
+    package TEXT DEFAULT '',
+    label_paper TEXT DEFAULT '',
+    material_used TEXT DEFAULT '',
+    wire_pattern TEXT DEFAULT '',
+    coil_type TEXT DEFAULT '',
+    pressure REAL,
+    spray_code TEXT DEFAULT '',
+    meter_mark TEXT DEFAULT '',
     remark TEXT DEFAULT '',
     is_active INTEGER DEFAULT 1,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -114,36 +123,36 @@ CREATE TABLE IF NOT EXISTS customers (
 CREATE TABLE IF NOT EXISTS purchase_orders (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     po_no TEXT UNIQUE NOT NULL,
-    supplier_id INTEGER NOT NULL,
+    supplier_code TEXT NOT NULL,
     order_date TEXT NOT NULL,
     expected_date TEXT,
     total_amount REAL DEFAULT 0,
     total_volume REAL DEFAULT 0,
     status TEXT DEFAULT 'draft',
     remark TEXT DEFAULT '',
-    FOREIGN KEY (supplier_id) REFERENCES suppliers(id)
+    FOREIGN KEY (supplier_code) REFERENCES suppliers(code)
 );
 
 CREATE TABLE IF NOT EXISTS purchase_order_items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    po_id INTEGER NOT NULL,
-    product_id INTEGER NOT NULL,
+    po_no TEXT NOT NULL,
+    material_id TEXT NOT NULL,
     quantity INTEGER NOT NULL,
     unit_price REAL NOT NULL,
     subtotal REAL NOT NULL,
     volume_subtotal REAL DEFAULT 0,
     received_qty INTEGER DEFAULT 0,
     remark TEXT DEFAULT '',
-    FOREIGN KEY (po_id) REFERENCES purchase_orders(id) ON DELETE CASCADE,
-    FOREIGN KEY (product_id) REFERENCES products(id),
-    UNIQUE (po_id, product_id)
+    FOREIGN KEY (po_no) REFERENCES purchase_orders(po_no) ON DELETE CASCADE,
+    FOREIGN KEY (material_id) REFERENCES products(material_id),
+    UNIQUE (po_no, material_id)
 );
 
 -- 销售合同
 CREATE TABLE IF NOT EXISTS sales_contracts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     contract_no TEXT UNIQUE NOT NULL,
-    customer_id INTEGER NOT NULL,
+    customer_code TEXT NOT NULL,
     sign_date TEXT NOT NULL,
     delivery_deadline TEXT,
     -- 金额四件套 (外贸默认外币, 折算 CNY 记账)
@@ -163,90 +172,92 @@ CREATE TABLE IF NOT EXISTS sales_contracts (
     payment_term TEXT,
     packing TEXT,
     remark TEXT DEFAULT '',
-    FOREIGN KEY (customer_id) REFERENCES customers(id)
+    FOREIGN KEY (customer_code) REFERENCES customers(code)
 );
 
 CREATE TABLE IF NOT EXISTS sales_contract_items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    contract_id INTEGER NOT NULL,
-    product_id INTEGER NOT NULL,
+    contract_no TEXT NOT NULL,
+    item_no TEXT NOT NULL,
+    material_id TEXT NOT NULL,
     quantity INTEGER NOT NULL,
     unit_price REAL NOT NULL,
     subtotal REAL NOT NULL,
     volume_subtotal REAL DEFAULT 0,
     delivered_qty INTEGER DEFAULT 0,
     remark TEXT DEFAULT '',
-    FOREIGN KEY (contract_id) REFERENCES sales_contracts(id) ON DELETE CASCADE,
-    FOREIGN KEY (product_id) REFERENCES products(id),
-    UNIQUE (contract_id, product_id)
+    FOREIGN KEY (contract_no) REFERENCES sales_contracts(contract_no) ON DELETE CASCADE,
+    FOREIGN KEY (material_id) REFERENCES products(material_id),
+    UNIQUE (contract_no, item_no),
+    UNIQUE (contract_no, material_id)
 );
 
 -- 库存
 CREATE TABLE IF NOT EXISTS inventory (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    product_id INTEGER NOT NULL,
-    warehouse_id INTEGER NOT NULL,
+    material_id TEXT NOT NULL,
+    warehouse_code TEXT NOT NULL,
     quantity INTEGER DEFAULT 0,
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE (product_id, warehouse_id),
-    FOREIGN KEY (product_id) REFERENCES products(id),
-    FOREIGN KEY (warehouse_id) REFERENCES warehouses(id)
+    UNIQUE (material_id, warehouse_code),
+    FOREIGN KEY (material_id) REFERENCES products(material_id),
+    FOREIGN KEY (warehouse_code) REFERENCES warehouses(code)
 );
 
 CREATE TABLE IF NOT EXISTS stock_in (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     in_no TEXT UNIQUE NOT NULL,
     in_type TEXT DEFAULT 'purchase',
-    warehouse_id INTEGER NOT NULL,
-    po_id INTEGER,
+    warehouse_code TEXT NOT NULL,
+    po_no TEXT,
     operator TEXT DEFAULT '',
     in_date TEXT NOT NULL,
     status TEXT DEFAULT 'draft',
     transfer_ref TEXT,
     remark TEXT DEFAULT '',
-    FOREIGN KEY (warehouse_id) REFERENCES warehouses(id),
-    FOREIGN KEY (po_id) REFERENCES purchase_orders(id)
+    FOREIGN KEY (warehouse_code) REFERENCES warehouses(code),
+    FOREIGN KEY (po_no) REFERENCES purchase_orders(po_no)
 );
 
 CREATE TABLE IF NOT EXISTS stock_in_items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    stock_in_id INTEGER NOT NULL,
-    product_id INTEGER NOT NULL,
+    in_no TEXT NOT NULL,
+    material_id TEXT NOT NULL,
     quantity INTEGER NOT NULL,
     remark TEXT DEFAULT '',
-    FOREIGN KEY (stock_in_id) REFERENCES stock_in(id) ON DELETE CASCADE,
-    FOREIGN KEY (product_id) REFERENCES products(id)
+    FOREIGN KEY (in_no) REFERENCES stock_in(in_no) ON DELETE CASCADE,
+    FOREIGN KEY (material_id) REFERENCES products(material_id)
 );
 
 CREATE TABLE IF NOT EXISTS stock_out (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     out_no TEXT UNIQUE NOT NULL,
     out_type TEXT DEFAULT 'sale',
-    warehouse_id INTEGER NOT NULL,
-    delivery_id INTEGER,
+    warehouse_code TEXT NOT NULL,
+    delivery_no TEXT,
     operator TEXT DEFAULT '',
     out_date TEXT NOT NULL,
     status TEXT DEFAULT 'draft',
     transfer_ref TEXT,
     remark TEXT DEFAULT '',
-    FOREIGN KEY (warehouse_id) REFERENCES warehouses(id),
-    FOREIGN KEY (delivery_id) REFERENCES delivery_orders(id)
+    FOREIGN KEY (warehouse_code) REFERENCES warehouses(code),
+    FOREIGN KEY (delivery_no) REFERENCES delivery_orders(delivery_no)
 );
 
 CREATE TABLE IF NOT EXISTS stock_out_items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    stock_out_id INTEGER NOT NULL,
-    product_id INTEGER NOT NULL,
+    out_no TEXT NOT NULL,
+    material_id TEXT NOT NULL,
     quantity INTEGER NOT NULL,
     remark TEXT DEFAULT '',
-    FOREIGN KEY (stock_out_id) REFERENCES stock_out(id) ON DELETE CASCADE,
-    FOREIGN KEY (product_id) REFERENCES products(id)
+    FOREIGN KEY (out_no) REFERENCES stock_out(out_no) ON DELETE CASCADE,
+    FOREIGN KEY (material_id) REFERENCES products(material_id)
 );
 
 CREATE TABLE IF NOT EXISTS stock_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    product_id INTEGER NOT NULL,
-    warehouse_id INTEGER NOT NULL,
+    material_id TEXT NOT NULL,
+    warehouse_code TEXT NOT NULL,
     change_qty INTEGER NOT NULL,
     after_qty INTEGER NOT NULL,
     source_type TEXT NOT NULL,
@@ -254,15 +265,15 @@ CREATE TABLE IF NOT EXISTS stock_logs (
     source_no TEXT DEFAULT '',
     remark TEXT DEFAULT '',
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (product_id) REFERENCES products(id),
-    FOREIGN KEY (warehouse_id) REFERENCES warehouses(id)
+    FOREIGN KEY (material_id) REFERENCES products(material_id),
+    FOREIGN KEY (warehouse_code) REFERENCES warehouses(code)
 );
 
 -- 发货
 CREATE TABLE IF NOT EXISTS delivery_orders (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     delivery_no TEXT UNIQUE NOT NULL,
-    customer_id INTEGER NOT NULL,
+    customer_code TEXT NOT NULL,
     delivery_date TEXT NOT NULL,
     receiver TEXT DEFAULT '',
     receiver_phone TEXT DEFAULT '',
@@ -271,14 +282,15 @@ CREATE TABLE IF NOT EXISTS delivery_orders (
     total_volume REAL DEFAULT 0,
     status TEXT DEFAULT 'draft',
     remark TEXT DEFAULT '',
-    FOREIGN KEY (customer_id) REFERENCES customers(id)
+    FOREIGN KEY (customer_code) REFERENCES customers(code)
 );
 
 CREATE TABLE IF NOT EXISTS delivery_order_items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    delivery_id INTEGER NOT NULL,
-    contract_item_id INTEGER,
-    product_id INTEGER NOT NULL,
+    delivery_no TEXT NOT NULL,
+    contract_no TEXT,
+    contract_item_no TEXT,
+    material_id TEXT NOT NULL,
     quantity INTEGER NOT NULL,
     actual_quantity INTEGER NOT NULL DEFAULT 0,
     short_qty INTEGER NOT NULL DEFAULT 0,
@@ -288,9 +300,9 @@ CREATE TABLE IF NOT EXISTS delivery_order_items (
     coeff_diff REAL DEFAULT 0,
     coeff_check_status TEXT DEFAULT 'pending',
     remark TEXT DEFAULT '',
-    FOREIGN KEY (delivery_id) REFERENCES delivery_orders(id) ON DELETE CASCADE,
-    FOREIGN KEY (contract_item_id) REFERENCES sales_contract_items(id),
-    FOREIGN KEY (product_id) REFERENCES products(id)
+    FOREIGN KEY (delivery_no) REFERENCES delivery_orders(delivery_no) ON DELETE CASCADE,
+    FOREIGN KEY (contract_no, contract_item_no) REFERENCES sales_contract_items(contract_no, item_no),
+    FOREIGN KEY (material_id) REFERENCES products(material_id)
 );
 
 -- ------------------------------------------------------------
@@ -300,7 +312,7 @@ CREATE TABLE IF NOT EXISTS delivery_order_items (
 CREATE TABLE IF NOT EXISTS shipping_records (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     shipping_no TEXT UNIQUE NOT NULL,
-    delivery_id INTEGER NOT NULL,
+    delivery_no TEXT NOT NULL,
     shipping_date TEXT NOT NULL,
     container_no TEXT DEFAULT '',
     seal_no TEXT DEFAULT '',
@@ -318,17 +330,17 @@ CREATE TABLE IF NOT EXISTS shipping_records (
     remark TEXT DEFAULT '',
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (delivery_id) REFERENCES delivery_orders(id)
+    FOREIGN KEY (delivery_no) REFERENCES delivery_orders(delivery_no)
 );
 
 CREATE INDEX IF NOT EXISTS idx_sr_no       ON shipping_records(shipping_no);
-CREATE INDEX IF NOT EXISTS idx_sr_delivery ON shipping_records(delivery_id);
+CREATE INDEX IF NOT EXISTS idx_sr_delivery ON shipping_records(delivery_no);
 CREATE INDEX IF NOT EXISTS idx_sr_status   ON shipping_records(status);
 
 CREATE TABLE IF NOT EXISTS shipping_record_items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    shipping_id INTEGER NOT NULL,
-    product_id INTEGER NOT NULL,
+    shipping_no TEXT NOT NULL,
+    material_id TEXT NOT NULL,
     planned_qty INTEGER NOT NULL DEFAULT 0,
     actual_qty INTEGER NOT NULL DEFAULT 0,
     shipping_mark TEXT DEFAULT '',
@@ -338,19 +350,20 @@ CREATE TABLE IF NOT EXISTS shipping_record_items (
     unit_price_usd REAL DEFAULT 0,
     subtotal_usd REAL DEFAULT 0,
     remark TEXT DEFAULT '',
-    FOREIGN KEY (shipping_id) REFERENCES shipping_records(id) ON DELETE CASCADE,
-    FOREIGN KEY (product_id) REFERENCES products(id)
+    FOREIGN KEY (shipping_no) REFERENCES shipping_records(shipping_no) ON DELETE CASCADE,
+    FOREIGN KEY (material_id) REFERENCES products(material_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_sri_shipping ON shipping_record_items(shipping_id);
-CREATE INDEX IF NOT EXISTS idx_sri_product  ON shipping_record_items(product_id);
+CREATE INDEX IF NOT EXISTS idx_sri_shipping ON shipping_record_items(shipping_no);
+CREATE INDEX IF NOT EXISTS idx_sri_product  ON shipping_record_items(material_id);
 
 CREATE TABLE IF NOT EXISTS credit_notes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     cn_no TEXT UNIQUE NOT NULL,
-    shipping_id INTEGER NOT NULL,
-    contract_item_id INTEGER NOT NULL,
-    product_id INTEGER NOT NULL,
+    shipping_no TEXT NOT NULL,
+    contract_no TEXT NOT NULL,
+    contract_item_no TEXT NOT NULL,
+    material_id TEXT NOT NULL,
     diff_qty INTEGER NOT NULL,
     diff_amount REAL NOT NULL,
     currency TEXT NOT NULL DEFAULT 'USD',
@@ -361,13 +374,13 @@ CREATE TABLE IF NOT EXISTS credit_notes (
     remark TEXT DEFAULT '',
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (shipping_id) REFERENCES shipping_records(id),
-    FOREIGN KEY (contract_item_id) REFERENCES sales_contract_items(id),
-    FOREIGN KEY (product_id) REFERENCES products(id)
+    FOREIGN KEY (shipping_no) REFERENCES shipping_records(shipping_no),
+    FOREIGN KEY (contract_no, contract_item_no) REFERENCES sales_contract_items(contract_no, item_no),
+    FOREIGN KEY (material_id) REFERENCES products(material_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_cn_no         ON credit_notes(cn_no);
-CREATE INDEX IF NOT EXISTS idx_cn_shipping   ON credit_notes(shipping_id);
+CREATE INDEX IF NOT EXISTS idx_cn_shipping   ON credit_notes(shipping_no);
 CREATE INDEX IF NOT EXISTS idx_cn_resolution ON credit_notes(resolution);
 
 -- ============================================================
@@ -390,10 +403,10 @@ CREATE INDEX IF NOT EXISTS idx_er_currency_date ON exchange_rates(currency, effe
 CREATE TABLE IF NOT EXISTS receipts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     receipt_no TEXT UNIQUE NOT NULL,
-    customer_id INTEGER NOT NULL,
-    contract_id INTEGER,
-    shipping_id INTEGER,
-    delivery_id INTEGER,
+    customer_code TEXT NOT NULL,
+    contract_no TEXT,
+    shipping_no TEXT,
+    delivery_no TEXT,
     -- 金额四件套
     amount REAL NOT NULL,
     currency TEXT NOT NULL DEFAULT 'USD',
@@ -406,15 +419,15 @@ CREATE TABLE IF NOT EXISTS receipts (
     remark TEXT DEFAULT '',
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (customer_id) REFERENCES customers(id),
-    FOREIGN KEY (contract_id) REFERENCES sales_contracts(id),
-    FOREIGN KEY (shipping_id) REFERENCES shipping_records(id),
-    FOREIGN KEY (delivery_id) REFERENCES delivery_orders(id)
+    FOREIGN KEY (customer_code) REFERENCES customers(code),
+    FOREIGN KEY (contract_no) REFERENCES sales_contracts(contract_no),
+    FOREIGN KEY (shipping_no) REFERENCES shipping_records(shipping_no),
+    FOREIGN KEY (delivery_no) REFERENCES delivery_orders(delivery_no)
 );
 
 CREATE INDEX IF NOT EXISTS idx_rc_no         ON receipts(receipt_no);
-CREATE INDEX IF NOT EXISTS idx_rc_customer   ON receipts(customer_id);
-CREATE INDEX IF NOT EXISTS idx_rc_contract   ON receipts(contract_id);
+CREATE INDEX IF NOT EXISTS idx_rc_customer   ON receipts(customer_code);
+CREATE INDEX IF NOT EXISTS idx_rc_contract   ON receipts(contract_no);
 CREATE INDEX IF NOT EXISTS idx_rc_paid_date  ON receipts(paid_date);
 CREATE INDEX IF NOT EXISTS idx_rc_status     ON receipts(status);
 
@@ -457,9 +470,9 @@ CREATE INDEX IF NOT EXISTS idx_qp_key ON quotation_params(param_key);
 CREATE TABLE IF NOT EXISTS quotations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     quote_no TEXT NOT NULL UNIQUE,
-    customer_id INTEGER NOT NULL,
+    customer_code TEXT NOT NULL,
     quote_type TEXT NOT NULL DEFAULT 'brief',
-    parent_quote_id INTEGER,
+    parent_quote_no TEXT,
     version INTEGER NOT NULL DEFAULT 1,
     quote_date TEXT NOT NULL,
     valid_until TEXT,
@@ -470,7 +483,7 @@ CREATE TABLE IF NOT EXISTS quotations (
     total_amount_cny REAL NOT NULL DEFAULT 0,
     total_volume REAL NOT NULL DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'draft',
-    converted_contract_id INTEGER,
+    converted_contract_no TEXT,
     -- 贸易/付款/包装条款 (2026-07-29 加, 与 MySQL schema 对齐)
     trade_terms TEXT DEFAULT 'FOB',
     port_loading TEXT DEFAULT '',
@@ -480,12 +493,12 @@ CREATE TABLE IF NOT EXISTS quotations (
     remark TEXT DEFAULT '',
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (customer_id) REFERENCES customers(id),
-    FOREIGN KEY (parent_quote_id) REFERENCES quotations(id) ON DELETE SET NULL
+    FOREIGN KEY (customer_code) REFERENCES customers(code),
+    FOREIGN KEY (parent_quote_no) REFERENCES quotations(quote_no) ON DELETE SET NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_quo_no       ON quotations(quote_no);
-CREATE INDEX IF NOT EXISTS idx_quo_customer ON quotations(customer_id);
+CREATE INDEX IF NOT EXISTS idx_quo_customer ON quotations(customer_code);
 CREATE INDEX IF NOT EXISTS idx_quo_type     ON quotations(quote_type);
 CREATE INDEX IF NOT EXISTS idx_quo_status   ON quotations(status);
 
@@ -493,8 +506,9 @@ CREATE INDEX IF NOT EXISTS idx_quo_status   ON quotations(status);
 -- 派生字段 (total_weight/unit_price/subtotal/total_volume) 下一步 DERIVED_RULES 实现, 本步先建列
 CREATE TABLE IF NOT EXISTS quotation_items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    quote_id INTEGER NOT NULL,
-    product_id INTEGER NOT NULL,
+    quote_no TEXT NOT NULL,
+    item_no TEXT NOT NULL,
+    material_id TEXT NOT NULL,
     group_code TEXT NOT NULL DEFAULT '',
     price_coefficient REAL NOT NULL,
     weight_per_unit REAL NOT NULL,
@@ -506,12 +520,13 @@ CREATE TABLE IF NOT EXISTS quotation_items (
     volume REAL DEFAULT 0,
     total_volume REAL NOT NULL DEFAULT 0,
     remark TEXT DEFAULT '',
-    FOREIGN KEY (quote_id) REFERENCES quotations(id) ON DELETE CASCADE,
-    FOREIGN KEY (product_id) REFERENCES products(id),
-    UNIQUE (quote_id, product_id)
+    FOREIGN KEY (quote_no) REFERENCES quotations(quote_no) ON DELETE CASCADE,
+    FOREIGN KEY (material_id) REFERENCES products(material_id),
+    UNIQUE (quote_no, item_no),
+    UNIQUE (quote_no, material_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_qi_quote ON quotation_items(quote_id);
+CREATE INDEX IF NOT EXISTS idx_qi_quote ON quotation_items(quote_no);
 CREATE INDEX IF NOT EXISTS idx_qi_group ON quotation_items(group_code);
 """
 
@@ -642,7 +657,7 @@ def check_purchase_orders(conn, report):
         SELECT po.id, po.po_no, po.total_amount,
                COALESCE(SUM(poi.subtotal), 0) AS sum_subtotal
         FROM purchase_orders po
-        LEFT JOIN purchase_order_items poi ON poi.po_id = po.id
+        LEFT JOIN purchase_order_items poi ON poi.po_no = po.po_no
         GROUP BY po.id
         """
     )
@@ -658,7 +673,7 @@ def check_purchase_orders(conn, report):
         SELECT po.id, po.po_no, po.total_volume,
                COALESCE(SUM(poi.volume_subtotal), 0) AS sum_vol
         FROM purchase_orders po
-        LEFT JOIN purchase_order_items poi ON poi.po_id = po.id
+        LEFT JOIN purchase_order_items poi ON poi.po_no = po.po_no
         GROUP BY po.id
         """
     )
@@ -679,10 +694,10 @@ def check_stock_in_vs_purchase(conn, report):
                poi.quantity AS ordered,
                COALESCE(SUM(sii.quantity), 0) AS received
         FROM purchase_order_items poi
-        JOIN purchase_orders po ON po.id = poi.po_id
-        JOIN products p ON p.id = poi.product_id
-        LEFT JOIN stock_in si ON si.po_id = po.id AND si.status='confirmed'
-        LEFT JOIN stock_in_items sii ON sii.stock_in_id = si.id AND sii.product_id = poi.product_id
+        JOIN purchase_orders po ON po.po_no = poi.po_no
+        JOIN products p ON p.material_id = poi.material_id
+        LEFT JOIN stock_in si ON si.po_no = po.po_no AND si.status='confirmed'
+        LEFT JOIN stock_in_items sii ON sii.in_no = si.in_no AND sii.material_id = poi.material_id
         GROUP BY poi.id
         """
     )
@@ -705,7 +720,7 @@ def check_sales_contracts(conn, report):
         SELECT sc.id, sc.contract_no, sc.total_amount,
                COALESCE(SUM(sci.subtotal), 0)
         FROM sales_contracts sc
-        LEFT JOIN sales_contract_items sci ON sci.contract_id = sc.id
+        LEFT JOIN sales_contract_items sci ON sci.contract_no = sc.contract_no
         GROUP BY sc.id
         """
     )
@@ -721,7 +736,7 @@ def check_sales_contracts(conn, report):
         SELECT sc.id, sc.contract_no, sc.total_volume,
                COALESCE(SUM(sci.volume_subtotal), 0) AS sum_vol
         FROM sales_contracts sc
-        LEFT JOIN sales_contract_items sci ON sci.contract_id = sc.id
+        LEFT JOIN sales_contract_items sci ON sci.contract_no = sc.contract_no
         GROUP BY sc.id
         """
     )
@@ -750,11 +765,12 @@ def check_delivery_vs_contract(conn, report):
                         ELSE doi.quantity END
                ), 0) AS delivered
         FROM sales_contract_items sci
-        JOIN sales_contracts sc ON sc.id = sci.contract_id
-        JOIN products p ON p.id = sci.product_id
-        LEFT JOIN delivery_orders d ON d.customer_id = sc.customer_id AND d.status='confirmed'
+        JOIN sales_contracts sc ON sc.contract_no = sci.contract_no
+        JOIN products p ON p.material_id = sci.material_id
+        LEFT JOIN delivery_orders d ON d.customer_code = sc.customer_code AND d.status='confirmed'
         LEFT JOIN delivery_order_items doi
-               ON doi.contract_item_id = sci.id
+               ON doi.contract_no = sci.contract_no
+              AND doi.contract_item_no = sci.item_no
         GROUP BY sci.id
         """
     )
@@ -784,28 +800,28 @@ def check_stock_out_vs_inventory(conn, report):
     cur.execute(
         """
         SELECT
-            so.warehouse_id AS wh,
-            soi.product_id AS pid,
+            so.warehouse_code AS wh,
+            soi.material_id AS pid,
             p.material_id,
             (SELECT COALESCE(SUM(sii.quantity), 0)
                FROM stock_in_items sii
-               JOIN stock_in si ON si.id = sii.stock_in_id
-              WHERE si.warehouse_id = so.warehouse_id
-                AND sii.product_id = soi.product_id
+               JOIN stock_in si ON si.in_no = sii.in_no
+              WHERE si.warehouse_code = so.warehouse_code
+                AND sii.material_id = soi.material_id
                 AND si.status='confirmed'
             ) AS total_in,
             (SELECT COALESCE(SUM(soi2.quantity), 0)
                FROM stock_out_items soi2
-               JOIN stock_out so2 ON so2.id = soi2.stock_out_id
-              WHERE so2.warehouse_id = so.warehouse_id
-                AND soi2.product_id = soi.product_id
+               JOIN stock_out so2 ON so2.out_no = soi2.out_no
+              WHERE so2.warehouse_code = so.warehouse_code
+                AND soi2.material_id = soi.material_id
                 AND so2.status='confirmed'
             ) AS total_out,
             soi.quantity AS this_out,
             so.out_no
         FROM stock_out_items soi
-        JOIN stock_out so ON so.id = soi.stock_out_id
-        JOIN products p ON p.id = soi.product_id
+        JOIN stock_out so ON so.out_no = soi.out_no
+        JOIN products p ON p.material_id = soi.material_id
         WHERE so.status='confirmed'
         GROUP BY so.id, soi.id
         """
@@ -832,43 +848,43 @@ def rebuild_stock_logs(conn):
     # 入库流水 (+)
     cur.execute(
         """
-        SELECT sii.product_id, si.warehouse_id, sii.quantity,
+        SELECT sii.material_id, si.warehouse_code, sii.quantity,
                si.id, si.in_no, si.in_date
         FROM stock_in_items sii
-        JOIN stock_in si ON si.id = sii.stock_in_id
+        JOIN stock_in si ON si.in_no = sii.in_no
         WHERE si.status='confirmed'
         """
     )
-    for product_id, wh, qty, src_id, src_no, in_date in cur.fetchall():
+    for material_id, wh, qty, src_id, src_no, in_date in cur.fetchall():
         cur.execute(
             """
             INSERT INTO stock_logs
-                (product_id, warehouse_id, change_qty, after_qty,
+                (material_id, warehouse_code, change_qty, after_qty,
                  source_type, source_id, source_no, remark, created_at)
             VALUES (?, ?, ?, 0, 'stock_in', ?, ?, '入库', ?)
             """,
-            (product_id, wh, qty, src_id, src_no, in_date),
+            (material_id, wh, qty, src_id, src_no, in_date),
         )
 
     # 出库流水 (-)
     cur.execute(
         """
-        SELECT soi.product_id, so.warehouse_id, soi.quantity,
+        SELECT soi.material_id, so.warehouse_code, soi.quantity,
                so.id, so.out_no, so.out_date
         FROM stock_out_items soi
-        JOIN stock_out so ON so.id = soi.stock_out_id
+        JOIN stock_out so ON so.out_no = soi.out_no
         WHERE so.status='confirmed'
         """
     )
-    for product_id, wh, qty, src_id, src_no, out_date in cur.fetchall():
+    for material_id, wh, qty, src_id, src_no, out_date in cur.fetchall():
         cur.execute(
             """
             INSERT INTO stock_logs
-                (product_id, warehouse_id, change_qty, after_qty,
+                (material_id, warehouse_code, change_qty, after_qty,
                  source_type, source_id, source_no, remark, created_at)
             VALUES (?, ?, ?, 0, 'stock_out', ?, ?, '出库', ?)
             """,
-            (product_id, wh, -qty, src_id, src_no, out_date),
+            (material_id, wh, -qty, src_id, src_no, out_date),
         )
 
     conn.commit()
@@ -883,14 +899,14 @@ def check_reconciliation(conn, report):
     # 用流水重算理论库存
     cur.execute(
         """
-        SELECT product_id, warehouse_id, SUM(change_qty) AS calc_qty
+        SELECT material_id, warehouse_code, SUM(change_qty) AS calc_qty
         FROM stock_logs
-        GROUP BY product_id, warehouse_id
+        GROUP BY material_id, warehouse_code
         """
     )
     calc = {(p, w): q for p, w, q in cur.fetchall()}
 
-    cur.execute("SELECT product_id, warehouse_id, quantity FROM inventory")
+    cur.execute("SELECT material_id, warehouse_code, quantity FROM inventory")
     actual = {(p, w): q for p, w, q in cur.fetchall()}
 
     # 对比
@@ -900,19 +916,15 @@ def check_reconciliation(conn, report):
         c = calc.get((p, w), 0)
         a = actual.get((p, w), 0)
         if c != a:
-            cur.execute("SELECT material_id FROM products WHERE id=?", (p,))
-            mid = cur.fetchone()[0]
-            # T2.9: 多 join 一次 warehouses 把仓库名带出来, 方便定位
-            # (以前只给 warehouse_id, 用户得自己查表才知道是哪个仓)
-            cur.execute("SELECT name, code FROM warehouses WHERE id=?", (w,))
+            cur.execute("SELECT name, code FROM warehouses WHERE code=?", (w,))
             wh_row = cur.fetchone()
             if wh_row:
                 wh_name, wh_code = wh_row
                 wh_label = f"{wh_name}({wh_code})"
             else:
-                wh_label = f"<未知仓库 id={w}>"
+                wh_label = f"<未知仓库 code={w}>"
             report.error(
-                f"对账不平: 物料 {mid} 仓库 {wh_label} | 库存表={a} | 流水累加={c}"
+                f"对账不平: 物料 {p} 仓库 {wh_label} | 库存表={a} | 流水累加={c}"
             )
             diffs += 1
 
@@ -932,41 +944,43 @@ def check_volume_subtotals(conn, report):
     # 单件体积公式: appearance_outer² × appearance_height × 0.93 / 1e6
     # 把 products 表里这些字段都拿出来, 在 Python 端算
     cur.execute(
-        "SELECT id, material_id, appearance_outer, appearance_height, volume FROM products"
+        "SELECT material_id, appearance_outer, appearance_height, volume FROM products"
     )
     unit_volume_map = {}
-    for pid, mid, ao, ah, vol in cur.fetchall():
+    for mid, ao, ah, vol in cur.fetchall():
         if vol:
-            unit_volume_map[pid] = (mid, vol)
+            unit_volume_map[mid] = vol
         elif ao and ah:
             calc = round(ao * ao * ah * 0.93 / 1_000_000, 4)
-            unit_volume_map[pid] = (mid, calc)
+            unit_volume_map[mid] = calc
         else:
-            unit_volume_map[pid] = (mid, None)
+            unit_volume_map[mid] = None
 
     # 三张明细表逐一校验
     tables = [
-        ("purchase_order_items", "po_id", "采购明细"),
-        ("sales_contract_items", "contract_id", "合同明细"),
-        ("delivery_order_items", "delivery_id", "发货明细"),
+        "purchase_order_items",
+        "sales_contract_items",
+        "delivery_order_items",
     ]
+    label_map = {
+        "purchase_order_items": "采购明细",
+        "sales_contract_items": "合同明细",
+        "delivery_order_items": "发货明细",
+    }
 
-    for table, parent_col, label in tables:
+    for table in tables:
         cur.execute(
-            f"SELECT id, product_id, quantity, volume_subtotal FROM {table}"
+            f"SELECT id, material_id, quantity, volume_subtotal FROM {table}"
         )
-        for item_id, pid, qty, vs in cur.fetchall():
-            entry = unit_volume_map.get(pid)
-            if not entry:
-                continue
-            mid, unit_vol = entry
+        for item_id, mid, qty, vs in cur.fetchall():
+            unit_vol = unit_volume_map.get(mid)
             if unit_vol is None or not qty:
                 continue
             expected = round(unit_vol * qty, 4)
             actual = vs or 0
             if abs(actual - expected) > 0.01:
                 report.error(
-                    f"{label} ID={item_id} / 物料 {mid}: "
+                    f"{label_map[table]} ID={item_id} / 物料 {mid}: "
                     f"volume_subtotal={actual} 与 单件体积×数量={expected} 不符"
                 )
 
@@ -985,7 +999,7 @@ def check_delivery_order_volume(conn, report):
         SELECT d.id, d.delivery_no, d.total_volume,
                COALESCE(SUM(doi.volume_subtotal), 0) AS sum_vol
         FROM delivery_orders d
-        LEFT JOIN delivery_order_items doi ON doi.delivery_id = d.id
+        LEFT JOIN delivery_order_items doi ON doi.delivery_no = d.delivery_no
         GROUP BY d.id
         """
     )
@@ -1015,11 +1029,11 @@ def check_shipping_vs_delivery(conn, report):
                doi.quantity        AS planned,
                sri.actual_qty      AS actual
         FROM shipping_records sr
-        JOIN shipping_record_items sri ON sri.shipping_id = sr.id
-        JOIN delivery_orders d         ON d.id = sr.delivery_id
-        JOIN delivery_order_items doi  ON doi.delivery_id = d.id
-                                       AND doi.product_id = sri.product_id
-        JOIN products p                ON p.id = sri.product_id
+        JOIN shipping_record_items sri ON sri.shipping_no = sr.shipping_no
+        JOIN delivery_orders d         ON d.delivery_no = sr.delivery_no
+        JOIN delivery_order_items doi  ON doi.delivery_no = d.delivery_no
+                                       AND doi.material_id = sri.material_id
+        JOIN products p                ON p.material_id = sri.material_id
         WHERE sri.actual_qty > 0
         """
     )
@@ -1146,7 +1160,7 @@ def check_receipts_vs_contract(conn, report):
     [新增 12/14] 收款 vs 合同: 同一合同的累计收款不应超过合同总额
 
     规则:
-    - 按 contract_id 聚合, 比对 Σ receipts.amount (原币种) vs sales_contracts.total_amount
+    - 按 contract_no 聚合, 比对 Σ receipts.amount (原币种) vs sales_contracts.total_amount
     - 超出 → ERROR (收多了, 可能录错或币种搞错)
     - 不匹配币种 → ERROR (USD 合同不能收 CNY 款)
     - 未收齐且合同已 confirmed → WARN (催款)
@@ -1161,7 +1175,7 @@ def check_receipts_vs_contract(conn, report):
                COALESCE(SUM(r.amount), 0) AS total_received
         FROM sales_contracts sc
         LEFT JOIN receipts r
-             ON r.contract_id = sc.id
+             ON r.contract_no = sc.contract_no
             AND r.status = 'confirmed'
         GROUP BY sc.id, r.currency
         """
@@ -1199,30 +1213,30 @@ def check_transfer_pairs(conn, report):
     """
     cur = conn.cursor()
 
-    # 1. 按 (transfer_ref, product_id) 聚合出库总量
+    # 1. 按 (transfer_ref, material_id) 聚合出库总量
     cur.execute(
         """
-        SELECT so.transfer_ref AS ref, soi.product_id AS pid, p.material_id AS mid,
+        SELECT so.transfer_ref AS ref, soi.material_id AS pid, p.material_id AS mid,
                SUM(soi.quantity) AS qty
         FROM stock_out_items soi
-        JOIN stock_out so ON so.id = soi.stock_out_id
-        JOIN products p ON p.id = soi.product_id
+        JOIN stock_out so ON so.out_no = soi.out_no
+        JOIN products p ON p.material_id = soi.material_id
         WHERE so.status='confirmed' AND so.out_type='transfer' AND so.transfer_ref IS NOT NULL
-        GROUP BY so.transfer_ref, soi.product_id
+        GROUP BY so.transfer_ref, soi.material_id
         """
     )
     out_map = {(ref, pid): (mid, qty) for ref, pid, mid, qty in cur.fetchall()}
 
-    # 2. 按 (transfer_ref, product_id) 聚合入库总量
+    # 2. 按 (transfer_ref, material_id) 聚合入库总量
     cur.execute(
         """
-        SELECT si.transfer_ref AS ref, sii.product_id AS pid, p.material_id AS mid,
+        SELECT si.transfer_ref AS ref, sii.material_id AS pid, p.material_id AS mid,
                SUM(sii.quantity) AS qty
         FROM stock_in_items sii
-        JOIN stock_in si ON si.id = sii.stock_in_id
-        JOIN products p ON p.id = sii.product_id
+        JOIN stock_in si ON si.in_no = sii.in_no
+        JOIN products p ON p.material_id = sii.material_id
         WHERE si.status='confirmed' AND si.in_type='transfer' AND si.transfer_ref IS NOT NULL
-        GROUP BY si.transfer_ref, sii.product_id
+        GROUP BY si.transfer_ref, sii.material_id
         """
     )
     in_map = {(ref, pid): (mid, qty) for ref, pid, mid, qty in cur.fetchall()}
@@ -1260,7 +1274,7 @@ def check_quotations(conn, report):
     cur.execute("""
         SELECT q.id, q.quote_no, q.total_amount, COALESCE(SUM(qi.subtotal), 0)
         FROM quotations q
-        LEFT JOIN quotation_items qi ON qi.quote_id = q.id
+        LEFT JOIN quotation_items qi ON qi.quote_no = q.quote_no
         GROUP BY q.id
     """)
     for q_id, quote_no, total_amount, sum_sub in cur.fetchall():
@@ -1271,7 +1285,7 @@ def check_quotations(conn, report):
     cur.execute("""
         SELECT q.id, q.quote_no, q.total_volume, COALESCE(SUM(qi.total_volume), 0)
         FROM quotations q
-        LEFT JOIN quotation_items qi ON qi.quote_id = q.id
+        LEFT JOIN quotation_items qi ON qi.quote_no = q.quote_no
         GROUP BY q.id
     """)
     for q_id, quote_no, total_vol, sum_vol in cur.fetchall():
@@ -1281,33 +1295,33 @@ def check_quotations(conn, report):
                 f"与 Σ明细 total_volume={round(sum_vol, 4)} 不符 (展示统计, 不阻断)"
             )
 
-    # 校验2: 正式QT(formal)的 parent_quote_id 必须指向存在的简要报价(brief)
+    # 校验2: 正式QT(formal)的 parent_quote_no 必须指向存在的简要报价(brief)
     cur.execute("""
-        SELECT q.id, q.quote_no, q.parent_quote_id, p.quote_type
+        SELECT q.id, q.quote_no, q.parent_quote_no, p.quote_type
         FROM quotations q
-        LEFT JOIN quotations p ON q.parent_quote_id = p.id
+        LEFT JOIN quotations p ON q.parent_quote_no = p.quote_no
         WHERE q.quote_type = 'formal'
     """)
-    for q_id, quote_no, parent_id, parent_type in cur.fetchall():
-        if parent_id is None:
-            report.error(f"正式报价 {quote_no}: 缺少 parent_quote_id, 必须从简要报价派生")
+    for q_id, quote_no, parent_no, parent_type in cur.fetchall():
+        if parent_no is None:
+            report.error(f"正式报价 {quote_no}: 缺少 parent_quote_no, 必须从简要报价派生")
         elif parent_type != 'brief':
-            report.error(f"正式报价 {quote_no}: parent_quote_id 指向的不是简要报价(type={parent_type})")
+            report.error(f"正式报价 {quote_no}: parent_quote_no 指向的不是简要报价(type={parent_type})")
 
-    # 校验3: converted 状态的报价 converted_contract_id 必须存在
+    # 校验3: converted 状态的报价 converted_contract_no 必须存在
     cur.execute("""
-        SELECT q.id, q.quote_no, q.converted_contract_id
+        SELECT q.id, q.quote_no, q.converted_contract_no
         FROM quotations q
-        WHERE q.status = 'converted' AND q.converted_contract_id IS NOT NULL
+        WHERE q.status = 'converted' AND q.converted_contract_no IS NOT NULL
     """)
-    for q_id, quote_no, contract_id in cur.fetchall():
-        cur.execute("SELECT id FROM sales_contracts WHERE id = ?", (contract_id,))
+    for q_id, quote_no, contract_no in cur.fetchall():
+        cur.execute("SELECT contract_no FROM sales_contracts WHERE contract_no = ?", (contract_no,))
         if not cur.fetchone():
-            report.error(f"报价 {quote_no}: converted_contract_id={contract_id} 在 sales_contracts 不存在")
+            report.error(f"报价 {quote_no}: converted_contract_no={contract_no} 在 sales_contracts 不存在")
 
     # 校验4: 明细派生一致性(subtotal = weight_per_unit × price_coefficient × quantity)
-    cur.execute("SELECT id, quote_id, weight_per_unit, price_coefficient, quantity, subtotal FROM quotation_items")
-    for iid, qid, wpu, coeff, qty, sub in cur.fetchall():
+    cur.execute("SELECT id, quote_no, weight_per_unit, price_coefficient, quantity, subtotal FROM quotation_items")
+    for iid, qno, wpu, coeff, qty, sub in cur.fetchall():
         if None not in (wpu, coeff, qty, sub):
             expected = wpu * coeff * qty
             if abs(sub - expected) > 0.05:
@@ -1326,26 +1340,27 @@ def check_packing_coefficient(conn, report):
     容差 0.001: 超差报 warn 不报 error (业务确认微小四舍五入差额属正常)
     """
 
-    # 通过 contract_item_id 关联到 sales_contract_items, 再用 product_id 反查 quotation_items
-    # 报价明细与合同明细无直接外键, 靠 product_id 配对
+    # 通过 (contract_no, contract_item_no) 关联到 sales_contract_items, 再用 material_id 反查 quotation_items
+    # 报价明细与合同明细无直接外键, 靠 material_id 配对
     cur = conn.cursor()
     cur.execute("""
-        SELECT doi.id, doi.contract_item_id, doi.product_id,
+        SELECT doi.id, doi.contract_no, doi.contract_item_no, doi.material_id,
                sci.unit_price   AS contract_unit_price,
                sc.exchange_rate AS rate,
                p.weight         AS weight,
                (SELECT qi.price_coefficient
                   FROM quotation_items qi
-                  JOIN quotations q ON q.id = qi.quote_id
-                 WHERE qi.product_id = doi.product_id
+                  JOIN quotations q ON q.quote_no = qi.quote_no
+                 WHERE qi.material_id = doi.material_id
                    AND q.status IN ('draft', 'accepted', 'converted')
                  ORDER BY q.id DESC
                  LIMIT 1)        AS coeff
         FROM delivery_order_items doi
-        JOIN sales_contract_items sci ON sci.id = doi.contract_item_id
-        JOIN sales_contracts sc        ON sc.id = sci.contract_id
-        JOIN products p                ON p.id = doi.product_id
-        WHERE doi.contract_item_id IS NOT NULL
+        JOIN sales_contract_items sci ON sci.contract_no = doi.contract_no
+                                     AND sci.item_no = doi.contract_item_no
+        JOIN sales_contracts sc        ON sc.contract_no = sci.contract_no
+        JOIN products p                ON p.material_id = doi.material_id
+        WHERE doi.contract_item_no IS NOT NULL
     """)
     rows = cur.fetchall()
     if not rows:
@@ -1354,12 +1369,12 @@ def check_packing_coefficient(conn, report):
     TOLERANCE = 0.001
     updates = []  # (expected, diff, status, id)
 
-    for doi_id, ci_id, pid, contract_price, rate, weight, coeff in rows:
+    for doi_id, cno, ci_no, mid, contract_price, rate, weight, coeff in rows:
         # 缺任一数据 → pending (不算错, 提示)
         if None in (contract_price, rate, weight, coeff) or not rate or not weight:
             updates.append((0.0, 0.0, "pending", doi_id))
             report.warn(
-                f"发货明细 id={doi_id} (product_id={pid}): 缺反算数据 "
+                f"发货明细 id={doi_id} (material_id={mid}): 缺反算数据 "
                 f"(合同单价={contract_price}, 汇率={rate}, 单重={weight}, 报价系数={coeff}), 标 pending"
             )
             continue
@@ -1372,7 +1387,7 @@ def check_packing_coefficient(conn, report):
 
         if status == "warn":
             report.warn(
-                f"发货明细 id={doi_id} (product_id={pid}): 公斤价反算差异 {diff:+.4f} 超容差 {TOLERANCE} "
+                f"发货明细 id={doi_id} (material_id={mid}): 公斤价反算差异 {diff:+.4f} 超容差 {TOLERANCE} "
                 f"(合同单价={contract_price}, 应等于={expected:.4f} = 系数{coeff}×汇率{rate}×单重{weight})"
             )
 
