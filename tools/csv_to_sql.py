@@ -833,6 +833,16 @@ def convert_csv_to_sql(csv_path, table_name, output_sql_path, mode="insert"):
     # 把派生规则需要的列补进 fields (CSV 缺哪列就补哪列)
     fields = ensure_derived_columns(table_name, fields)
 
+    # 跳过 MySQL GENERATED ALWAYS AS 列: 这种列由数据库自己算, INSERT 写值会报
+    # ERROR 3105: The value specified for generated column is not allowed
+    # 目前唯一一处: delivery_order_items.short_qty (见 sql/01_schema.sql)
+    GENERATED_COLUMNS = {
+        "delivery_order_items": {"short_qty"},
+    }
+    skip_cols = GENERATED_COLUMNS.get(table_name, set())
+    if skip_cols:
+        fields = [f for f in fields if f not in skip_cols]
+
     keyword = "REPLACE" if mode == "replace" else "INSERT"
 
     lines = []
@@ -963,8 +973,11 @@ def main():
     )
     if n > 0:
         print(f"[OK] {args.csv_path} -> {args.output_sql_path}  ({n} 行)")
+    elif n == 0 and os.path.exists(args.output_sql_path):
+        # 空表: 没数据行, 但 SQL 文件已正常生成 (只有 USE 等头注释)
+        print(f"[OK] {args.csv_path} -> {args.output_sql_path}  (空表, 仅生成文件头)")
     else:
-        # n == 0 表示有反向校验失败, 已经在上游打印了详细错误
+        # n == 0 且没生成文件 = 反向校验失败, 已在上游打印了详细错误
         sys.exit(1)
 
 
