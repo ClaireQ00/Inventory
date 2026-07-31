@@ -157,11 +157,11 @@ DERIVED_RULES = {
             "expr": lambda row: _safe_mul(
                 _to_float(row.get("unit_volume")),
                 _to_float(row.get("quantity")),
-                ndigits=4,
+                ndigits=2,
             ),
             "depends_on": ["unit_volume", "quantity"],
             "tolerance": 0.01,
-            "description": "体积小计 = 单件体积 × 数量",
+            "description": "体积小计 = 单件体积 × 数量 精度0.01",
         },
     },
 
@@ -185,11 +185,11 @@ DERIVED_RULES = {
             "expr": lambda row: _safe_mul(
                 _to_float(row.get("unit_volume")),
                 _to_float(row.get("quantity")),
-                ndigits=4,
+                ndigits=2,
             ),
             "depends_on": ["unit_volume", "quantity"],
             "tolerance": 0.01,
-            "description": "体积小计 = 单件体积 × 数量",
+            "description": "体积小计 = 单件体积 × 数量 精度0.01",
         },
     },
 
@@ -202,11 +202,11 @@ DERIVED_RULES = {
             "expr": lambda row: _safe_mul(
                 _to_float(row.get("unit_volume")),
                 _to_float(row.get("quantity")),
-                ndigits=4,
+                ndigits=2,
             ),
             "depends_on": ["unit_volume", "quantity"],
             "tolerance": 0.01,
-            "description": "体积小计 = 单件体积 × 数量",
+            "description": "体积小计 = 单件体积 × 数量 精度0.01",
         },
         # D2 [新增]: 短装数 = 计划 - 实际 (默认0, 未装柜时 actual 为空)
         "short_qty": {
@@ -368,11 +368,11 @@ DERIVED_RULES = {
             "expr": lambda row: _safe_mul(
                 _to_float(row.get("volume")),
                 _to_float(row.get("quantity")),
-                ndigits=4,
+                ndigits=2,
             ),
             "depends_on": ["volume", "quantity"],
-            "tolerance": 0.001,
-            "description": "总体积(m³) = 单卷体积 × 数量",
+            "tolerance": 0.01,
+            "description": "总体积(m³) = 单卷体积 × 数量 精度0.01",
         },
     },
 

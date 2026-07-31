@@ -681,7 +681,7 @@ def check_purchase_orders(conn, report):
         if abs((total_vol or 0) - sum_vol) > 0.01:
             report.warn(
                 f"采购单 {po_no}: total_volume={total_vol or 0} "
-                f"与 Σ明细 volume_subtotal={round(sum_vol, 4)} 不符 (展示统计, 不阻断)"
+                f"与 Σ明细 volume_subtotal={round(sum_vol, 2)} 不符 (展示统计, 不阻断)"
             )
 
 
@@ -744,7 +744,7 @@ def check_sales_contracts(conn, report):
         if abs((total_vol or 0) - sum_vol) > 0.01:
             report.warn(
                 f"合同 {contract_no}: total_volume={total_vol or 0} "
-                f"与 Σ明细 volume_subtotal={round(sum_vol, 4)} 不符 (展示统计, 不阻断)"
+                f"与 Σ明细 volume_subtotal={round(sum_vol, 2)} 不符 (展示统计, 不阻断)"
             )
 
 
@@ -976,7 +976,7 @@ def check_volume_subtotals(conn, report):
             unit_vol = unit_volume_map.get(mid)
             if unit_vol is None or not qty:
                 continue
-            expected = round(unit_vol * qty, 4)
+            expected = round(unit_vol * qty, 2)
             actual = vs or 0
             if abs(actual - expected) > 0.01:
                 report.error(
@@ -1007,7 +1007,7 @@ def check_delivery_order_volume(conn, report):
         if abs((total_vol or 0) - sum_vol) > 0.01:
             report.warn(
                 f"发货单 {delivery_no}: total_volume={total_vol or 0} "
-                f"与 Σ明细 volume_subtotal={round(sum_vol, 4)} 不符 (展示统计, 不阻断)"
+                f"与 Σ明细 volume_subtotal={round(sum_vol, 2)} 不符 (展示统计, 不阻断)"
             )
 
 
@@ -1292,7 +1292,7 @@ def check_quotations(conn, report):
         if abs((total_vol or 0) - sum_vol) > 0.01:
             report.warn(
                 f"报价 {quote_no}: total_volume={total_vol or 0} "
-                f"与 Σ明细 total_volume={round(sum_vol, 4)} 不符 (展示统计, 不阻断)"
+                f"与 Σ明细 total_volume={round(sum_vol, 2)} 不符 (展示统计, 不阻断)"
             )
 
     # 校验2: 正式QT(formal)的 parent_quote_no 必须指向存在的简要报价(brief)

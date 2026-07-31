@@ -87,7 +87,7 @@ CREATE TABLE products (
     appearance_inner    DECIMAL(8,2) DEFAULT NULL       COMMENT '外观内径(mm) [S2]',
     appearance_outer    DECIMAL(8,2) DEFAULT NULL       COMMENT '外观外径(mm) [S2]',
     appearance_height   DECIMAL(8,2) DEFAULT NULL       COMMENT '外观高度(mm) [S2]',
-    volume              DECIMAL(12,6) DEFAULT NULL      COMMENT '单件体积(m³) = appearance_outer² × appearance_height × 0.93 / 1e6 [S2]',
+    volume              DECIMAL(12,4) DEFAULT NULL      COMMENT '单件体积(m³) = appearance_outer² × appearance_height × 0.93 / 1e6 [S2] 精度0.0001',
     package             VARCHAR(32)  DEFAULT ''         COMMENT '包装 [S1] 如 PE膜',
     label_paper         VARCHAR(32)  DEFAULT ''         COMMENT '标签纸 [S2] 如 小(A)',
     material_used       VARCHAR(32)  DEFAULT ''         COMMENT '用料 [S1] 如 A25橙',
@@ -194,7 +194,7 @@ CREATE TABLE purchase_orders (
     order_date      DATE         NOT NULL           COMMENT '下单日期',
     expected_date   DATE         DEFAULT NULL       COMMENT '预计到货日期',
     total_amount    DECIMAL(14,2) NOT NULL DEFAULT 0.00 COMMENT '采购总金额(CNY)',
-    total_volume    DECIMAL(10,4) NOT NULL DEFAULT 0.0000 COMMENT '采购单总体积(CBM, 展示统计) = Σ purchase_order_items.volume_subtotal',
+    total_volume    DECIMAL(10,2) NOT NULL DEFAULT 0.00 COMMENT '采购单总体积(CBM, 展示统计) = Σ purchase_order_items.volume_subtotal 精度0.01',
     status          ENUM('draft','confirmed','partial_received','received','cancelled')
                                 NOT NULL DEFAULT 'draft' COMMENT '状态: 草稿/已确认/部分到货/已全部到货/已取消',
     remark          VARCHAR(512) DEFAULT ''         COMMENT '备注',
@@ -221,7 +221,7 @@ CREATE TABLE purchase_order_items (
     quantity        INT          NOT NULL           COMMENT '采购数量(件/卷)',
     unit_price      DECIMAL(12,2) NOT NULL          COMMENT '采购单价(CNY/件)',
     subtotal        DECIMAL(14,2) NOT NULL          COMMENT '小计金额(CNY) = quantity*unit_price',
-    volume_subtotal DECIMAL(10,4) DEFAULT 0.0000    COMMENT '体积小计(CBM) = 单件体积 × quantity',
+    volume_subtotal DECIMAL(10,2) DEFAULT 0.00    COMMENT '体积小计(CBM) = 单件体积 × quantity 精度0.01',
     received_qty    INT          NOT NULL DEFAULT 0 COMMENT '已收货数量',
     remark          VARCHAR(255) DEFAULT ''         COMMENT '备注',
 
@@ -255,7 +255,7 @@ CREATE TABLE sales_contracts (
     currency        VARCHAR(3)   NOT NULL DEFAULT 'USD' COMMENT '币种(ISO 4217 三字母): USD/EUR/IDR...',
     exchange_rate   DECIMAL(10,4) NOT NULL DEFAULT 0 COMMENT '签约日汇率(原币种→CNY)',
     total_amount_cny DECIMAL(14,2) NOT NULL DEFAULT 0.00 COMMENT '合同总金额(折算CNY) = total_amount × exchange_rate',
-    total_volume    DECIMAL(10,4) NOT NULL DEFAULT 0.0000 COMMENT '合同总体积(CBM, 展示统计) = Σ sales_contract_items.volume_subtotal',
+    total_volume    DECIMAL(10,2) NOT NULL DEFAULT 0.00 COMMENT '合同总体积(CBM, 展示统计) = Σ sales_contract_items.volume_subtotal 精度0.01',
     -- 贸易术语 (Incoterms 2020)
     trade_terms     ENUM('FOB','CIF','CFR','EXW') NOT NULL DEFAULT 'FOB' COMMENT '贸易术语: FOB/CIF/CFR/EXW',
     port_loading    VARCHAR(64)  DEFAULT ''         COMMENT '装运港(如 Qingdao)',
@@ -300,7 +300,7 @@ CREATE TABLE sales_contract_items (
     quantity        INT          NOT NULL           COMMENT '合同数量(件/卷)',
     unit_price      DECIMAL(12,2) NOT NULL          COMMENT '合同单价(原币种/件, 币种跟随主表 sales_contracts.currency)',
     subtotal        DECIMAL(14,2) NOT NULL          COMMENT '小计金额(原币种) = quantity*unit_price',
-    volume_subtotal DECIMAL(10,4) DEFAULT 0.0000    COMMENT '体积小计(CBM) = 单件体积 × quantity',
+    volume_subtotal DECIMAL(10,2) DEFAULT 0.00    COMMENT '体积小计(CBM) = 单件体积 × quantity 精度0.01',
     delivered_qty   INT          NOT NULL DEFAULT 0 COMMENT '已发货数量(由发货单回写)',
     remark          VARCHAR(255) DEFAULT ''         COMMENT '备注',
 
@@ -490,7 +490,7 @@ CREATE TABLE delivery_orders (
     receiver_phone  VARCHAR(32)  DEFAULT ''         COMMENT '收货电话',
     receiver_address VARCHAR(255) DEFAULT ''        COMMENT '收货地址',
     transport_no    VARCHAR(64)  DEFAULT ''         COMMENT '物流单号',
-    total_volume    DECIMAL(10,4) NOT NULL DEFAULT 0.0000 COMMENT '发货单总体积(CBM, 展示统计) = Σ delivery_order_items.volume_subtotal',
+    total_volume    DECIMAL(10,2) NOT NULL DEFAULT 0.00 COMMENT '发货单总体积(CBM, 展示统计) = Σ delivery_order_items.volume_subtotal 精度0.01',
     status          ENUM('draft','confirmed','shipped','delivered','cancelled')
                                 NOT NULL DEFAULT 'draft' COMMENT '状态: 草稿/已确认/已装船/客户已签收/已取消',
     remark          VARCHAR(512) DEFAULT ''         COMMENT '备注',
@@ -528,7 +528,7 @@ CREATE TABLE delivery_order_items (
     quantity            INT          NOT NULL           COMMENT '计划发货数量(件/卷, 商务承诺)',
     actual_quantity     INT          NOT NULL DEFAULT 0 COMMENT '实际发货数量(装柜后填, 默认=quantity, 短装时<quantity)',
     short_qty           INT          GENERATED ALWAYS AS (quantity - actual_quantity) STORED COMMENT '短装数(自动算=计划-实际, 正=短装, 负=超装)',
-    volume_subtotal     DECIMAL(10,4) DEFAULT 0.0000    COMMENT '体积小计(CBM) = 单件体积 × quantity (按计划数, 装柜后短装不改)',
+    volume_subtotal     DECIMAL(10,2) DEFAULT 0.00    COMMENT '体积小计(CBM) = 单件体积 × quantity (按计划数, 装柜后短装不改) 精度0.01',
     -- [R11] Packing Plan 公斤价反算核对 (2026-07-29 加)
     -- 业务背景: 简要报价按 公斤系数(USD/KG) × 单重 定价; 后续制作发货单(Packing Plan)时,
     --           要用"报价单的公斤价"正算"应等于的合同单价", 与实际合同单价对比, 差 0.001 内正常。
@@ -580,7 +580,7 @@ CREATE TABLE shipping_records (
     total_pkgs       INT           NOT NULL DEFAULT 0  COMMENT '实际总件数',
     total_gross_wt   DECIMAL(10,2) NOT NULL DEFAULT 0  COMMENT '总毛重(kg)',
     total_net_wt     DECIMAL(10,2) NOT NULL DEFAULT 0  COMMENT '总净重(kg)',
-    total_cbm        DECIMAL(10,4) NOT NULL DEFAULT 0  COMMENT '总体积(CBM)',
+    total_cbm        DECIMAL(10,2) NOT NULL DEFAULT 0  COMMENT '总体积(CBM) 精度0.01',
     -- CI 金额四件套 (原币种 + 当期汇率 + 折算 CNY)
     total_amount     DECIMAL(12,2) NOT NULL DEFAULT 0  COMMENT 'CI总额(原币种, 一般与合同同币种)',
     currency         VARCHAR(3)   NOT NULL DEFAULT 'USD' COMMENT '币种(ISO 4217): USD/EUR/IDR...',
@@ -617,7 +617,7 @@ CREATE TABLE shipping_record_items (
     shipping_mark    VARCHAR(128) DEFAULT ''        COMMENT '唛头(包装外标识)',
     gross_weight_per DECIMAL(8,2) DEFAULT 0         COMMENT '单件毛重(kg, 含包装)',
     net_weight_per   DECIMAL(8,2) DEFAULT 0         COMMENT '单件净重(kg, 不含包装)',
-    unit_volume      DECIMAL(10,4) DEFAULT 0        COMMENT '单件体积(CBM)',
+    unit_volume      DECIMAL(10,4) DEFAULT 0        COMMENT '单件体积(CBM) 精度0.0001',
     -- 金额 (Commercial Invoice 需要)
     unit_price_usd   DECIMAL(10,2) DEFAULT 0        COMMENT '单价(USD/件)',
     subtotal_usd     DECIMAL(12,2) DEFAULT 0        COMMENT '小计(USD) = actual_qty × unit_price_usd',
@@ -802,7 +802,7 @@ CREATE TABLE quotations (
     currency            VARCHAR(3)   NOT NULL DEFAULT 'USD' COMMENT '币种(ISO 4217): USD/EUR/IDR...',
     exchange_rate       DECIMAL(10,4) NOT NULL DEFAULT 0 COMMENT '汇率(原币种→CNY)',
     total_amount_cny    DECIMAL(14,2) NOT NULL DEFAULT 0.00 COMMENT '报价总金额(折算CNY) = total_amount × exchange_rate',
-    total_volume        DECIMAL(10,4) NOT NULL DEFAULT 0.0000 COMMENT '报价总体积(CBM, 展示统计) = Σ quotation_items.total_volume',
+    total_volume        DECIMAL(10,2) NOT NULL DEFAULT 0.00 COMMENT '报价总体积(CBM, 展示统计) = Σ quotation_items.total_volume 精度0.01',
     status              ENUM('draft','sent','confirmed','converted','cancelled')
                         NOT NULL DEFAULT 'draft'      COMMENT '状态: 草稿/已发/已确认/已转合同/已取消',
     converted_contract_no VARCHAR(32) DEFAULT NULL    COMMENT '转成的销售合同号(转后回填, 软关联 sales_contracts.contract_no, 无 FK 防循环依赖)',
@@ -848,8 +848,8 @@ CREATE TABLE quotation_items (
     total_weight        DECIMAL(14,3) NOT NULL DEFAULT 0 COMMENT '派生:总重KG = weight_per_unit × quantity',
     unit_price          DECIMAL(12,2) NOT NULL DEFAULT 0 COMMENT '派生:单卷价 = weight_per_unit × price_coefficient',
     subtotal            DECIMAL(14,2) NOT NULL DEFAULT 0 COMMENT '派生:小计 = unit_price × quantity',
-    volume              DECIMAL(12,6) DEFAULT 0.000000   COMMENT '单件体积(从products查或手填)',
-    total_volume        DECIMAL(12,6) NOT NULL DEFAULT 0 COMMENT '派生:总体积 = volume × quantity',
+    volume              DECIMAL(12,4) DEFAULT 0.0000   COMMENT '单件体积(从products查或手填) 精度0.0001',
+    total_volume        DECIMAL(12,2) NOT NULL DEFAULT 0 COMMENT '派生:总体积 = volume × quantity 精度0.01',
     remark              VARCHAR(255) DEFAULT ''         COMMENT '备注',
 
     CONSTRAINT fk_qi_quote   FOREIGN KEY (quote_no)   REFERENCES quotations(quote_no) ON DELETE CASCADE,
