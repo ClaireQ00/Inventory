@@ -96,6 +96,16 @@ DERIVED_RULES = {
             "tolerance": None,
             "description": "内径x外径字符串拼接",
         },
+        # A2b: 规格 spec 自动拼接
+        # 规则: {英寸} ID{内径mm} -{标称米数}M [(短|中|长)]
+        # - spec_meter 为空时退化为 "{英寸} ID{内径mm}"
+        # - 短/中/长 标签按 spec_meter 自动判: <=20短, 21~45中, 46~99长, >=100无标签
+        "spec": {
+            "expr": lambda row: _build_spec(row),
+            "depends_on": ["inner_diameter_inch", "inner_diameter", "spec_meter"],
+            "tolerance": None,
+            "description": "规格 = 英寸 + ID内径 + -标称米数M + 短/中/长标签",
+        },
         # A3: 单件重量 (kg)
         # 业务规则: 用密度公式算理论值, 5% 内算正常
         # 公式链: 密度 -> 理论米重 -> 理论单件重量
@@ -575,6 +585,39 @@ def _format_id_od(inner, outer):
     inner_s = f"{int(inner_v)}" if inner_v.is_integer() else f"{inner_v:g}"
     outer_s = f"{int(outer_v)}" if outer_v.is_integer() else f"{outer_v:g}"
     return f"{inner_s}x{outer_s}"
+
+
+def _build_spec(row):
+    """根据 inch + 内径 + 标称米数 拼接 spec 字符串.
+
+    格式: {英寸} ID{内径mm} -{标称米数}M [(短|中|长)]
+    短/中/长 规则 (按 spec_meter):
+        <= 20  -> 短
+        21-45  -> 中
+        46-99  -> 长
+        >= 100 -> 无标签 (大卷默认)
+    任何关键字段缺失时返回 None (让 CSV 原值生效).
+    """
+    inch = (row.get("inner_diameter_inch") or "").strip()
+    inner_v = _to_float(row.get("inner_diameter"))
+    meter_v = _to_float(row.get("spec_meter"))
+    if not inch or inner_v is None:
+        return None
+    # 内径整数化: 6.5 -> "6.5", 8 -> "8"
+    inner_s = f"{int(inner_v)}" if inner_v.is_integer() else f"{inner_v:g}"
+    parts = [f'{inch} ID{inner_s}']
+    if meter_v is not None:
+        meter_i = int(meter_v)
+        parts.append(f'-{meter_i}M')
+        # 短/中/长 标签
+        if meter_i <= 20:
+            parts.append('(短)')
+        elif meter_i <= 45:
+            parts.append('(中)')
+        elif meter_i < 100:
+            parts.append('(长)')
+        # >= 100: 无标签
+    return ' '.join(parts)
 
 
 def sql_escape(value):

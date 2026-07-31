@@ -74,10 +74,11 @@ CREATE TABLE products (
     outer_diameter      DECIMAL(8,2) DEFAULT NULL       COMMENT '外径(mm) [新] = inner_diameter + thickness*2',
     id_x_od             VARCHAR(32)  DEFAULT ''         COMMENT '内径x外径 [S2][新] 如 6.5x10.5',
     thickness           DECIMAL(8,2) DEFAULT NULL       COMMENT '壁厚/厚度(mm) [S1][S2]',
-    length              DECIMAL(10,2) DEFAULT NULL      COMMENT '长度(m) [S1][S2]',
+    length              DECIMAL(10,2) DEFAULT NULL      COMMENT '长度(m) [S1][S2] 实际长度,含接头余量',
+    spec_meter          INT          DEFAULT NULL       COMMENT '标称米数(销售单位) [S1][S2] 如 length=101 -> 100',
     virtual_weight      DECIMAL(10,3) DEFAULT NULL      COMMENT '虚重(kg) [S1]',
     virtual_length      DECIMAL(10,2) DEFAULT NULL      COMMENT '虚米(m) [S1]',
-    wire_spacing        VARCHAR(32)  DEFAULT ''         COMMENT '线距 [S1] 如 32根',
+    wire_spacing        VARCHAR(32)  DEFAULT ''         COMMENT '线距/簧距 [S1] 视产品类型二选一,如 32根 或 5mm',
 
     -- C. 重量参数
     weight_per_meter    DECIMAL(10,3) DEFAULT NULL      COMMENT '米重(g/m) [S1][S2] 统一克/米',
@@ -89,7 +90,7 @@ CREATE TABLE products (
     appearance_height   DECIMAL(8,2) DEFAULT NULL       COMMENT '外观高度(mm) [S2]',
     volume              DECIMAL(12,4) DEFAULT NULL      COMMENT '单件体积(m³) = appearance_outer² × appearance_height × 0.93 / 1e6 [S2] 精度0.0001',
     package             VARCHAR(32)  DEFAULT ''         COMMENT '包装 [S1] 如 PE膜',
-    label_paper         VARCHAR(32)  DEFAULT ''         COMMENT '标签纸 [S2] 如 小(A)',
+    label_paper         VARCHAR(32)  DEFAULT ''         COMMENT '标签纸 [S2] R开头=长方形标签/纸卡(如 R02502), C开头=圆环形标签',
     material_used       VARCHAR(32)  DEFAULT ''         COMMENT '用料 [S1] 如 A25橙',
     wire_pattern        VARCHAR(32)  DEFAULT ''         COMMENT '打线 [S1] 如 红蓝双线',
 
@@ -100,6 +101,7 @@ CREATE TABLE products (
     pressure            DECIMAL(8,2) DEFAULT NULL       COMMENT '压力(Bar) [S2] 如 3/5/10',
     spray_code          VARCHAR(512) DEFAULT ''         COMMENT '喷码 [S1][S2] 喷在产品上的标识文字',
     meter_mark          VARCHAR(64)  DEFAULT ''         COMMENT '米标 [S2] 如 每1.02米一个循环米',
+    meter_mark_count    INT          DEFAULT NULL       COMMENT '印花循环次数 [S2] 手填整数',
     remark              VARCHAR(512) DEFAULT ''         COMMENT '备注 [S1][S2]',
 
     -- G. 状态
