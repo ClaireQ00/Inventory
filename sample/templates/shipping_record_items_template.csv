@@ -1,2 +1,2 @@
-shipping_id,product_id,planned_qty,actual_qty,shipping_mark,gross_weight_per,net_weight_per,unit_volume,unit_price_usd,subtotal_usd,remark
-1,1,5,5,PAGODA / C-001 / SH20260726001,12.80,11.50,0.0446,500.00,2500.00,示例报关明细 (subtotal_usd=actual_qty×unit_price_usd 自动算)
+shipping_no,material_id,planned_qty,actual_qty,shipping_mark,gross_weight_per,net_weight_per,unit_volume,unit_price_usd,subtotal_usd,remark
+SH20260726001,M-001,5,5,PAGODA / C-001 / SH20260726001,12.80,11.50,0.0446,500.00,2500.00,示例报关明细 (shipping_no 关联 shipping_records.shipping_no; material_id 关联 products.material_id; subtotal_usd=actual_qty×unit_price_usd 自动算)

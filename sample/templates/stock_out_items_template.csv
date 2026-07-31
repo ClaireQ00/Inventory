@@ -1,2 +1,2 @@
-stock_out_id,product_id,quantity,remark
-1,1,5,示例出库明细
+out_no,material_id,quantity,remark
+OUT20240731001,M-001,5,示例出库明细

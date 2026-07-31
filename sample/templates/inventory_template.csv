@@ -1,2 +1,2 @@
-product_id,warehouse_id,quantity
-1,1,50
+material_id,warehouse_code,quantity
+M-001,WH001,50

@@ -115,10 +115,10 @@ def main():
     #    total_volume = Σ volume_subtotal = 0.446 + 0.253 = 0.699 (展示统计, 非报关数)
     write_csv(
         "purchase_orders.csv",
-        ["id", "po_no", "supplier_id", "order_date", "expected_date",
+        ["id", "po_no", "supplier_code", "order_date", "expected_date",
          "total_amount", "total_volume", "status", "remark"],
         [
-            [1, "PO20260726001", 1, "2026-07-20", "2026-07-25", 20000, 0.699, "confirmed", "演示采购单1"],
+            [1, "PO20260726001", "SUP-001", "2026-07-20", "2026-07-25", 20000, 0.699, "confirmed", "演示采购单1"],
         ],
     )
 
@@ -127,11 +127,11 @@ def main():
     #          DEMO-M-002 0.0253 × 10 = 0.253
     write_csv(
         "purchase_order_items.csv",
-        ["id", "po_id", "product_id", "quantity", "unit_price", "subtotal",
+        ["id", "po_no", "material_id", "quantity", "unit_price", "subtotal",
          "volume_subtotal", "received_qty", "remark"],
         [
-            [1, 1, 1, 10, 1000, 10000, 0.446, 0, "明细1"],
-            [2, 1, 2, 10, 1000, 10000, 0.253, 0, "明细2"],
+            [1, "PO20260726001", "DEMO-M-001", 10, 1000, 10000, 0.446, 0, "明细1"],
+            [2, "PO20260726001", "DEMO-M-002", 10, 1000, 10000, 0.253, 0, "明细2"],
         ],
     )
 
@@ -141,13 +141,13 @@ def main():
     #    total_volume = Σ volume_subtotal = 0.3568 + 0.3542 = 0.711 (展示统计, 非报关数)
     write_csv(
         "sales_contracts.csv",
-        ["id", "contract_no", "customer_id", "sign_date", "delivery_deadline",
+        ["id", "contract_no", "customer_code", "sign_date", "delivery_deadline",
          "currency", "total_amount", "exchange_rate", "total_amount_cny",
          "total_volume",
          "trade_terms", "port_loading", "port_discharge", "freight", "insurance",
          "status", "payment_term", "packing", "remark"],
         [
-            [1, "SC20260720001", 1, "2026-07-15", "2026-08-15",
+            [1, "SC20260720001", "C-001", "2026-07-15", "2026-08-15",
              "USD", 8634.5688, 7.15, 61737.1669,
              0.711,
              "FOB", "Qingdao", "Jakarta", 0, 0,
@@ -163,25 +163,26 @@ def main():
     #          DEMO-M-002 0.0253 × 14 = 0.3542
     #    件价: DEMO-M-001 1.112×7.15×64 = 508.8512 → 508.85 (×8 = 4070.81)
     #          DEMO-M-002 1.112×7.15×41 = 325.9828 → 325.98 (×14 = 4563.76)
+    #    item_no (2026-07-30 加): 同合同内唯一, 给下游引用 (如 delivery_order_items.contract_item_no)
     write_csv(
         "sales_contract_items.csv",
-        ["id", "contract_id", "product_id", "quantity", "unit_price", "subtotal",
+        ["id", "contract_no", "item_no", "material_id", "quantity", "unit_price", "subtotal",
          "volume_subtotal", "delivered_qty", "remark"],
         [
-            [1, 1, 1, 8, 508.8512, 4070.8096, 0.3568, 0, "合同行1"],
-            [2, 1, 2, 14, 325.9828, 4563.7592, 0.3542, 0, "合同行2"],
+            [1, "SC20260720001", "001", "DEMO-M-001", 8, 508.8512, 4070.8096, 0.3568, 0, "合同行1"],
+            [2, "SC20260720001", "002", "DEMO-M-002", 14, 325.9828, 4563.7592, 0.3542, 0, "合同行2"],
         ],
     )
 
     # 9. 入库单 (跟采购单 1 关联) + 调拨入库 (从主仓调到外协仓的接收端)
     write_csv(
         "stock_in.csv",
-        ["id", "in_no", "in_type", "warehouse_id", "po_id", "operator",
+        ["id", "in_no", "in_type", "warehouse_code", "po_no", "operator",
          "in_date", "status", "transfer_ref", "remark"],
         [
-            [1, "IN20260726001", "purchase", 1, 1, "DEMO操作员",
+            [1, "IN20260726001", "purchase", "WH-01", "PO20260726001", "DEMO操作员",
              "2026-07-26", "confirmed", "", "采购到货"],
-            [2, "TR20260729001-IN", "transfer", 2, "", "DEMO操作员",
+            [2, "TR20260729001-IN", "transfer", "WH-02", "", "DEMO操作员",
              "2026-07-29", "confirmed", "TR20260729001", "从主仓调入(调拨接收端)"],
         ],
     )
@@ -189,11 +190,11 @@ def main():
     # 10. 入库明细 (采购 10+10, 调拨接收物料1 3件)
     write_csv(
         "stock_in_items.csv",
-        ["id", "stock_in_id", "product_id", "quantity", "remark"],
+        ["id", "in_no", "material_id", "quantity", "remark"],
         [
-            [1, 1, 1, 10, "物料1全部到货"],
-            [2, 1, 2, 10, "物料2全部到货"],
-            [3, 2, 1, 3, "调拨入库: 从主仓接收 3 件"],
+            [1, "IN20260726001", "DEMO-M-001", 10, "物料1全部到货"],
+            [2, "IN20260726001", "DEMO-M-002", 10, "物料2全部到货"],
+            [3, "TR20260729001-IN", "DEMO-M-001", 3, "调拨入库: 从主仓接收 3 件"],
         ],
     )
 
@@ -201,11 +202,11 @@ def main():
     #     total_volume = Σ volume_subtotal = 0.223 + 0.253 = 0.476 (展示统计, 非报关数)
     write_csv(
         "delivery_orders.csv",
-        ["id", "delivery_no", "customer_id", "delivery_date", "receiver",
+        ["id", "delivery_no", "customer_code", "delivery_date", "receiver",
          "receiver_phone", "receiver_address", "transport_no",
          "total_volume", "status", "remark"],
         [
-            [1, "DN20260726001", 1, "2026-07-26", "Mr.A 收货人",
+            [1, "DN20260726001", "C-001", "2026-07-26", "Mr.A 收货人",
              "+86-000-00000001", "上海市DEMO路", "SF-DEMO-0001",
              0.476, "confirmed", "首批发货"],
         ],
@@ -215,13 +216,14 @@ def main():
     #     体积: DEMO-M-001 0.0446 × 5  = 0.223
     #           DEMO-M-002 0.0253 × 10 = 0.253
     #     [新增] actual_quantity 装柜后填, 这里假设全部满发, short_qty=0
+    #     [改 2026-07-30] 用 (contract_no, contract_item_no) 复合引用合同明细行
     write_csv(
         "delivery_order_items.csv",
-        ["id", "delivery_id", "contract_item_id", "product_id", "quantity",
+        ["id", "delivery_no", "contract_no", "contract_item_no", "material_id", "quantity",
          "actual_quantity", "short_qty", "volume_subtotal", "remark"],
         [
-            [1, 1, 1, 1, 5, 5, 0, 0.223, "合同行1发5 (满发)"],
-            [2, 1, 2, 2, 10, 10, 0, 0.253, "合同行2发10 (满发)"],
+            [1, "DN20260726001", "SC20260720001", "001", "DEMO-M-001", 5, 5, 0, 0.223, "合同行1发5 (满发)"],
+            [2, "DN20260726001", "SC20260720001", "002", "DEMO-M-002", 10, 10, 0, 0.253, "合同行2发10 (满发)"],
         ],
     )
 
@@ -231,12 +233,12 @@ def main():
     #      4500 USD × 7.15 = 32175 CNY
     write_csv(
         "shipping_records.csv",
-        ["id", "shipping_no", "delivery_id", "shipping_date", "container_no",
+        ["id", "shipping_no", "delivery_no", "shipping_date", "container_no",
          "seal_no", "vessel", "total_pkgs", "total_gross_wt", "total_net_wt",
          "total_cbm", "currency", "total_amount", "exchange_rate", "total_amount_cny",
          "status", "remark"],
         [
-            [1, "SH20260726001", 1, "2026-07-26", "MSCU-DEMO-1234",
+            [1, "SH20260726001", "DN20260726001", "2026-07-26", "MSCU-DEMO-1234",
              "SEAL-001", "OOCL DEMO / V.001", 15, 320.50, 289.50,
              0.476, "USD", 4500.00, 7.15, 32175.00,
              "customs_cleared", "首船报关 (正常场景, 无短装)"],
@@ -248,13 +250,13 @@ def main():
     #      subtotal_usd = actual_qty × unit_price_usd
     write_csv(
         "shipping_record_items.csv",
-        ["id", "shipping_id", "product_id", "planned_qty", "actual_qty",
+        ["id", "shipping_no", "material_id", "planned_qty", "actual_qty",
          "shipping_mark", "gross_weight_per", "net_weight_per", "unit_volume",
          "unit_price_usd", "subtotal_usd", "remark"],
         [
-            [1, 1, 1, 5, 5, "PAGODA / C-001 / SH20260726001",
+            [1, "SH20260726001", "DEMO-M-001", 5, 5, "PAGODA / C-001 / SH20260726001",
              12.80, 11.50, 0.0446, 500.00, 2500.00, "物料1 实发5"],
-            [2, 1, 2, 10, 10, "PAGODA / C-001 / SH20260726001",
+            [2, "SH20260726001", "DEMO-M-002", 10, 10, "PAGODA / C-001 / SH20260726001",
              11.30, 10.20, 0.0253, 200.00, 2000.00, "物料2 实发10"],
         ],
     )
@@ -264,7 +266,7 @@ def main():
     #      [改] 加金额四件套: currency / diff_amount / exchange_rate / diff_amount_cny
     write_csv(
         "credit_notes.csv",
-        ["id", "cn_no", "shipping_id", "contract_item_id", "product_id",
+        ["id", "cn_no", "shipping_no", "contract_no", "contract_item_no", "material_id",
          "diff_qty", "currency", "diff_amount", "exchange_rate", "diff_amount_cny",
          "resolution", "resolved_at", "remark"],
         [
@@ -291,12 +293,12 @@ def main():
     #      业务场景: 客户 T/T 全款到账, 跟合同/报关单金额对齐
     write_csv(
         "receipts.csv",
-        ["id", "receipt_no", "customer_id", "contract_id", "shipping_id",
-         "delivery_id", "amount", "currency", "exchange_rate", "amount_cny",
+        ["id", "receipt_no", "customer_code", "contract_no", "shipping_no",
+         "delivery_no", "amount", "currency", "exchange_rate", "amount_cny",
          "paid_date", "pay_method", "bank_ref", "status", "remark"],
         [
-            [1, "RC20260726001", 1, 1, 1, 1,
-             4500.00, "USD", 7.15, 32175.00,
+            [1, "RC20260726001", "C-001", "SC20260720001", "SH20260726001",
+             "DN20260726001", 4500.00, "USD", 7.15, 32175.00,
              "2026-07-26", "T/T", "BK-DEMO-001",
              "confirmed", "首船全款到账 (T/T in advance)"],
         ],
@@ -316,7 +318,7 @@ def main():
     )
 
     # 12h. [新增 R10] 报价主表 quotations (2 条: 简要报价 + 正式 QT)
-    #      QT001 简要报价 → 后续可派生 QT002 正式报价 (parent_quote_id=1)
+    #      QT001 简要报价 → 后续可派生 QT002 正式报价 (parent_quote_no=QT001)
     #
     #      QT001 total_amount 汇总 (不是 DERIVED_RULES 算的, 是 Σ quotation_items.subtotal):
     #        明细1 subtotal (DEMO-M-001, 64kg × 1.112 × 10) = 711.68
@@ -325,25 +327,25 @@ def main():
     #      total_amount_cny 派生 (DERIVED_RULES 算): 1167.60 × 7.25 = 8465.10
     #      total_volume (展示统计) = Σ quotation_items.total_volume = 0.446 + 0.253 = 0.699
     #
-    #      QT002 是从 QT001 派生的正式报价 (parent_quote_id=1), 暂无明细 → total_amount=0, total_volume=0
+    #      QT002 是从 QT001 派生的正式报价 (parent_quote_no=QT001), 暂无明细 → total_amount=0, total_volume=0
     write_csv(
         "quotations.csv",
-        ["quote_no", "customer_id", "quote_type", "parent_quote_id", "version",
+        ["quote_no", "customer_code", "quote_type", "parent_quote_no", "version",
          "quote_date", "valid_until", "total_amount", "currency", "exchange_rate",
-         "total_amount_cny", "total_volume", "status", "converted_contract_id",
+         "total_amount_cny", "total_volume", "status", "converted_contract_no",
          "trade_terms", "port_loading", "port_discharge", "payment_term", "packing",
          "remark"],
         [
-            # QT001: Q025 简要报价, 客户A(id=1), 总价 1167.60 USD × 7.25 = 8465.10 CNY
+            # QT001: Q025 简要报价, 客户A(C-001), 总价 1167.60 USD × 7.25 = 8465.10 CNY
             # brief 阶段不带贸易/付款/包装条款 (确认后才补)
-            ["QT20260729001", 1, "brief", "", 1,
+            ["QT20260729001", "C-001", "brief", "", 1,
              "2026-07-29", "2026-08-05", 1167.60, "USD", 7.25,
              8465.10, 0.699, "draft", "",
              "", "", "", "", "",
              "Q025 简要报价 (R10 系数定价)"],
-            # QT002: 正式 QT, 从 QT001 派生 (parent_quote_id=1), 暂无明细故金额=0
+            # QT002: 正式 QT, 从 QT001 派生 (parent_quote_no=QT20260729001), 暂无明细故金额=0
             # formal 阶段带完整 5 个外贸条款字段
-            ["QT20260729002", 1, "formal", 1, 1,
+            ["QT20260729002", "C-001", "formal", "QT20260729001", 1,
              "2026-07-29", "2026-08-05", 0, "USD", 7.25,
              0, 0, "draft", "",
              "FOB", "Qingdao", "Jakarta",
@@ -353,42 +355,42 @@ def main():
         ],
     )
 
-    # 12i. [新增 R10] 报价明细 quotation_items (对应 QT001=quote_id 1)
+    # 12i. [新增 R10] 报价明细 quotation_items (对应 QT001)
     #      定价铁律 R10: unit_price = weight_per_unit × price_coefficient (USD/KG)
     #      subtotal 直接展开 = weight_per_unit × price_coefficient × quantity (不走派生 unit_price)
     #
-    #      明细1: DEMO-M-001 (id=1, weight=64kg)
+    #      明细1: DEMO-M-001 (weight=64kg)
     #        total_weight = 64 × 10 = 640
     #        unit_price   = 64 × 1.112 = 71.168
     #        subtotal     = 64 × 1.112 × 10 = 711.68
     #        volume       = 0.0446 (从 products 带出), total_volume = 0.0446 × 10 = 0.446
     #
-    #      明细2: DEMO-M-002 (id=2, weight=41kg)
+    #      明细2: DEMO-M-002 (weight=41kg)
     #        total_weight = 41 × 10 = 410
     #        unit_price   = 41 × 1.112 = 45.592
     #        subtotal     = 41 × 1.112 × 10 = 455.92
     #        volume       = 0.0253 (从 products 带出), total_volume = 0.0253 × 10 = 0.253
     write_csv(
         "quotation_items.csv",
-        ["quote_id", "product_id", "group_code", "price_coefficient",
+        ["quote_no", "item_no", "material_id", "group_code", "price_coefficient",
          "weight_per_unit", "quantity", "total_weight", "unit_price", "subtotal",
          "volume", "total_volume", "remark"],
         [
             # 派生字段算好填进去 (跟现有 demo 风格一致, 如 purchase_order_items 的 subtotal/volume_subtotal)
-            [1, 1, "A组-1.112", 1.112, 64, 10, 640, 71.168, 711.68, 0.0446, 0.446, "1-1/4管"],
-            [1, 2, "A组-1.112", 1.112, 41, 10, 410, 45.592, 455.92, 0.0253, 0.253, "1寸管"],
+            ["QT20260729001", "001", "DEMO-M-001", "A组-1.112", 1.112, 64, 10, 640, 71.168, 711.68, 0.0446, 0.446, "1-1/4管"],
+            ["QT20260729001", "002", "DEMO-M-002", "A组-1.112", 1.112, 41, 10, 410, 45.592, 455.92, 0.0253, 0.253, "1寸管"],
         ],
     )
 
     # 13. 出库单 (跟发货单 1 关联) + 调拨出库 (从主仓调到外协仓的发出端)
     write_csv(
         "stock_out.csv",
-        ["id", "out_no", "out_type", "warehouse_id", "delivery_id", "operator",
+        ["id", "out_no", "out_type", "warehouse_code", "delivery_no", "operator",
          "out_date", "status", "transfer_ref", "remark"],
         [
-            [1, "OUT20260726001", "sale", 1, 1, "DEMO操作员",
+            [1, "OUT20260726001", "sale", "WH-01", "DN20260726001", "DEMO操作员",
              "2026-07-26", "confirmed", "", "销售出库"],
-            [2, "TR20260729001-OUT", "transfer", 1, "", "DEMO操作员",
+            [2, "TR20260729001-OUT", "transfer", "WH-01", "", "DEMO操作员",
              "2026-07-29", "confirmed", "TR20260729001", "调拨到外协仓(调拨发出端)"],
         ],
     )
@@ -396,11 +398,11 @@ def main():
     # 14. 出库明细 (销售 5+10, 调拨发出物料1 3件)
     write_csv(
         "stock_out_items.csv",
-        ["id", "stock_out_id", "product_id", "quantity", "remark"],
+        ["id", "out_no", "material_id", "quantity", "remark"],
         [
-            [1, 1, 1, 5, ""],
-            [2, 1, 2, 10, ""],
-            [3, 2, 1, 3, "调拨出库: 发往仓库2 3 件"],
+            [1, "OUT20260726001", "DEMO-M-001", 5, ""],
+            [2, "OUT20260726001", "DEMO-M-002", 10, ""],
+            [3, "TR20260729001-OUT", "DEMO-M-001", 3, "调拨出库: 发往仓库2 3 件"],
         ],
     )
 
@@ -410,11 +412,11 @@ def main():
     #     物料2: 采购入 10 - 销售出 10 = 0              (仓库1)
     write_csv(
         "inventory.csv",
-        ["id", "product_id", "warehouse_id", "quantity"],
+        ["id", "material_id", "warehouse_code", "quantity"],
         [
-            [1, 1, 1, 2],
-            [2, 2, 1, 0],
-            [3, 1, 2, 3],
+            [1, "DEMO-M-001", "WH-01", 2],
+            [2, "DEMO-M-002", "WH-01", 0],
+            [3, "DEMO-M-001", "WH-02", 3],
         ],
     )
 

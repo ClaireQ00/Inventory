@@ -1,2 +1,2 @@
-cn_no,shipping_id,contract_item_id,product_id,diff_qty,currency,diff_amount,exchange_rate,diff_amount_cny,resolution,resolved_at,remark
-CN20260726001,1,1,1,5,USD,1000.00,7.15,7150.00,replenish,2026-08-15,示例贷记单 (currency 默认 USD; diff_amount_cny=diff_amount×rate; resolution: pending/replenish/refund/writeoff; diff_qty 正=短装 负=超装)
+cn_no,shipping_no,contract_no,contract_item_no,material_id,diff_qty,currency,diff_amount,exchange_rate,diff_amount_cny,resolution,resolved_at,remark
+CN20260726001,SH20260726001,SC20240731001,001,M-001,5,USD,1000.00,7.15,7150.00,replenish,2026-08-15,示例贷记单 (shipping_no 关联 shipping_records; (contract_no, contract_item_no) 复合关联 sales_contract_items; material_id 关联 products; currency 默认 USD; diff_amount_cny=diff_amount×rate; resolution: pending/replenish/refund/writeoff; diff_qty 正=短装 负=超装)

@@ -1,2 +1,2 @@
-receipt_no,customer_id,contract_id,shipping_id,delivery_id,amount,currency,exchange_rate,amount_cny,paid_date,pay_method,bank_ref,status,remark
-RC20260726001,1,1,1,1,4500.00,USD,7.15,32175.00,2026-07-26,T/T,BK-DEMO-001,confirmed,示例收款 (currency 默认 USD; amount_cny=amount×rate; pay_method: T/T/L/C/D/P/D/A/other; status: draft/confirmed/cancelled)
+receipt_no,customer_code,contract_no,shipping_no,delivery_no,amount,currency,exchange_rate,amount_cny,paid_date,pay_method,bank_ref,status,remark
+RC20260726001,C001,SC20240731001,SH20260726001,DN20240731001,4500.00,USD,7.15,32175.00,2026-07-26,T/T,BK-DEMO-001,confirmed,示例收款 (customer_code 关联 customers; contract_no/shipping_no/delivery_no 可空, 关联对应业务单号; currency 默认 USD; amount_cny=amount×rate; pay_method: T/T/L/C/D/P/D/A/other; status: draft/confirmed/cancelled)

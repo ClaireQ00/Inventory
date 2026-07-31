@@ -1,3 +1,3 @@
-in_no,in_type,warehouse_id,po_id,operator,in_date,status,transfer_ref,remark
-IN20240731001,purchase,1,1,张三,2024-07-31,confirmed,,采购到货入库
-TR20260729001-IN,transfer,2,,李四,2026-07-29,confirmed,TR20260729001,从主仓调入(跟配对的 stock_out 用同一个 transfer_ref)
+in_no,in_type,warehouse_code,po_no,operator,in_date,status,transfer_ref,remark
+IN20240731001,purchase,WH001,PO20240731001,张三,2024-07-31,confirmed,,采购到货入库
+TR20260729001-IN,transfer,WH002,,李四,2026-07-29,confirmed,TR20260729001,从主仓调入(跟配对的 stock_out 用同一个 transfer_ref)

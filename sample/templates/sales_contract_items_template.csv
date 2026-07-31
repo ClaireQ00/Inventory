@@ -1,2 +1,2 @@
-contract_id,product_id,quantity,unit_price,subtotal,volume_subtotal,delivered_qty,remark
-1,1,5,3000.00,15000.00,0.223,0,示例销售合同明细 (volume_subtotal = 单件体积 × quantity)
+contract_no,item_no,material_id,quantity,unit_price,subtotal,volume_subtotal,delivered_qty,remark
+SC20240731001,001,M-001,5,3000.00,15000.00,0.223,0,示例销售合同明细 (contract_no 关联 sales_contracts.contract_no; item_no 同合同内唯一, 如 001/002, 下游 delivery_order_items/credit_notes 引用; material_id 关联 products.material_id; volume_subtotal = 单件体积 × quantity)

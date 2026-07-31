@@ -1,2 +1,2 @@
-po_no,supplier_id,order_date,expected_date,total_amount,total_volume,status,remark
-PO20240731001,1,2024-07-31,2024-08-10,10000.00,0,draft,示例采购单 (total_volume = Σ purchase_order_items.volume_subtotal, 录完明细后填; 展示统计, 不是报关数据)
+po_no,supplier_code,order_date,expected_date,total_amount,total_volume,status,remark
+PO20240731001,SUP001,2024-07-31,2024-08-10,10000.00,0,draft,示例采购单 (supplier_code 关联 suppliers.code; total_volume = Σ purchase_order_items.volume_subtotal, 录完明细后填; 展示统计, 不是报关数据)

@@ -1,2 +1,2 @@
-delivery_id,contract_item_id,product_id,quantity,actual_quantity,short_qty,volume_subtotal,expected_unit_price,coeff_diff,coeff_check_status,remark
-1,1,1,5,5,0,0.223,,,pending,示例发货明细 (满发; 后三列由第15步自动反算)
+delivery_no,contract_no,contract_item_no,material_id,quantity,actual_quantity,short_qty,volume_subtotal,expected_unit_price,coeff_diff,coeff_check_status,remark
+DN20240731001,SC20240731001,001,M-001,5,5,0,0.223,,,pending,示例发货明细 (delivery_no 关联 delivery_orders.delivery_no; (contract_no, contract_item_no) 复合关联 sales_contract_items; material_id 关联 products.material_id; 满发; 后三列由第15步自动反算)
