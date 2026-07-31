@@ -34,15 +34,58 @@ CSV 每行的**逗号数必须跟表头一致**。空值不能省略逗号——
 
 如果遇到奇怪的"数字加 .0"问题，看这个函数。
 
-### 坑 4：业务编号引用要稳（customer_id 等）
+### 坑 4：业务编号引用要稳（已修复 ✓）
 
-业务表之间的外键引用（如 quotations.customer_id → customers.id）依赖 **MySQL AUTO_INCREMENT**。
-反复 TRUNCATE / REPLACE INTO 会让 id 漂移，导致外键失效。
+**历史问题（2026-07-30）**：业务表外键原来用 `customer_id` / `product_id` 等 INT 自增 id，
+依赖 MySQL AUTO_INCREMENT。反复 TRUNCATE / REPLACE INTO 会让 id 漂移，导致外键失效。
 
-**正确流程**：先灌基础资料 4 张表（customers/suppliers/warehouses/products）→ 记下 id →
-再用对应 id 灌业务表（quotations/sales_contracts/...）。
+**修复方案（ADR-0004，已完成）**：所有硬外键改用业务编号（`customer_code` / `material_id` 等 VARCHAR）。
+现在填 CSV 时**直接填业务编号**，不再需要记数据库内部 id。
 
-阶段二计划：把外键引用改成业务编号（customer.code 等），彻底摆脱 id 漂移。
+新格式字段对应表（老 → 新）：
+
+| 老字段 (已废弃) | 新字段 | 引用目标 |
+| --- | --- | --- |
+| `customer_id` | `customer_code` | `customers.code` (如 `Q025`) |
+| `product_id` | `material_id` | `products.material_id` (如 `M-Q025-001`) |
+| `supplier_id` | `supplier_code` | `suppliers.code` (如 `SUP-001`) |
+| `warehouse_id` | `warehouse_code` | `warehouses.code` (如 `WH-01`) |
+| `po_id` | `po_no` | `purchase_orders.po_no` |
+| `contract_id` | `contract_no` | `sales_contracts.contract_no` |
+| `quote_id` | `quote_no` | `quotations.quote_no` |
+
+**明细表新增 `item_no` 字段**（如 `sales_contract_items.item_no`）：
+同一主表单号内从 `001` 递增，方便稳定引用单条明细行。
+
+### 坑 5：Excel 编辑 CSV 的编码 & 格式坑（已自动兜底 ✓）
+
+**问题表现**：用 Excel（尤其 Windows 中文环境）编辑 CSV 后：
+- 文件编码从 UTF-8 变成 GBK，程序读出来是乱码
+- 换行符从 LF 变成 CRLF，某些解析器报错
+- 多行字段（如 `billing_profiles` 里的地址）会破坏 CSV 结构（一条记录被拆成多行）
+
+**自动兜底**：`tools/normalize_csv.py` 会在跑校验前**自动修复**上述问题。
+集成在 `run_local_validation.sh` 步骤 2c，**你完全不用手动处理**。
+
+也可以手动跑：
+
+```bash
+python3 tools/normalize_csv.py                     # 修复 data/csv/ 下所有 CSV
+python3 tools/normalize_csv.py --check             # 只检查不改
+python3 tools/normalize_csv.py data/csv/某个.csv    # 修复指定文件
+```
+
+**⚠️ 脚本救不了的问题**（信息已丢，必须在 Excel 填写时避免）：
+
+| Excel 的坑 | 表现 | 避免方法 |
+| --- | --- | --- |
+| 日期被自动格式化 | `2026-07-29` → `7/29/2026` | 单元格格式设为"文本"，或日期前加单引号 `'2026-07-29` |
+| 大数字变科学计数法 | `100000000` → `1E+08` | 同上，设文本格式或加前导单引号 |
+| 前导零丢失 | `0812` → `812` | 同上（电话号/银行账号尤其注意） |
+| 单元格内回车换行 | 多行字段破坏 CSV 结构 | 用空格分隔，不要按回车 |
+
+**Excel 正确打开姿势**：数据 → 从文本/CSV → 选文件 → 文件原始格式选 `65001: Unicode (UTF-8)` → 加载。
+这样能避免 Excel 自动改编码。
 
 ---
 
@@ -148,8 +191,8 @@ CSV 每行的**逗号数必须跟表头一致**。空值不能省略逗号——
 2. 用真实业务数据填充 CSV 文件。
 3. 真实数据文件请勿加入版本控制（`data/` 已在 `.gitignore`）。
 4. 录入时请注意以下字段：
-   - `product_id`、`warehouse_id`、`supplier_id`、`customer_id` 等字段使用数据库内部 ID
-   - 若你需要更方便的导入方式，可先将 `products`、`warehouses`、`suppliers`、`customers` 录入数据库，再使用其自增 ID
+   - `customer_code`、`material_id`、`supplier_code`、`warehouse_code`、`*_no` 等外键字段**直接填业务编号**（ADR-0004 起，不再用数据库内部 id）
+   - 填明细表前，先把主表单号填好（如 `quotations` 先填好 `quote_no=YL260728Q025`，明细表才能引用这个 `quote_no`）
 
 ## 建议的验证流程
 

@@ -61,4 +61,4 @@ bash scripts/run_local_validation.sh           # 真实数据
 bash scripts/run_local_validation.sh --demo    # demo 假数据
 ```
 
-16 步全过才算改对了。
+16 步全过才算改对了。校验前会自动跑 `tools/normalize_csv.py`（步骤 2c），把 Excel 编辑引入的 GBK/CRLF/多行字段问题自动修复，**填完 CSV 直接跑校验即可，不用手动管编码**（详见 `docs/IMPORT_TEMPLATES.md` 坑 5）。
