@@ -278,7 +278,13 @@ CI 同样以此为门禁(`scripts/ci.sh` / `.github/workflows/ci.yml`)。
 ```
 
 - **报价系数**:取 `quotation_items.price_coefficient`(通过 `material_id` 反查最近一条非 reject 报价)
-- **单重**:取 `products.weight`(主数据唯一来源,不一致就加新物料,不在单据里改)
+- **单重**(2026-08-01 改为快照优先,解决"回流误报"):取数优先级——
+  ① 该合同 converted 来源报价单的快照 `quotation_items.weight_per_unit`(谈判达成值,经 `quotations.converted_contract_no` 关联);
+  ② 最新有效报价的快照值(合同非报价转单时);
+  ③ `products.weight` 主数据(无报价记录时兜底)。
+  > 修复前一律用 `products.weight`:客户在报价时把重量谈成新值(只写在报价快照上)、主数据没更新时,
+  > 每次做发货单 R11 都拿旧主数据重量误报 WARN。改用快照优先后,谈判达成的新重量不再误报;
+  > 真正该暴露的"合同价 ≠ 谈判价"依然会 WARN。
 - **实际合同单价**:`sales_contract_items.unit_price`(原币种/件,R10 顺带澄清注释)
 
 > ⚠ 2026-07-31 修正:原公式误乘 `sales_contracts.exchange_rate`,把"原币/件"算成了"人民币/件",

@@ -1366,26 +1366,52 @@ def check_packing_coefficient(conn, report):
 
     容差 0.01: 超差报 warn 不报 error。合同单价按 2 位小数报价(如 1.112×7=7.784 → 7.78),
     0.001 过紧会把正常四舍五入误报; 0.01 覆盖 2 位小数报价的最大舍入误差(0.005)。
+
+    单重/系数取数来源 (2026-08-01 修复"回流"问题):
+      ① 优先: 该合同 converted 来源报价单上的【快照值】 (quotation_items.weight_per_unit
+         / price_coefficient, 经 quotations.converted_contract_no 关联) —— 这是谈判达成值,
+         客户在报价时谈成的新重量不会再触发误报 WARN
+      ② 兜底: 最新有效报价的快照值 (老逻辑, 合同不是从报价转的情况)
+      ③ 最后: products.weight 主数据 (没有任何报价记录时)
+      修复前一律用 products.weight, 报价改过重量的合同每次做发货单都误报 WARN。
     """
 
-    # 通过 (contract_no, contract_item_no) 关联到 sales_contract_items, 再用 material_id 反查 quotation_items
-    # 报价明细与合同明细无直接外键, 靠 material_id 配对
+    # 通过 (contract_no, contract_item_no) 关联到 sales_contract_items;
+    # 单重/系数优先取 converted 来源报价的快照 (谈判达成值), 再退到最新报价/主数据
     cur = conn.cursor()
     cur.execute("""
         SELECT doi.id, doi.contract_no, doi.contract_item_no, doi.material_id,
                sci.unit_price   AS contract_unit_price,
-               p.weight         AS weight,
+               cv.snap_weight,
+               cv.snap_coeff,
+               p.weight         AS master_weight,
                (SELECT qi.price_coefficient
                   FROM quotation_items qi
                   JOIN quotations q ON q.quote_no = qi.quote_no
                  WHERE qi.material_id = doi.material_id
                    AND q.status IN ('draft', 'accepted', 'converted')
                  ORDER BY q.id DESC
-                 LIMIT 1)        AS coeff
+                 LIMIT 1)        AS latest_coeff,
+               (SELECT qi.weight_per_unit
+                  FROM quotation_items qi
+                  JOIN quotations q ON q.quote_no = qi.quote_no
+                 WHERE qi.material_id = doi.material_id
+                   AND q.status IN ('draft', 'accepted', 'converted')
+                 ORDER BY q.id DESC
+                 LIMIT 1)        AS latest_weight
         FROM delivery_order_items doi
         JOIN sales_contract_items sci ON sci.contract_no = doi.contract_no
                                      AND sci.item_no = doi.contract_item_no
         JOIN products p                ON p.material_id = doi.material_id
+        LEFT JOIN (
+            SELECT q.converted_contract_no AS contract_no, qi.material_id,
+                   qi.weight_per_unit AS snap_weight, qi.price_coefficient AS snap_coeff
+            FROM quotations q
+            JOIN quotation_items qi ON qi.quote_no = q.quote_no
+            WHERE q.status = 'converted' AND q.converted_contract_no IS NOT NULL
+            GROUP BY q.converted_contract_no, qi.material_id
+            HAVING q.id = MAX(q.id)
+        ) cv ON cv.contract_no = doi.contract_no AND cv.material_id = doi.material_id
         WHERE doi.contract_item_no IS NOT NULL
     """)
     rows = cur.fetchall()
@@ -1395,7 +1421,17 @@ def check_packing_coefficient(conn, report):
     TOLERANCE = 0.01
     updates = []  # (expected, diff, status, id)
 
-    for doi_id, cno, ci_no, mid, contract_price, weight, coeff in rows:
+    for doi_id, cno, ci_no, mid, contract_price, snap_w, snap_c, master_w, latest_c, latest_w in rows:
+        # 取数优先级: converted 报价快照 > 最新报价快照 > products 主数据
+        weight = snap_w if snap_w else (latest_w if latest_w else master_w)
+        coeff = snap_c if snap_c else latest_c
+        if snap_w:
+            weight_src = "converted报价快照"
+        elif latest_w:
+            weight_src = "最新报价快照"
+        else:
+            weight_src = "主数据"
+
         # 缺任一数据 → pending (不算错, 提示)
         if None in (contract_price, weight, coeff) or not weight:
             updates.append((0.0, 0.0, "pending", doi_id))
@@ -1414,7 +1450,7 @@ def check_packing_coefficient(conn, report):
         if status == "warn":
             report.warn(
                 f"发货明细 id={doi_id} (material_id={mid}): 公斤价反算差异 {diff:+.4f} 超容差 {TOLERANCE} "
-                f"(合同单价={contract_price}, 应等于={expected:.4f} = 系数{coeff}×单重{weight})"
+                f"(合同单价={contract_price}, 应等于={expected:.4f} = 系数{coeff}×单重{weight} [{weight_src}])"
             )
 
     # 回写到 delivery_order_items (校验阶段顺便填派生字段, 跨表计算不适合 DERIVED_RULES)
