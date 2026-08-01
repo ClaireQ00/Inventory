@@ -114,7 +114,7 @@
 
 > 背景：老板决定取消零依赖原则（一切以项目为核心），前端参考项目（标准化外贸工作流）协作 agent 交付阶段一 Streamlit 快速原型。长期路线见 `docs/FRONTEND_PLAN.md`（三阶段：Streamlit → FastAPI+React → Blueprint Widget 监控层），交接细节见 `docs/HANDOFF_FRONTEND_PHASE1.md`。**边界：前端只做查询/报表，数据录入仍走 CSV → 校验 → 导入流程；核心业务逻辑（`tools/` 校验/派生/转换）保持纯标准库，第三方依赖只进前端/API 包装层。**
 
-- [x] F1.1 [P0] `tools/streamlit_app.py` 6 模块只读工作台（仪表盘/库存/合同/基础资料/报表/校验日志），728 行
+- [x] F1.1 [P0] `tools/streamlit_app.py` 6 模块只读工作台（仪表盘/库存/合同/基础资料/报表/校验日志），729 行
 - [x] F1.2 [P0] `docker-compose.yml` 新增 streamlit 服务（端口 8501）+ `.env.example` 加 `STREAMLIT_PORT`（db/adminer 未动）
 - [x] F1.3 [P0] 主 agent 冒烟验收（2026-08-01）：从零重建容器 → pip 安装（**修复：默认 PyPI 源卡死，compose 改清华镜像源**）→ HTTP 200 → 容器内五表查询连通（products 12 / contracts 1 / inventory 5 / quotations 2 / delivery_orders 2）
 - [x] F1.4 [P1] `.env.example` 重复 `NOCODB_PORT` 行清除（验收时发现）

@@ -73,10 +73,18 @@ NAS 部署需额外做端口转发（8501 → NAS 内网 IP:8501），详见 `do
 | 2 | `credit_notes` 无 `customer_code` 字段，JOIN `customers` 报错 | 改为通过 `sales_contracts` 间接 JOIN | ✅ 已修复 |
 | 3 | `stock_logs` 查询未验证 `warehouse_code` 是否存在 | 已通过 `JOIN warehouses` 确保 | ✅ 设计已处理 |
 
-**待验证**（需你跑启动确认）：
-- [ ] Docker 容器内 `pip install streamlit pymysql` 是否正常
-- [ ] 数据库连接环境变量是否正确传入
-- [ ] 各模块在有 demo 数据时查询结果是否正常
+**待验证 → 主 agent 验收记录（2026-08-01，全部实测闭环）**：
+
+- [x] Docker 容器内 `pip install streamlit pymysql` —— **默认 PyPI 源卡死**（宿主机 pip 和容器内都超时，国内网络问题），主 agent 已把 compose 安装命令改**清华镜像源**（`pypi.tuna.tsinghua.edu.cn`）并去掉输出抑制（失败时日志可见）；从零重建容器验证通过
+- [x] 数据库连接环境变量 —— 正确传入，容器内直连 MySQL 查 5 张表全通（products 12 / sales_contracts 1 / inventory 5 / quotations 2 / delivery_orders 2）
+- [x] 各模块查询 —— 数据层全部连通；HTTP 200 已确认；**页面渲染效果未逐页肉眼核对**（留给团队试用时过一遍）
+
+**验收中另修复 2 处交接文档未记录的问题**：
+
+| # | 问题 | 修复 |
+|---|------|------|
+| 4 | `.env.example` 新增 STREAMLIT_PORT 时把 `NOCODB_PORT=8081` 重复写了一行（交接 §1.2 称"仅新增"，不精确） | 重复行已删除 |
+| 5 | compose 头部注释"启动四个服务"，实际只有 db/adminer/streamlit **三个**服务 | 注释已改"三个服务" |
 
 ---
 
@@ -86,7 +94,8 @@ NAS 部署需额外做端口转发（8501 → NAS 内网 IP:8501），详见 `do
 
 ```bash
 docker compose up -d
-# 等待 10-15 秒让 db 初始化完成
+# ⚠️ 首次启动 streamlit 容器要在线安装 ~200MB 依赖（pandas/pyarrow 等），
+#    实测需 5-7 分钟才就绪（不是秒级）；之后重启是秒级
 docker compose logs -f streamlit
 # 浏览器打开 http://localhost:8501
 ```
@@ -123,9 +132,9 @@ docker compose logs -f streamlit
 docker compose stop streamlit
 docker compose rm streamlit
 
-# 如需彻底回滚代码
-git checkout docker-compose.yml .env.example
-git rm -f tools/streamlit_app.py docs/FRONTEND_PLAN.md
+# 如需彻底回滚代码（以下文件均已提交进 git）
+git checkout HEAD~1 -- docker-compose.yml .env.example
+git rm -f tools/streamlit_app.py docs/FRONTEND_PLAN.md docs/HANDOFF_FRONTEND_PHASE1.md
 ```
 
 ---
