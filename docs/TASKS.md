@@ -60,10 +60,10 @@
 
 | ID | 任务 | 优先级 | 依赖 | 状态 | 关联文档/代码 |
 | --- | --- | --- | --- | --- | --- |
-| **T2.X** | **tests/ 独立测试套件**（合并原 T2.1 / T2.2 / T2.4 / T2.5）：用 pytest 或简单断言脚本，为以下 4 个场景各写一个**故意触发错误**的测试用例，**不污染 demo**。原因：让校验代码被真实验证 ≠ 让 demo 报错，demo 必须 0 错误是铁律。覆盖场景：① T2.1 跨字段不一致（米重×长度 vs 单重）触发 WARN；② T2.2 手填派生列超容差触发 ERROR；③ T2.4 短装超 UCP600 容差触发 ERROR + credit_note 闭环；④ T2.5 跨月汇率缺失触发 ERROR | P1 | T1.4 | 待办 | 新建 `tests/` 目录（当前仓库无）；用例数据放 `tests/fixtures/`，跟 `data/csv/demo/` 隔离 |
+| **T2.X** | **tests/ 独立测试套件**（合并原 T2.1 / T2.2 / T2.4 / T2.5）：用 pytest 或简单断言脚本，为以下 4 个场景各写一个**故意触发错误**的测试用例，**不污染 demo**。原因：让校验代码被真实验证 ≠ 让 demo 报错，demo 必须 0 错误是铁律。覆盖场景：① T2.1 跨字段不一致（米重×长度 vs 单重）触发 WARN；② T2.2 手填派生列超容差触发 ERROR；③ T2.4 短装超 UCP600 容差触发 ERROR + credit_note 闭环；④ T2.5 跨月汇率缺失触发 ERROR | P1 | T1.4 | 已完成 | `tests/run_tests.py` + `tests/README.md`；用例数据运行期生成到 `tests/fixtures/`（已 gitignore），跟 `data/csv/demo/` 隔离 |
 | **T2.3** | `SPECS.md F5.4 AC2` 描述"超发报 ERROR/WARN（具体阈值以代码为准）"——核实 `check_delivery_vs_contract` 的实际判定：超发一律 ERROR，没有 WARN。修正 SPECS 表述模糊处 | P1 | — | 已完成 | `docs/SPECS.md:525`（AC2 改为"一律 ERROR，无 WARN 分级，无容差阈值"）；代码依据 `tools/local_validator.py::check_delivery_vs_contract`（delivered > contracted → report.error） |
 | ~~**T2.6**~~ | ~~`audit_logs` 最小写入点~~ | ~~P1~~ | — | **砍掉** | 提前做生产功能无意义：项目当前形态是 SDD 文档+校验工具，不是生产系统；audit 完整方案在 T3.6（阶段二），需要时再做 |
-| **T2.7** | `scripts/check-sensitive-data.sh` 只检查文件名/扩展名，不检查 CSV 内容里是否混入真实手机号/身份证。补一个内容侧正则扫描（11 位手机号、18 位身份证） | P1 | — | 待办 | `scripts/check-sensitive-data.sh`；`docs/PRIVATE_DATA_GUIDELINES.md` |
+| **T2.7** | `scripts/check-sensitive-data.sh` 只检查文件名/扩展名，不检查 CSV 内容里是否混入真实手机号/身份证。补一个内容侧正则扫描（11 位手机号、18 位身份证） | P1 | — | 已完成 | `scripts/check-sensitive-data.sh`；`docs/PRIVATE_DATA_GUIDELINES.md` |
 | **T2.8** | `docs/IMPORT_TEMPLATES.md` 列了模板，但 `sample/templates/` 里**缺** `stock_logs_template.csv`（流水表由系统自动重建，不手填）。要么在 IMPORT_TEMPLATES 里明确说明"此表系统生成，无模板"，要么补一个空模板避免用户找 | P2 | — | 已完成 | `docs/IMPORT_TEMPLATES.md:44`（已写明"`stock_logs` 表无 CSV 模板...不需要也不应该手填"，指向 `tools/local_validator.py::rebuild_stock_logs`） |
 | **T2.9** | `local_validator.py` 第 7 步对账报错信息只给了"物料 ID + 仓库 ID"，没给仓库名。把仓库名一起带出来，方便定位 | P1 | — | 已完成 | `tools/local_validator.py::check_reconciliation`（多查一次 warehouses 取 name+code，报错格式 "物料 X 仓库 仓名(代码)"） |
 | ~~**T2.10**~~ | ~~反向校验失败写日志~~ | ~~P2~~ | T1.1 | **砍掉** | 锦上添花：当前 `sys.exit(1)` 兜底已足够阻断流程；日志可观测性等真正上生产再加 |
@@ -177,9 +177,10 @@
 | --- | --- | --- | --- |
 | 1 | 电话号 `081297100933` 被当数字处理，存进 SQL 变成 `81297100933.0` | `csv_to_sql.py::_looks_like_number` 加规则：长度 > 10 的纯数字串不当数字 | `customers.phone` / `suppliers.bank_account` / 任何长数字单号 |
 | 2 | `load-csv-to-db.sh` 单表失败终止整批（`set -euo pipefail` 陷阱） | `set +e` 包管道 + `PIPESTATUS[1]` 捕获 mysql 退出码，逐表累加 SUCCESS/FAILED | CSV→MySQL 批量导入稳定性 |
-| 3 | `customer_id` AUTO_INCREMENT 漂移（多次 REPLACE INTO 把 Q025 的 id 从 2 推到 37），外键失效 | 短期：TRUNCATE 重置；长期（阶段二）：外键改业务编号 `customer.code` | 所有业务表外键引用 |
+| 3 | `customer_id` AUTO_INCREMENT 漂移（多次 REPLACE INTO 把 Q025 的 id 从 2 推到 37），外键失效 | 短期：TRUNCATE 重置；长期：已改为业务编号外键（B1 + ADR-0004） | 所有业务表外键引用 |
 | 4 | customers 表加了 `brand_name`/`company_profiles`/`billing_profiles` 字段，但模板表头没同步，CSV 列错位 | 新建 `check-template-schema-sync.sh` 自动比对，集成进 `run_local_validation.sh` 第 2b 步 | R7 同步规则升级为"四处" |
 | 5 | 手写 CSV 逗号数对不齐，列错位 | 在 `docs/IMPORT_TEMPLATES.md` 顶部加"填 CSV 4 大坑"，强烈建议用 Python `csv.writer` | 所有 CSV 录入者必读 |
+| 6 | R11 反算公式单位不匹配：`应等于的合同单价 = 报价系数×汇率×单重` 把原币价算成人民币价，再和"原币种/件"的合同单价对比（真实 Q025 数据 11 条 WARN 暴露） | 公式去掉汇率，改为 `报价系数×单重`（原币/件）；容差 0.001→0.01（覆盖 2 位小数报价的舍入）；demo 合同件价同步修正、不再迁就旧公式 | `check_packing_coefficient` + `make_demo_data.py` + R11/GLOSSARY/VALIDATION_GUIDE 文档 |
 
 > 这 5 个修复全部是"真实数据试用"暴露出来的，跟 demo 数据无关。后续每加一类新客户/新品类走一遍真实流程，比跑 demo 更能发现问题。
 

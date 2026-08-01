@@ -264,21 +264,24 @@ CI 同样以此为门禁(`scripts/ci.sh` / `.github/workflows/ci.yml`)。
 **业务背景**:报价按公斤系数(USD/KG)定价,但后续进销存为避免小数点累积误差,**全部按件价走**。
 制作发货单(Packing Plan)时,要用"报价单的公斤价"反算/正算核对,确保合同单价与报价基准一致。
 
-**正算公式(丙方案,客户 2026-07-29 确认)**:
+**正算公式(丙方案,客户 2026-07-29 确认;2026-07-31 修正单位)**:
 ```
-应等于的合同单价(原币种/件) = 报价系数(USD/KG) × 汇率 × 单重(KG/件)
+应等于的合同单价(原币种/件) = 报价系数(原币/KG) × 单重(KG/件)
 ```
 
-- **报价系数**:取 `quotation_items.price_coefficient`(通过 `product_id` 反查最近一条非 reject 报价)
-- **汇率**:取 `sales_contracts.exchange_rate`
+- **报价系数**:取 `quotation_items.price_coefficient`(通过 `material_id` 反查最近一条非 reject 报价)
 - **单重**:取 `products.weight`(主数据唯一来源,不一致就加新物料,不在单据里改)
 - **实际合同单价**:`sales_contract_items.unit_price`(原币种/件,R10 顺带澄清注释)
+
+> ⚠ 2026-07-31 修正:原公式误乘 `sales_contracts.exchange_rate`,把"原币/件"算成了"人民币/件",
+> 与 `unit_price`(原币种/件)单位不匹配,真实数据 Q025 跑出 11 条 WARN 暴露(见 `docs/TASKS.md` 坑 6)。
+> 报价单价 = 报价系数 × 单重(原币),汇率只用于金额四件套折算,不参与件价反算。
 
 **差异判定**:
 ```
 差异 = 实际合同单价 − 应等于的合同单价
-|差异| ≤ 0.001  →  pass   (微小四舍五入差额属正常)
-|差异| > 0.001  →  warn   (超差只警告不报错, 业务上确认正常)
+|差异| ≤ 0.01   →  pass   (合同单价按 2 位小数报价, 0.01 覆盖最大舍入误差 0.005)
+|差异| > 0.01   →  warn   (超差只警告不报错, 业务上确认正常)
 缺任一字段        →  pending (提示补数据)
 ```
 
@@ -311,3 +314,4 @@ CI 同样以此为门禁(`scripts/ci.sh` / `.github/workflows/ci.yml`)。
 | 2026-07-29 | R10 报价定价 | 新增报价模块,KG×系数定价 + 简要报价→QT form→PI 派生。新增 `check_quotations` 第 14 步,自检从 13 步增至 14 步 |
 | 2026-07-29 | R11 Packing Plan 反算 | 客户确认方案 A(复用 delivery_order_items)+ 丙方案(正算应等于的合同单价)。新增 `check_packing_coefficient` 第 15 步,自检从 14 步增至 15 步;同步澄清 `sales_contract_items.unit_price` 为"原币种/件" |
 | 2026-07-30 | 主表 total_volume 字段 | 4 张主表(quotations/sales_contracts/purchase_orders/delivery_orders)新增 `total_volume` 字段(DECIMAL(10,4),展示用统计 = Σ 明细 volume_subtotal/quotation_items.total_volume)。新增 `check_delivery_order_volume` 第 9 步,自检从 15 步增至 16 步。**与 `shipping_records.total_cbm` 是两个概念**——前者是给客户看的展示统计,后者是装柜后报关真实 CBM。校验用 WARN 级(容差 0.01),不阻断业务流程 |
+| 2026-07-31 | R11 反算公式修正 | 真实数据 Q025 跑出 11 条 WARN:公式误乘汇率导致单位不匹配(原币 vs 人民币)。修正为 `报价系数×单重`,容差 0.001→0.01(2 位小数报价);demo 合同件价同步修正 |

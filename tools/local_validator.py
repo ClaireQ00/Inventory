@@ -1336,10 +1336,13 @@ def check_packing_coefficient(conn, report):
     业务背景: 简要报价按 公斤系数(USD/KG) × 单重 定价; 制作发货单(Packing Plan)时,
               要用报价系数正算"应等于的合同单价", 与实际合同单价对比。
 
-    正算公式 (丙方案): expected_unit_price = 报价系数 × 汇率 × 单重  (原币种/件)
+    正算公式 (丙方案, 2026-07-31 修正): expected_unit_price = 报价系数 × 单重  (原币种/件)
+    ⚠ 原公式曾误乘 sales_contracts.exchange_rate, 把原币单价变成记账本位币后再对比,
+      与"原币种/件"的 unit_price 单位不匹配(真实数据 Q025 跑出 11 条 WARN 暴露, 见 docs/TASKS.md 坑 6)。
     差异 = 实际合同单价 - expected_unit_price
 
-    容差 0.001: 超差报 warn 不报 error (业务确认微小四舍五入差额属正常)
+    容差 0.01: 超差报 warn 不报 error。合同单价按 2 位小数报价(如 1.112×7=7.784 → 7.78),
+    0.001 过紧会把正常四舍五入误报; 0.01 覆盖 2 位小数报价的最大舍入误差(0.005)。
     """
 
     # 通过 (contract_no, contract_item_no) 关联到 sales_contract_items, 再用 material_id 反查 quotation_items
@@ -1348,7 +1351,6 @@ def check_packing_coefficient(conn, report):
     cur.execute("""
         SELECT doi.id, doi.contract_no, doi.contract_item_no, doi.material_id,
                sci.unit_price   AS contract_unit_price,
-               sc.exchange_rate AS rate,
                p.weight         AS weight,
                (SELECT qi.price_coefficient
                   FROM quotation_items qi
@@ -1360,7 +1362,6 @@ def check_packing_coefficient(conn, report):
         FROM delivery_order_items doi
         JOIN sales_contract_items sci ON sci.contract_no = doi.contract_no
                                      AND sci.item_no = doi.contract_item_no
-        JOIN sales_contracts sc        ON sc.contract_no = sci.contract_no
         JOIN products p                ON p.material_id = doi.material_id
         WHERE doi.contract_item_no IS NOT NULL
     """)
@@ -1368,21 +1369,21 @@ def check_packing_coefficient(conn, report):
     if not rows:
         return  # 没有可核对的发货明细, 跳过
 
-    TOLERANCE = 0.001
+    TOLERANCE = 0.01
     updates = []  # (expected, diff, status, id)
 
-    for doi_id, cno, ci_no, mid, contract_price, rate, weight, coeff in rows:
+    for doi_id, cno, ci_no, mid, contract_price, weight, coeff in rows:
         # 缺任一数据 → pending (不算错, 提示)
-        if None in (contract_price, rate, weight, coeff) or not rate or not weight:
+        if None in (contract_price, weight, coeff) or not weight:
             updates.append((0.0, 0.0, "pending", doi_id))
             report.warn(
                 f"发货明细 id={doi_id} (material_id={mid}): 缺反算数据 "
-                f"(合同单价={contract_price}, 汇率={rate}, 单重={weight}, 报价系数={coeff}), 标 pending"
+                f"(合同单价={contract_price}, 单重={weight}, 报价系数={coeff}), 标 pending"
             )
             continue
 
-        # 正算 (丙方案): 应等于的合同单价 = 报价系数 × 汇率 × 单重
-        expected = round(coeff * rate * weight, 4)
+        # 正算 (丙方案修正): 应等于的合同单价(原币/件) = 报价系数 × 单重
+        expected = round(coeff * weight, 4)
         diff = round(float(contract_price) - expected, 4)
         status = "pass" if abs(diff) <= TOLERANCE else "warn"
         updates.append((expected, diff, status, doi_id))
@@ -1390,7 +1391,7 @@ def check_packing_coefficient(conn, report):
         if status == "warn":
             report.warn(
                 f"发货明细 id={doi_id} (material_id={mid}): 公斤价反算差异 {diff:+.4f} 超容差 {TOLERANCE} "
-                f"(合同单价={contract_price}, 应等于={expected:.4f} = 系数{coeff}×汇率{rate}×单重{weight})"
+                f"(合同单价={contract_price}, 应等于={expected:.4f} = 系数{coeff}×单重{weight})"
             )
 
     # 回写到 delivery_order_items (校验阶段顺便填派生字段, 跨表计算不适合 DERIVED_RULES)
@@ -1441,12 +1442,44 @@ def run_validation(conn, report):
         (check_receipts_vs_contract,   "校验收款 vs 合同金额 (按原币种聚合)"),
         (check_transfer_pairs,         "校验调拨配对 (同 transfer_ref 出入库数量必须相等)"),
         (check_quotations,             "校验报价"),
-        (check_packing_coefficient,    "校验 Packing Plan 公斤价反算 (R11 容差 0.001)"),
+        (check_packing_coefficient,    "校验 Packing Plan 公斤价反算 (R11 容差 0.01)"),
     ]
     total = len(CHECK_STEPS)
     for i, (fn, desc) in enumerate(CHECK_STEPS, start=1):
         print(f"[{i}/{total}] {desc}...")
         fn(conn, report)
+
+
+# 业务表导入顺序 (模块级常量, 供 tests/ 直接复用)
+IMPORT_ORDER = [
+    # quotation_params 无依赖, 放最前
+    ("quotation_params.csv", "quotation_params"),
+    ("products.csv", "products"),
+    ("warehouses.csv", "warehouses"),
+    ("suppliers.csv", "suppliers"),
+    ("customers.csv", "customers"),
+    ("purchase_orders.csv", "purchase_orders"),
+    ("purchase_order_items.csv", "purchase_order_items"),
+    ("sales_contracts.csv", "sales_contracts"),
+    ("sales_contract_items.csv", "sales_contract_items"),
+    ("stock_in.csv", "stock_in"),
+    ("stock_in_items.csv", "stock_in_items"),
+    ("delivery_orders.csv", "delivery_orders"),
+    ("delivery_order_items.csv", "delivery_order_items"),
+    ("stock_out.csv", "stock_out"),
+    ("stock_out_items.csv", "stock_out_items"),
+    ("inventory.csv", "inventory"),
+    # [新增] 外贸报关模块 (第6模块)
+    ("shipping_records.csv", "shipping_records"),
+    ("shipping_record_items.csv", "shipping_record_items"),
+    ("credit_notes.csv", "credit_notes"),
+    # [新增] 财务模块 (第7模块)
+    ("exchange_rates.csv", "exchange_rates"),
+    ("receipts.csv", "receipts"),
+    # [新增] 报价模块 (customers 之后, receipts 之后)
+    ("quotations.csv", "quotations"),
+    ("quotation_items.csv", "quotation_items"),
+]
 
 
 def main():
@@ -1481,35 +1514,7 @@ def main():
 
     # 2. 按业务顺序导入 CSV
     print("\n[导入] 按依赖顺序加载真实 CSV...")
-    import_order = [
-        # quotation_params 无依赖, 放最前
-        ("quotation_params.csv", "quotation_params"),
-        ("products.csv", "products"),
-        ("warehouses.csv", "warehouses"),
-        ("suppliers.csv", "suppliers"),
-        ("customers.csv", "customers"),
-        ("purchase_orders.csv", "purchase_orders"),
-        ("purchase_order_items.csv", "purchase_order_items"),
-        ("sales_contracts.csv", "sales_contracts"),
-        ("sales_contract_items.csv", "sales_contract_items"),
-        ("stock_in.csv", "stock_in"),
-        ("stock_in_items.csv", "stock_in_items"),
-        ("delivery_orders.csv", "delivery_orders"),
-        ("delivery_order_items.csv", "delivery_order_items"),
-        ("stock_out.csv", "stock_out"),
-        ("stock_out_items.csv", "stock_out_items"),
-        ("inventory.csv", "inventory"),
-        # [新增] 外贸报关模块 (第6模块)
-        ("shipping_records.csv", "shipping_records"),
-        ("shipping_record_items.csv", "shipping_record_items"),
-        ("credit_notes.csv", "credit_notes"),
-        # [新增] 财务模块 (第7模块)
-        ("exchange_rates.csv", "exchange_rates"),
-        ("receipts.csv", "receipts"),
-        # [新增] 报价模块 (customers 之后, receipts 之后)
-        ("quotations.csv", "quotations"),
-        ("quotation_items.csv", "quotation_items"),
-    ]
+    import_order = IMPORT_ORDER
 
     pre_report = ValidationReport()
     for filename, table in import_order:

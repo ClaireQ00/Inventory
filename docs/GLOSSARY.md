@@ -13,7 +13,7 @@
 | 形式发票 | PI / PROFORMA INVOICE | 客户确认简要报价后,发出的**正式报价单**,含完整贸易/付款/包装条款,作为承诺(报价)性质的单据 | `quotations`(`quote_type='formal'`) + `quotation_items` |
 | 销售合同 | SC (Sales Contract) | 双方签字的合同,合同账的起点(从 formal 报价转单,回填 `converted_contract_id`) | `sales_contracts` + `sales_contract_items` |
 | 采购单 | PO (Purchase Order) | 接单后向供应商采购的承诺单 | `purchase_orders` + `purchase_order_items` |
-| 装箱计划 | Packing Plan | 装柜前 7-10 天的预估 | 不独立建表,反算核对字段挂在 `delivery_order_items` 上(`expected_unit_price`/`coeff_diff`/`coeff_check_status`),由第15步自动算(R11) |
+| 装箱计划 | Packing Plan | 装柜前 7-10 天的预估 | 不独立建表,反算核对字段挂在 `delivery_order_items` 上(`expected_unit_price`/`coeff_diff`/`coeff_check_status`),由第16步自动算(R11) |
 | 发货单 | DO / DN (Delivery Order / Note) | 装柜前 1-2 天的内部发货指令(计划数) | `delivery_orders` + `delivery_order_items` |
 | 入库单 | SI (Stock In) | 实际入库记录;`in_type='purchase'`=采购到货,`=transfer'`=调拨接收 | `stock_in` + `stock_in_items` |
 | 出库单 | SO (Stock Out) | 实际出库记录;`out_type='sale'`=销售装柜,`=transfer'`=调拨发出 | `stock_out` + `stock_out_items` |
