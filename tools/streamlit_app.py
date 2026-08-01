@@ -841,38 +841,120 @@ def page_entry():
 
     # ── 物料 ──
     with tab_product:
-        st.subheader("录入新物料（外径/厚度/米重/单重/体积按公式自动派生）")
-        st.caption("💡 谈判达成新重量/新规格时，建议优先用【⚡ 操作中心 → 克隆建物料】，自动带溯源备注。")
+        st.subheader("录入新物料（边填边算：外径 / 厚度 / 米重 / 单重 / 规格实时派生）")
+        st.caption("💡 谈判达成新重量/新规格时，建议优先用【⚡ 操作中心 → 克隆建物料】，自动带溯源备注。"
+                   "本页适合全新物料的手工录入。")
         customers = db_writer.list_customers()
+
+        # 第 1 行: 客户 / 物料编码(按客户自动建议) / 产品类别(真实类别下拉, 可新增)
         c1, c2, c3 = st.columns(3)
         with c1:
-            material_id = st.text_input("物料编码", key="pd_mid", placeholder="如 M-Q025-013")
             cust = st.selectbox("所属客户", customers, key="pd_cust",
                                 format_func=lambda x: f"{x['code']} - {x['name']}")
-            brand = st.text_input("品牌", value="", key="pd_brand")
         with c2:
-            category = st.selectbox("产品大类", ["水带", "复合管", "钢丝管", "其他"], key="pd_cat")
-            mtype = st.text_input("材质类型", value="", key="pd_type", placeholder="如 PVC")
-            spec = st.text_input("规格描述", value="", key="pd_spec", placeholder='如 1-1/4"')
+            material_id = st.text_input(
+                "物料编码（按客户自动建议，可改）",
+                value=db_writer.suggest_material_id(cust["code"]),
+                key=f"pd_mid_{cust['code']}",
+                help="规则 M-{客户编码}-{流水号}，建议值 = 该客户现有最大流水 + 1")
         with c3:
-            inner_d = st.number_input("内径 (mm, 必填)", min_value=0.0, value=0.0, step=0.5, key="pd_id")
-            length = st.number_input("长度 (M)", min_value=0.0, value=0.0, step=1.0, key="pd_len")
-        st.markdown("**派生输入（任选一条路径，其余自动算）**")
-        st.caption("路径A: 填外径 → 厚度=(外径-内径)/2 ｜ 路径B: 填米重 → 反推厚度 ｜ 路径C: 填单重+长度 → 反推")
+            cat_options = db_writer.distinct_categories() + ["➕ 手动输入新类别"]
+            cat_choice = st.selectbox("产品类别（按真实数据使用频次排序）", cat_options, key="pd_cat")
+            if cat_choice == "➕ 手动输入新类别":
+                category = st.text_input("新类别名称", key="pd_cat_new", placeholder="如 线管").strip()
+            else:
+                category = cat_choice
+
+        # 第 2 行: 品牌 / 材质类型 / 内径
         c4, c5, c6 = st.columns(3)
         with c4:
-            outer_d = st.number_input("外径 (mm)", min_value=0.0, value=0.0, step=0.1, key="pd_od")
+            brand = st.text_input("品牌", value="", key="pd_brand")
         with c5:
-            wpm = st.number_input("米重 (g/m)", min_value=0.0, value=0.0, step=10.0, key="pd_wpm")
+            mtype = st.text_input("材质类型", value="", key="pd_type", placeholder="如 PVC")
         with c6:
+            inner_d = st.number_input("内径 (mm, 必填)", min_value=0.0, value=0.0, step=0.5, key="pd_id")
+
+        st.markdown("**几何与重量（任选路径，其余自动算）**")
+        st.caption("路径①: 填厚度 → 出外径 ｜ 路径②: 填外径 → 反推厚度 ｜ "
+                   "路径③: 内径+厚度+长度 → 出米重/单重。手填值与公式冲突时保留你的值，仅提示偏差。")
+        c7, c8, c9, c10, c11 = st.columns(5)
+        with c7:
+            thickness = st.number_input("厚度 (mm)", min_value=0.0, value=0.0, step=0.05,
+                                        format="%.2f", key="pd_thk")
+        with c8:
+            length = st.number_input("长度 (M)", min_value=0.0, value=0.0, step=1.0, key="pd_len")
+        with c9:
+            outer_d = st.number_input("外径 (mm)", min_value=0.0, value=0.0, step=0.1, key="pd_od")
+        with c10:
+            wpm = st.number_input("米重 (g/m)", min_value=0.0, value=0.0, step=10.0, key="pd_wpm")
+        with c11:
             weight = st.number_input("单重 (KG)", min_value=0.0, value=0.0, step=0.5, key="pd_w")
-        data = {"material_id": material_id, "customer_code": cust["code"], "brand": brand,
-                "product_category": category, "material_type": mtype, "spec": spec,
-                "inner_diameter": inner_d or None, "length": length or None,
+
+        # ── 实时派生面板: Streamlit 每次输入变化都重跑脚本, 这里边填边刷新 ──
+        inputs = {"product_category": category or None,
+                  "inner_diameter": inner_d or None,
+                  "thickness": thickness or None,
+                  "length": length or None,
+                  "outer_diameter": outer_d or None,
+                  "weight_per_meter": wpm or None,
+                  "weight": weight or None}
+        row, computed, msgs, density, group = db_writer.live_derive_products(inputs)
+
+        with st.container(border=True):
+            info_bits = []
+            if group:
+                info_bits.append(f"大类 **{group}**")
+            if density is not None:
+                info_bits.append(f"密度 **{density:g}**")
+            elif category:
+                info_bits.append("密度 **待客户补充**（该类别暂无密度规则，重量无法自动算）")
+            if row.get("inner_diameter_inch"):
+                info_bits.append(f"标称 **{row['inner_diameter_inch']}**")
+            if info_bits:
+                st.markdown("｜".join(info_bits))
+
+            def _fmt(field, digits=2):
+                v = row.get(field)
+                if v in (None, ""):
+                    return "—"
+                mark = " ⚙️" if field in computed else ""
+                try:
+                    return f"{float(v):,.{digits}f}{mark}"
+                except (TypeError, ValueError):
+                    return f"{v}{mark}"
+
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("外径 (mm)", _fmt("outer_diameter"))
+            m2.metric("厚度 (mm)", _fmt("thickness"))
+            m3.metric("米重 (g/m)", _fmt("weight_per_meter", digits=0))
+            m4.metric("单重 (KG)", _fmt("weight"))
+            st.caption("⚙️ = 本次按公式自动算出；无 ⚙️ = 你手填的值。"
+                       "体积(CBM)需外观尺寸实测后补，不补也能入库（影响装箱校验）。")
+
+        for level, msg in msgs:
+            if level == "info":
+                continue
+            (st.warning if level == "warn" else st.error)(msg)
+
+        spec = st.text_input(
+            "规格描述（自动推算，可改）",
+            value=str(row.get("spec") or ""),
+            key=f"pd_spec_{row.get('spec', '')}",
+            help="格式: 英寸 ID内径mm -米数M (短/中/长)。留空则提交时由引擎自动算。")
+
+        data = {"material_id": material_id.strip(), "customer_code": cust["code"], "brand": brand,
+                "product_category": category or None, "material_type": mtype,
+                "spec": spec or None,
+                "inner_diameter": inner_d or None, "thickness": thickness or None,
+                "length": length or None,
                 "outer_diameter": outer_d or None, "weight_per_meter": wpm or None,
-                "weight": weight or None, "is_active": 1}
+                "weight": weight or None,
+                "inner_diameter_inch": row.get("inner_diameter_inch"),
+                "spec_meter": row.get("spec_meter"),
+                "is_active": 1}
         _submit_flow("product", "products", data,
-                     [f"**{material_id}** {category}/{spec}，内径 {inner_d}mm，长度 {length}M"])
+                     [f"**{material_id}** {category or ''}/{spec or '(规格自动算)'}，"
+                      f"内径 {inner_d}mm，长度 {length}M"])
 
 
 # ──────────────────────────────────────────────────────────────

@@ -393,3 +393,77 @@ def list_products() -> list[dict]:
     return list_options(
         "SELECT material_id, spec, weight FROM products WHERE is_active=1 ORDER BY material_id"
     )
+
+
+# ──────────────────────────────────────────────────────────────
+# 物料录入专用助手 (2026-08-01 A 期反馈迭代)
+# ──────────────────────────────────────────────────────────────
+def suggest_material_id(customer_code: str) -> str:
+    """按客户编码建议下一个物料编码: M-{客户}-{最大流水+1:03d}。
+    没有该客户的物料时从 001 开始。编码可手改, 这只是建议值。"""
+    rows = list_options(
+        "SELECT material_id FROM products WHERE material_id LIKE %s",
+        (f"M-{customer_code}-%",),
+    )
+    max_seq = 0
+    for r in rows:
+        suffix = r["material_id"].rsplit("-", 1)[-1]
+        if suffix.isdigit():
+            max_seq = max(max_seq, int(suffix))
+    return f"M-{customer_code}-{max_seq + 1:03d}"
+
+
+def distinct_categories() -> list[str]:
+    """产品原始类别清单 (真实数据 70+ 种), 按使用频次倒序, 供下拉选择"""
+    rows = list_options(
+        "SELECT product_category, COUNT(*) AS cnt FROM products "
+        "GROUP BY product_category ORDER BY cnt DESC"
+    )
+    return [r["product_category"] for r in rows if r["product_category"]]
+
+
+def mm_to_inch_str(mm: float) -> str:
+    """内径 mm -> 标称英寸字符串, 就近取 1/16 精度。
+    与 tools/gen_products_from_excel.py:mm_to_inch_str 同算法 (来源一致, 避免两处漂移)。"""
+    from fractions import Fraction
+    sixteenths = max(1, round(mm / 25.4 * 16))
+    frac = Fraction(sixteenths, 16)
+    whole = frac.numerator // frac.denominator
+    rem = Fraction(frac.numerator % frac.denominator, frac.denominator)
+    if rem == 0:
+        return f'{whole}"'
+    if whole == 0:
+        return f'{rem.numerator}/{rem.denominator}"'
+    return f'{whole}-{rem.numerator}/{rem.denominator}"'
+
+
+def live_derive_products(data: dict) -> tuple[dict, set, list, float | None, str | None]:
+    """物料录入的实时派生 (Streamlit 每次输入变化重跑时调用):
+
+    1. 内径 mm → 自动换算标称英寸 (inner_diameter_inch)
+    2. 长度 → spec_meter (四舍五入取整)
+    3. 跑 apply_derived_rules("products") —— 已支持的派生全部自动算:
+       厚度→外径 / 外径→厚度 / 内径+厚度→米重 / +长度→单重 / 规格描述拼接
+    4. 顺带算密度展示
+
+    返回 (补全行, 本次自动算出的字段集合, 引擎信息, 密度, 所属大类)
+    """
+    from csv_to_sql import calc_density, resolve_category_group
+    row = {k: v for k, v in data.items()}
+    if row.get("inner_diameter") and not row.get("inner_diameter_inch"):
+        try:
+            row["inner_diameter_inch"] = mm_to_inch_str(float(row["inner_diameter"]))
+        except (TypeError, ValueError):
+            pass
+    if row.get("length") and not row.get("spec_meter"):
+        try:
+            row["spec_meter"] = str(round(float(row["length"])))
+        except (TypeError, ValueError):
+            pass
+    filled_before = {k for k, v in row.items() if v not in (None, "")}
+    row, msgs = apply_derived("products", row)
+    computed = {k for k, v in row.items()
+                if k not in filled_before and v not in (None, "")}
+    density = calc_density(row)
+    group = resolve_category_group(row.get("product_category"))
+    return row, computed, msgs, density, group
