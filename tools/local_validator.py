@@ -1685,16 +1685,19 @@ def main():
         print("结果: ✗ 有错误, 请修正后重跑")
     print(report.summary())
 
-    # 5. 写日志
-    os.makedirs(DATA_LOG_DIR, exist_ok=True)
-    log_path = os.path.join(
-        DATA_LOG_DIR, f"validation_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
-    )
-    with open(log_path, "w", encoding="utf-8") as f:
-        f.write(f"时间: {datetime.now()}\n")
-        f.write(f"数据库: {args.db}\n\n")
-        f.write(report.summary())
-    print(f"\n日志已保存: {log_path}")
+    # 5. 写日志 (目录只读时降级: 跳过写日志不影响校验结论, 如 streamlit 容器内 ro 挂载)
+    try:
+        os.makedirs(DATA_LOG_DIR, exist_ok=True)
+        log_path = os.path.join(
+            DATA_LOG_DIR, f"validation_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+        )
+        with open(log_path, "w", encoding="utf-8") as f:
+            f.write(f"时间: {datetime.now()}\n")
+            f.write(f"数据库: {args.db}\n\n")
+            f.write(report.summary())
+        print(f"\n日志已保存: {log_path}")
+    except OSError as e:
+        print(f"\n⚠️ 日志目录不可写 ({e}), 跳过写日志, 校验结论不受影响")
 
     conn.close()
     sys.exit(0 if report.ok else 1)

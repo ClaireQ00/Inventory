@@ -17,11 +17,17 @@
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import streamlit as st
+
+# 写入规则层 (A 期): 所有录入/导入必须经过它, 不允许裸写 SQL
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import db_writer  # noqa: E402
 
 # ──────────────────────────────────────────────────────────────
 # 数据库配置（环境变量，Docker Compose 传入）
@@ -130,6 +136,9 @@ with st.sidebar:
         "选择模块",
         [
             "🏠 首页",
+            "📝 录入中心",
+            "📥 导入中心",
+            "⚡ 操作中心",
             "📦 库存查询",
             "📋 合同执行",
             "🏭 基础资料",
@@ -141,9 +150,9 @@ with st.sidebar:
 
     st.markdown("---")
     st.caption(
-        "【提示】本界面为阶段一原型，\n"
-        "数据录入仍通过 CSV → 校验 → 导入流程。\n"
-        "详见 docs/VALIDATION_GUIDE.md"
+        "【提示】录入/导入全部经过规则层\n"
+        "(字段校验→派生→预览→写后校验→留痕)，\n"
+        "校验不通过的数据进不了库。"
     )
 
 
@@ -712,10 +721,261 @@ def page_validation_logs():
 
 
 # ──────────────────────────────────────────────────────────────
+# 📝 录入中心 (A 期: 汇率 / 收款 / 物料)
+# 交互模式参考「标准化外贸工作流」: 填表 → 预览(派生) → 打勾确认 → 提交
+# 所有写入走 db_writer 规则层, 校验不过进不了库
+# ──────────────────────────────────────────────────────────────
+def _submit_flow(tab_key: str, table: str, data: dict, preview_lines: list[str]) -> None:
+    """两段式提交流程: 预览(不落库) → 打勾 → 确认提交(落库+写后校验+审计)"""
+    if st.button("🔍 预览（校验 + 派生）", key=f"pv_{tab_key}"):
+        pv = db_writer.preview_insert(table, data)
+        st.session_state[f"pv_{tab_key}"] = pv
+    pv = st.session_state.get(f"pv_{tab_key}")
+    if not pv:
+        st.caption("点「预览」先看校验和派生结果，确认无误后再提交入库。")
+        return
+    if not pv["ok"]:
+        for e in pv["errors"]:
+            st.error(f"❌ {e}")
+        st.caption("请按提示修改后重新预览。")
+        return
+    st.success("校验通过，派生结果如下：")
+    for line in preview_lines:
+        st.write(line)
+    if pv.get("rate_note"):
+        st.info(f"💱 {pv['rate_note']}")
+    for lv, msg in pv.get("engine_msgs", []):
+        if lv == "info":
+            st.caption(f"⚙️ {msg}")
+        else:
+            st.warning(f"⚠️ {msg}")
+    derived = pv["derived_row"]
+    with st.expander("查看完整入库行"):
+        st.json({k: str(v) for k, v in derived.items()})
+    confirmed = st.checkbox("我确认以上数据无误，同意写入数据库", key=f"cf_{tab_key}")
+    if st.button("✅ 确认提交", key=f"sb_{tab_key}", disabled=not confirmed):
+        operator = st.session_state.get("operator_name", "frontend")
+        result = db_writer.insert_row(table, data, operator=operator)
+        if result["ok"]:
+            st.success(f"✅ 已入库（记录 id={result['record_id']}），审计日志已留痕")
+            for wmsg in result["warnings"]:
+                st.warning(f"⚠️ {wmsg}")
+            for lv, msg in result["checks"]:
+                if lv == "info":
+                    st.caption(f"📊 {msg}")
+            st.session_state.pop(f"pv_{tab_key}", None)
+        else:
+            for e in result["errors"]:
+                st.error(f"❌ 写入被拦截: {e}")
+            st.caption("数据未入库（已自动回滚）。请修改后重新预览提交。")
+
+
+def page_entry():
+    st.header("📝 录入中心")
+    st.caption("A 期开放：汇率 / 收款 / 物料。报价、合同、发货录入在后续阶段开放。")
+
+    st.session_state["operator_name"] = st.text_input(
+        "操作人（写入审计日志）", value=st.session_state.get("operator_name", ""), placeholder="如: 梁经理"
+    )
+
+    tab_rate, tab_receipt, tab_product = st.tabs(["💱 汇率", "💰 收款", "🧱 物料"])
+
+    # ── 汇率 ──
+    with tab_rate:
+        st.subheader("录入当月汇率（汇率月固定：每月 1 号录一次）")
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            currency = st.selectbox("币种", ["USD", "EUR", "IDR", "CNY"], key="er_cur")
+        with c2:
+            rate = st.number_input("汇率（1 原币 = ? CNY）", min_value=0.0, value=0.0,
+                                   step=0.0001, format="%.4f", key="er_rate")
+        with c3:
+            eff = st.date_input("生效日期（每月 1 号）", key="er_date")
+        remark = st.text_input("备注", value="", key="er_rmk")
+        data = {"currency": currency, "rate_to_cny": rate,
+                "effective_date": eff.isoformat(), "source": "manual", "remark": remark}
+        _submit_flow("rate", "exchange_rates", data,
+                     [f"**{currency}** = {rate:.4f} CNY，自 {eff.isoformat()} 起生效"])
+        st.divider()
+        st.caption("最近汇率：")
+        rows = db_writer.list_options(
+            "SELECT currency, rate_to_cny, effective_date, source FROM exchange_rates "
+            "ORDER BY effective_date DESC, currency LIMIT 10")
+        if rows:
+            st.dataframe(rows, use_container_width=True, hide_index=True)
+
+    # ── 收款 ──
+    with tab_receipt:
+        st.subheader("录入收款（汇率按到账日期自动带出，金额自动折 CNY）")
+        customers = db_writer.list_customers()
+        if not customers:
+            st.warning("基础资料里没有客户，请先维护 customers。")
+            return
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            cust = st.selectbox("客户", customers, key="rc_cust",
+                                format_func=lambda x: f"{x['code']} - {x['name']}")
+            contracts = db_writer.list_contracts(cust["code"])
+            contract_opts = [{"contract_no": "", "total_amount": "", "currency": "", "status": ""}] + contracts
+            cont = st.selectbox(
+                "关联合同（预收款留空）", contract_opts, key="rc_cont",
+                format_func=lambda x: f"{x['contract_no']}（{x['total_amount']} {x['currency']}）" if x["contract_no"] else "（不关联合同）")
+        with c2:
+            receipt_no = st.text_input("收款单号", value=f"RC{datetime.now().strftime('%Y%m%d')}",
+                                       key="rc_no", help="建议格式 RC+日期+流水，如 RC20260801001")
+            amount = st.number_input("收款金额（原币）", min_value=0.0, value=0.0, step=100.0, key="rc_amt")
+            currency = st.selectbox("币种", ["USD", "EUR", "IDR", "CNY"], key="rc_cur")
+        with c3:
+            paid = st.date_input("实际到账日期", key="rc_paid")
+            pay_method = st.selectbox("付款方式", ["T/T", "L/C", "D/P", "D/A", "other"], key="rc_pm")
+            bank_ref = st.text_input("银行水单号", value="", key="rc_ref")
+        remark = st.text_input("备注", value="", key="rc_rmk")
+        data = {"receipt_no": receipt_no, "customer_code": cust["code"],
+                "contract_no": cont["contract_no"] or None,
+                "amount": amount, "currency": currency,
+                "paid_date": paid.isoformat(), "pay_method": pay_method,
+                "bank_ref": bank_ref, "status": "confirmed", "remark": remark}
+        _submit_flow("receipt", "receipts", data,
+                     [f"**{receipt_no}** 收 {cust['name']} {amount:,.2f} {currency}"
+                      + (f"，合同 {cont['contract_no']}" if cont["contract_no"] else "（预收款）")])
+
+    # ── 物料 ──
+    with tab_product:
+        st.subheader("录入新物料（外径/厚度/米重/单重/体积按公式自动派生）")
+        st.caption("💡 谈判达成新重量/新规格时，建议优先用【⚡ 操作中心 → 克隆建物料】，自动带溯源备注。")
+        customers = db_writer.list_customers()
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            material_id = st.text_input("物料编码", key="pd_mid", placeholder="如 M-Q025-013")
+            cust = st.selectbox("所属客户", customers, key="pd_cust",
+                                format_func=lambda x: f"{x['code']} - {x['name']}")
+            brand = st.text_input("品牌", value="", key="pd_brand")
+        with c2:
+            category = st.selectbox("产品大类", ["水带", "复合管", "钢丝管", "其他"], key="pd_cat")
+            mtype = st.text_input("材质类型", value="", key="pd_type", placeholder="如 PVC")
+            spec = st.text_input("规格描述", value="", key="pd_spec", placeholder='如 1-1/4"')
+        with c3:
+            inner_d = st.number_input("内径 (mm, 必填)", min_value=0.0, value=0.0, step=0.5, key="pd_id")
+            length = st.number_input("长度 (M)", min_value=0.0, value=0.0, step=1.0, key="pd_len")
+        st.markdown("**派生输入（任选一条路径，其余自动算）**")
+        st.caption("路径A: 填外径 → 厚度=(外径-内径)/2 ｜ 路径B: 填米重 → 反推厚度 ｜ 路径C: 填单重+长度 → 反推")
+        c4, c5, c6 = st.columns(3)
+        with c4:
+            outer_d = st.number_input("外径 (mm)", min_value=0.0, value=0.0, step=0.1, key="pd_od")
+        with c5:
+            wpm = st.number_input("米重 (g/m)", min_value=0.0, value=0.0, step=10.0, key="pd_wpm")
+        with c6:
+            weight = st.number_input("单重 (KG)", min_value=0.0, value=0.0, step=0.5, key="pd_w")
+        data = {"material_id": material_id, "customer_code": cust["code"], "brand": brand,
+                "product_category": category, "material_type": mtype, "spec": spec,
+                "inner_diameter": inner_d or None, "length": length or None,
+                "outer_diameter": outer_d or None, "weight_per_meter": wpm or None,
+                "weight": weight or None, "is_active": 1}
+        _submit_flow("product", "products", data,
+                     [f"**{material_id}** {category}/{spec}，内径 {inner_d}mm，长度 {length}M"])
+
+
+# ──────────────────────────────────────────────────────────────
+# 📥 导入中心 (B 期占位)
+# ──────────────────────────────────────────────────────────────
+def page_import():
+    st.header("📥 导入中心")
+    st.info(
+        "B 期建设内容：上传 CSV → 自动跑校验 → 绿了才亮「导入 MySQL」按钮 → 显示导入报告。\n\n"
+        "当前请沿用命令行流程：`bash scripts/run_local_validation.sh`（校验）+ "
+        "`bash scripts/load-csv-to-db.sh`（导入）。",
+        icon="🚧",
+    )
+
+
+# ──────────────────────────────────────────────────────────────
+# ⚡ 操作中心 (A 期: 跑校验 / 克隆建物料)
+# ──────────────────────────────────────────────────────────────
+CSV_DIR_IN_CONTAINER = Path("/app/data/csv")
+
+
+def _run_tool(cmd: list[str], timeout: int = 180) -> tuple[int, str]:
+    """跑 tools/ 下的脚本, 返回 (退出码, 输出)"""
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        return proc.returncode, (proc.stdout + proc.stderr).strip()
+    except subprocess.TimeoutExpired:
+        return -1, f"执行超时（>{timeout}s）"
+
+
+def page_operations():
+    st.header("⚡ 操作中心")
+    st.caption("点击触发型操作。危险操作需要先打勾确认（学自标准化外贸工作流）。")
+
+    # ── 跑 16 步校验 ──
+    st.subheader("1. 跑 16 步校验（对 data/csv 真实数据）")
+    st.caption("等价于命令行 `python3 tools/local_validator.py --csv-dir data/csv`")
+    if st.button("▶️ 立即校验", key="op_validate"):
+        with st.spinner("校验中，通常 10-30 秒..."):
+            code, out = _run_tool(
+                ["python3", "/app/tools/local_validator.py", "--csv-dir", str(CSV_DIR_IN_CONTAINER)])
+        st.session_state["op_validate_out"] = (code, out)
+    if "op_validate_out" in st.session_state:
+        code, out = st.session_state["op_validate_out"]
+        if code == 0:
+            st.success("✅ 校验全部通过")
+        else:
+            st.error(f"❌ 校验未通过（退出码 {code}），请检查下方 ERROR 行")
+        st.code(out[-6000:], language="text")
+
+    st.divider()
+
+    # ── 克隆建物料 ──
+    st.subheader("2. 克隆建物料（报价谈成新重量/新规格 → 归位新编码）")
+    st.caption("规则见 ADR-0005：克隆源物料 → 换编码 → 覆盖谈判值 → 派生列自动重算 → 报价/合同可连带换码")
+    products_csv = CSV_DIR_IN_CONTAINER / "products.csv"
+    if not products_csv.exists():
+        st.warning(f"找不到 {products_csv}（容器未挂载 data/csv）")
+        return
+    import csv as _csv
+    with products_csv.open(newline="", encoding="utf-8") as f:
+        product_ids = [r["material_id"] for r in _csv.DictReader(f)]
+    c1, c2 = st.columns(2)
+    with c1:
+        source_id = st.selectbox("源物料（克隆模板）", product_ids, key="cl_src")
+        new_id = st.text_input("新物料编码（必须不存在）", key="cl_new", placeholder="如 M-Q025-013")
+    with c2:
+        ow = st.number_input("新单重 KG（0=不覆盖）", min_value=0.0, value=0.0, step=0.5, key="cl_w")
+        olen = st.number_input("新长度 M（0=不覆盖）", min_value=0.0, value=0.0, step=1.0, key="cl_len")
+        update_quote = st.text_input("连带换码的报价单号（可空）", key="cl_uq",
+                                     help="填了就把该报价单里源物料的行换成新编码")
+    st.caption("💡 长度变更会把外观尺寸/体积置空待实测；内径/厚度等几何参数变更建议先用命令行工具（更多参数）。")
+    ack = st.checkbox("我确认：克隆会追加新物料到 products.csv，历史数据不动", key="cl_ack")
+    if st.button("🧬 执行克隆", key="cl_run",
+                 disabled=not (ack and new_id.strip() and source_id)):
+        cmd = ["python3", "/app/tools/clone_material.py", source_id, new_id.strip(),
+               "--products-csv", str(products_csv)]
+        if ow:
+            cmd += ["--weight", str(ow)]
+        if olen:
+            cmd += ["--length", str(olen)]
+        if update_quote.strip():
+            cmd += ["--update-quote", update_quote.strip(),
+                    "--quotation-csv", str(CSV_DIR_IN_CONTAINER / "quotation_items.csv")]
+        with st.spinner("克隆中..."):
+            code, out = _run_tool(cmd)
+        if code == 0:
+            st.success("✅ 克隆完成")
+            st.code(out, language="text")
+            st.info("📌 下一步：跑【1. 跑 16 步校验】确认数据自洽，然后用 `scripts/load-csv-to-db.sh` 导入 MySQL")
+        else:
+            st.error("❌ 克隆失败")
+            st.code(out, language="text")
+
+
+# ──────────────────────────────────────────────────────────────
 # 主路由
 # ──────────────────────────────────────────────────────────────
 PAGES = {
     "🏠 首页": page_dashboard,
+    "📝 录入中心": page_entry,
+    "📥 导入中心": page_import,
+    "⚡ 操作中心": page_operations,
     "📦 库存查询": page_inventory,
     "📋 合同执行": page_contracts,
     "🏭 基础资料": page_master_data,

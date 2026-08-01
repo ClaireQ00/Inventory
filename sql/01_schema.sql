@@ -91,8 +91,8 @@ CREATE TABLE products (
     volume              DECIMAL(12,4) DEFAULT NULL      COMMENT '单件体积(m³) = appearance_outer² × appearance_height × 0.93 / 1e6 [S2] 精度0.0001',
     package             VARCHAR(32)  DEFAULT ''         COMMENT '包装 [S1] 如 PE膜',
     label_paper         VARCHAR(32)  DEFAULT ''         COMMENT '标签纸 [S2] R开头=长方形标签/纸卡(如 R02502), C开头=圆环形标签',
-    material_used       VARCHAR(32)  DEFAULT ''         COMMENT '用料 [S1] 如 A25橙',
-    wire_pattern        VARCHAR(32)  DEFAULT ''         COMMENT '打线 [S1] 如 红蓝双线',
+    material_used       VARCHAR(64)  DEFAULT ''         COMMENT '用料 [S1] 如 A25橙 (2026-08-01 由32加宽: 真实主数据最长40)',
+    wire_pattern        VARCHAR(64)  DEFAULT ''         COMMENT '打线 [S1] 如 红蓝双线 (2026-08-01 由32加宽: 真实数据含线条宽度/字高描述,最长35)',
 
     -- E. 盘型信息
     coil_type           VARCHAR(64)  DEFAULT ''         COMMENT '盘型 [S1] 如 内径30高7层',

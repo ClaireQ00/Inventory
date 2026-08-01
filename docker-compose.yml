@@ -113,10 +113,13 @@ services:
       DB_PASSWORD: ${MYSQL_PASSWORD}
       DB_NAME: ${MYSQL_DATABASE:-inventory_db}
     volumes:
-      # 挂载工具脚本（含 streamlit_app.py）
+      # 挂载工具脚本（含 streamlit_app.py / db_writer.py / clone_material.py）
       - ./tools:/app/tools:ro
       # 挂载校验日志目录（只读，供查看报告）
       - ./data/logs:/app/data/logs:ro
+      # 挂载 CSV 数据目录（读写：操作中心的"克隆建物料"会追加 products.csv；
+      # "跑 16 步校验"只读。录入中心写 MySQL 不碰这里）
+      - ./data/csv:/app/data/csv
     depends_on:
       db:
         condition: service_healthy
