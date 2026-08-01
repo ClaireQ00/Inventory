@@ -79,7 +79,7 @@ bash scripts/run_local_validation.sh --demo
 | 12/16 | 汇率表完整性（每月每币种至少一条） | 每月 1 号录汇率,整月用这条 |
 | 13/16 | 收款 vs 合同金额（按原币种聚合） | 客户付的款要跟合同对得上 |
 | 14/16 | 调拨配对（同 `transfer_ref` 出入库数量必须相等） | 转账流水号两边必须平 |
-| 15/16 | 报价金额一致 + 派生关系完整性（主表=Σ明细小计、**主表 total_volume=Σ 明细 total_volume**、formal 必须从 brief 派生、converted 回填合同、subtotal=重量×系数×数量） | 报价单是合同的"前身",数字必须自洽 |
+| 15/16 | 报价金额一致 + 派生关系完整性（主表=Σ明细小计、**主表 total_volume=Σ 明细 total_volume**、formal 必须从 brief 派生、converted 回填合同、subtotal=重量×系数×数量、**快照重量与主数据偏差>5% 提示新增物料/更新主数据(WARN)**） | 报价单是合同的"前身",数字必须自洽 |
 | 16/16 | **Packing Plan 公斤价反算**（报价系数×单重 = 应等于的合同单价(原币/件)，差 ≤ 0.01 正常，超差 warn；2026-07-31 修正单位） | 标准成本差异分析：报价是基准,合同是实际,允许微小四舍五入差 |
 
 > 💡 **关于 total_volume 字段**：4 张主表（quotations / sales_contracts / purchase_orders / delivery_orders）都有 `total_volume` 字段，是**展示用统计**（给客户看这张单总共多少立方），= Σ 各自明细表的体积。**跟报关单 `shipping_records.total_cbm` 不是一回事**——后者是装柜后的真实 CBM（要提交海关的数据，可能因拼柜/整柜微调过）。total_volume 用 WARN 级校验（容差 0.01），即使对不上也不阻断流程。

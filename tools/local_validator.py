@@ -1329,6 +1329,29 @@ def check_quotations(conn, report):
             if abs(sub - expected) > 0.05:
                 report.error(f"报价明细 id={iid}: subtotal={sub} 与 算{expected:.2f}(重量{wpu}×系数{coeff}×数量{qty}) 不一致 (容差 0.05)")
 
+    # 校验5 (2026-08-01 新增): 报价快照重量 vs 主数据 products.weight 偏差提醒
+    #   业务背景: weight_per_unit 是"从 products.weight 带出, 可覆盖"的快照。
+    #   报价时改重量多为一次性谈判; 但合同确认后, 该重量/型号大概率长期延续 ——
+    #   这时应该【新增物料】或【更新主数据】, 否则:
+    #     ① 下次报价仍从旧 products.weight 带出, 又要重谈一遍
+    #     ② 发货环节 R11 反算 (报价系数 × products.weight) 会持续 WARN
+    #   提醒级 WARN, 不阻断; 容差沿用产品参数 5% (BUSINESS_RULES.md R4)
+    cur.execute("""
+        SELECT qi.id, qi.quote_no, qi.material_id, qi.weight_per_unit, p.weight
+        FROM quotation_items qi
+        JOIN products p ON p.material_id = qi.material_id
+    """)
+    for qi_id, qno, mid, wpu, pw in cur.fetchall():
+        if not wpu or not pw:
+            continue
+        diff_pct = abs(float(wpu) - float(pw)) / float(pw)
+        if diff_pct > 0.05:
+            report.warn(
+                f"报价 {qno} 物料 {mid}: 快照重量 {wpu}kg 与主数据 {pw}kg 偏差 {round(diff_pct*100, 1)}% (>5%)。"
+                f"若该重量变更将长期延续(合同已定), 建议新增物料或更新 products.weight; "
+                f"若仅本单临时谈判, 忽略即可"
+            )
+
 
 def check_packing_coefficient(conn, report):
     """[15/15] Packing Plan 公斤价反算核对 (R11 铁律) (步号描述保留历史出处, 实际步号由 run_validation 统一打印)
