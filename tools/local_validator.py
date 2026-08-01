@@ -756,11 +756,14 @@ def check_delivery_vs_contract(conn, report):
 
     优先用 actual_quantity (已装柜的实际数), 没装柜的回退到 quantity (计划数)。
     类比: 合同是承诺发货 100, 装柜后实发 95, 那 95 才是真正"对客户履约"的数。
+
+    2026-08-01 起: 校验时顺便把实发数回写 delivered_qty (该字段此前从不回写,
+    真实数据全是 0, clone_material 工具误信它踩过坑 —— 现算结果写回, 字段恢复可信)。
     """
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT sc.contract_no, p.material_id,
+        SELECT sci.id, sc.contract_no, p.material_id,
                sci.quantity AS contracted,
                COALESCE(SUM(
                    CASE WHEN doi.actual_quantity > 0 THEN doi.actual_quantity
@@ -776,7 +779,9 @@ def check_delivery_vs_contract(conn, report):
         GROUP BY sci.id
         """
     )
-    for contract_no, material_id, contracted, delivered in cur.fetchall():
+    writeback = []  # (delivered, sci_id)
+    for sci_id, contract_no, material_id, contracted, delivered in cur.fetchall():
+        writeback.append((delivered, sci_id))
         if delivered > contracted:
             report.error(
                 f"合同 {contract_no} / 物料 {material_id}: 发货 {delivered} > 合同 {contracted}"
@@ -785,6 +790,14 @@ def check_delivery_vs_contract(conn, report):
             report.warn(
                 f"合同 {contract_no} / 物料 {material_id}: 已发 {delivered} < 合同 {contracted} (未发完)"
             )
+
+    # 实发数回写 delivered_qty (跟上面的判定同一口径, 保证字段可信)
+    if writeback:
+        cur.executemany(
+            "UPDATE sales_contract_items SET delivered_qty=? WHERE id=?",
+            writeback,
+        )
+        conn.commit()
 
 
 def check_stock_out_vs_inventory(conn, report):
