@@ -198,7 +198,7 @@ erDiagram
 
 #### `sales_contract_items` — 销售合同明细
 - **职责**:合同的商品行。
-- **关键字段**:`contract_no`、`material_id`、`quantity`(合同数)、`unit_price`、`subtotal`(派生)、`volume_subtotal`(派生)、`delivered_qty`(由发货单回写)
+- **关键字段**:`contract_no`、`material_id`、`quantity`(合同数)、`unit_price`、`subtotal`(派生)、`volume_subtotal`(派生)、`delivered_qty`(**由第 5 步校验 `check_delivery_vs_contract` 现算回写**,actual_quantity>0 优先否则 quantity;2026-08-01 起可信,此前从不回写全为 0)
 - **外键**:`contract_no → sales_contracts(contract_no) ON DELETE CASCADE`、`material_id → products(material_id)`
 - **唯一约束**:`uk_sci_contract_itemno (contract_no, item_no)`、`uk_sci_contract_material (contract_no, material_id)`(双唯一键:行号唯一 + 同合同同物料不可重复)
 - **派生字段**:✅ `subtotal`、`volume_subtotal`
@@ -359,13 +359,13 @@ erDiagram
 - **职责**:报价单的商品行。**定价不走绝对价,走 KG×系数**(R10):同一报价单可有多组系数,用 `group_code` 分组(如 `A组-1.112`)。
 - **关键字段**:
   - 关联:`quote_no`、`material_id`(关联 `products` 带出 `weight`/`volume`)
-  - 定价基准:`group_code`(分组码,同组共用系数)、`price_coefficient`(报价系数 USD/KG,**放明细不放主表**,因为一张单有多组)、`weight_per_unit`(单卷重量 KG,从 `products.weight` 带出可覆盖)、`quantity`(卷数)
+  - 定价基准:`group_code`(分组码,同组共用系数)、`price_coefficient`(报价系数 USD/KG,**放明细不放主表**,因为一张单有多组)、`weight_per_unit`(单卷重量 KG,**快照语义**:从 `products.weight` 带出可覆盖,客户谈价改重量只改行上快照、主数据不动;分阶段管控:brief/draft 可偏离(普通 WARN),formal/converted 强提醒归位物料编码(`[正式报价须归位]` WARN),见 R10 + ADR-0005)、`quantity`(卷数)
   - 派生字段(4 个,全走 `DERIVED_RULES`):`total_weight`、`unit_price`、`subtotal`、`total_volume`
   - 体积:`volume`(单卷体积,从 `products` 带出或手填)
 - **外键**:`quote_no → quotations(quote_no) ON DELETE CASCADE`、`material_id → products(material_id)`
 - **唯一约束**:`uk_qi_quote_itemno (quote_no, item_no)`、`uk_qi_quote_material (quote_no, material_id)` —— 行号唯一 + 同一报价单同一物料只能一行
 - **派生字段**:✅ 见 §5.1(4 个)。**关键设计**:`subtotal` 用**直接公式** `weight_per_unit × price_coefficient × quantity`,**不依赖**派生的 `unit_price`(因为 `apply_derived_rules` 单轮遍历,依赖链会失效;详见 ADR-0003)
-- **校验**:`check_quotations`(步骤 15/16)子校验 4:明细 `subtotal` 必须等于 `weight_per_unit × price_coefficient × quantity`
+- **校验**:`check_quotations`(步骤 15/16)子校验 4:明细 `subtotal` 必须等于 `weight_per_unit × price_coefficient × quantity`;子校验 5(2026-08-01):快照重量 vs 主数据偏差 >5% 分阶段管控(ADR-0005)
 - **代码位置**:`sql/01_schema.sql:840-868`、`tools/local_validator.py:509-532`
 
 ---

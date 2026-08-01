@@ -96,6 +96,20 @@
 - [x] Q1.5 [P1] DATA_MODEL/SPECS/DESIGN/SCENARIOS 文档补报价模块
 - [x] Q1.6 [P1] ADR-0003 报价派生关系决策
 
+### 第五组：快照重量与反算链路加固（2026-08-01，全部完成）
+
+> 背景：`quotation_items.weight_per_unit` 是「从 products.weight 带出可覆盖」的快照。报价谈价改重量只改行上快照、主数据不动，由此带出三个问题——formal/合同带偏离快照转正式单据失去返单依据、R11 反算拿旧主数据对合同单价每次误报 WARN、`delivered_qty` 从不回写不可信。决策见 `docs/adr/0005-snapshot-weight-staged-and-r11-snapshot-first.md`。
+
+- [x] S5.1 [P0] `check_quotations` 子校验 5：快照重量 vs 主数据偏差 >5% 提醒（commit `afca847`）
+- [x] S5.2 [P0] 子校验 5 升级分阶段：brief/draft 允许临时谈判（普通 WARN）/ formal·converted 升级 `[正式报价须归位]` 强提醒 WARN，文案带归位路径和克隆工具命令行（commit `2bcee82`）
+- [x] S5.3 [P0] R11 反算单重/系数改快照优先：converted 报价快照 > 同客户最新报价 > 主数据（commit `75b735f`）
+- [x] S5.4 [P0] R11 漏洞修复×4：未发货合同行两遍查询覆盖（`[合同未发货]` WARN）、fallback 同客户过滤、非 draft 优先、清 `'accepted'` 死值（commit `f905e3a`）
+- [x] S5.5 [P1] `tools/clone_material.py` 半自动克隆建物料，`--update-quote` / `--update-contract`（合同换码，已发货历史行跳过留痕）（commit `43f5626` / `18e610c`）
+- [x] S5.6 [P0] 第 5 步 `check_delivery_vs_contract` 现算回写 `delivered_qty`，字段恢复可信；工具已发货判定改从发货明细现算（commit `44a6e3c` / `cca9b9c`）
+- [x] S5.7 [P1] 真实数据清理：brief 报价 2 行错配明细（233% 偏差）删除 + 主表金额/体积修正（data/csv，不进 git）
+- [x] S5.8 [P1] `clone_material.py` 健壮性修复×2（2026-08-01 链路复查实测发现）：① products.csv 无 `remark` 列时写溯源备注导致 DictWriter 报多余字段 → 跳过并转 reminders 告知；② 带 `id` 列的 CSV 克隆行照抄源行 id → 导入主键撞号、源物料被 REPLACE 顶掉 → 自动取 max+1 新号（真实数据 products.csv 无 id 列，此前未暴露）
+- [ ] S5.9 [P2] 跟进：报价换码后旧物料失去报价系数来源，其历史合同/发货行 R11 转「缺反算→pending」WARN——当前按 ADR-0005 后果表缓解（合同侧换码 / 停用旧物料），未来前端阶段考虑「历史行免反算」开关
+
 ---
 
 ## 3. 任务分组索引（按主题快速跳转）
@@ -107,6 +121,7 @@
 | 文档一致性 | T2.3 / T2.8 | SPECS/IMPORT_TEMPLATES 措辞修正 |
 | 安全 | T2.7 / T2.9 | 敏感数据扫描 / 报错可读性 |
 | 阶段二 | T3.1 ~ T3.6 | 本阶段不做，仅登记 |
+| 快照重量链路 | S5.1 ~ S5.9 | 分阶段管控 + R11 快照优先 + 克隆建物料（ADR-0005） |
 | ~~已砍~~ | ~~T2.6 / T2.10~~ | ~~audit_logs 提前做无意义 / 日志锦上添花~~ |
 
 ---
@@ -126,6 +141,7 @@
 - [x] `scripts/load-csv-to-db.sh` —— CSV→MySQL 一键导入脚本（**2026-07-30 修复** `set -euo pipefail` 陷阱：单表失败不再终止整批，改用 `set +e` + `PIPESTATUS` 捕获 mysql 退出码）
 - [x] `scripts/ci.sh` + `.github/workflows/ci.yml` —— CI 门禁
 - [x] `scripts/claude-driver.sh` —— 无人值守驱动（消费本 TASKS.md）
+- [x] `tools/clone_material.py` —— **2026-08-01 新增**：半自动克隆建物料（`clone_material()` 纯函数，未来前端按钮可直接复用）；`--update-quote` 报价换码 / `--update-contract` 合同换码（已发货历史行跳过留痕，是否已发货从发货明细现算）
 
 ### 4.2 数据层
 
@@ -154,7 +170,7 @@
 | 2/16 | `check_purchase_orders` | 触发（通过） | PO 金额 20000 = 明细之和;total_volume 0.699 一致 |
 | 3/16 | `check_stock_in_vs_purchase` | 触发（通过） | 入库恰好 = 采购,无 WARN |
 | 4/16 | `check_sales_contracts` | 触发（通过） | 合同 30000 = 明细之和;total_volume 0.711 一致 |
-| 5/16 | `check_delivery_vs_contract` | 触发（**WARN**：未发完） | demo 发货 5/10 < 合同 8/14 |
+| 5/16 | `check_delivery_vs_contract` | 触发（**WARN**：未发完） | demo 发货 5/10 < 合同 8/14;**2026-08-01 起校验时现算回写 `delivered_qty`**（actual_quantity>0 优先否则 quantity） |
 | 6/16 | `check_stock_out_vs_inventory` | 触发（通过） | 物料2 仓库1 入出恰好平衡 |
 | 7/16 | `check_reconciliation` | 触发（通过） | 流水累加 = inventory |
 | 8/16 | `check_volume_subtotals` | 触发（通过） | 体积小计容差内 |
@@ -164,8 +180,8 @@
 | 12/16 | `check_exchange_rates` | 触发（通过） | 2026-07 汇率齐全;跨月未覆盖（见 T2.5） |
 | 13/16 | `check_receipts_vs_contract` | 触发（通过） | 收款 4500 ≤ 合同 30000 |
 | 14/16 | `check_transfer_pairs` | 触发（通过） | TR20260729001 出3=入3 |
-| 15/16 | `check_quotations` | 触发（通过） | 报价主表=Σ明细小计、total_volume=Σ明细 total_volume、formal 从 brief 派生、subtotal=重量×系数×数量 |
-| 16/16 | `check_packing_coefficient` | 触发（通过） | R11 公斤价反算,容差 0.001（无 demo 触发 WARN 的样例,可补 T2.x） |
+| 15/16 | `check_quotations` | 触发（通过） | 报价主表=Σ明细小计、total_volume=Σ明细 total_volume、formal 从 brief 派生、subtotal=重量×系数×数量;**子校验 5（2026-08-01）：快照重量 vs 主数据偏差 >5% 分阶段提醒——brief/draft 普通 WARN、formal/converted `[正式报价须归位]` 强提醒（ADR-0005）** |
+| 16/16 | `check_packing_coefficient` | 触发（通过） | R11 公斤价反算,容差 0.001（无 demo 触发 WARN 的样例,可补 T2.x）;**2026-08-01：取数改快照优先（converted 报价 > 同客户最新报价 > 主数据）+ 两遍查询（未发货合同行也反算）+ fallback 同客户过滤** |
 
 > 结论：16 步全部有代码、能跑通,但第 10/11 步在 demo 模式下"没机会真正报警",是覆盖度短板（T2.4 / T2.5 要补）。第 9 步 `check_delivery_order_volume` 是 2026-07-30 新增,跟 `shipping_records.total_cbm`(报关真实 CBM)是两个概念。
 

@@ -33,6 +33,7 @@
 | [0002](0002-transfer-soft-link-no-dedicated-table.md) | 仓库调拨复用 stock_in/stock_out + transfer_ref 软关联,不建独立 transfer 表 | 已接受 | 调拨建模 |
 | [0003](0003-quotation-derive-from-brief.md) | 报价 brief 与 formal 共用 quotations 表 + parent_quote_no 软关联派生 + subtotal 直接公式 | 已接受 | 报价派生建模 |
 | [0004](0004-foreign-keys-use-business-codes-not-ids.md) | 外键改业务编号引用,弃用 AUTO_INCREMENT id 做关联 | 已接受 | 外键建模 |
+| [0005](0005-snapshot-weight-staged-and-r11-snapshot-first.md) | 报价快照重量分阶段管控 + R11 反算快照优先取数 + delivered_qty 校验回写 | 已接受 | 快照重量生命周期 |
 
 ---
 

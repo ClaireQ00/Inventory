@@ -110,6 +110,11 @@ def clone_material(products_csv, source_id, new_id, overrides=None,
     # ---- 1. 克隆 + 换编码 + 应用覆盖 ----
     new_row = dict(rows[src_idx])
     new_row["material_id"] = new_id
+    # id 列是 SQLite/MySQL 自增主键, 直接照抄会跟源行撞号 —— 装载时 REPLACE 把源物料顶掉
+    # (demo 的 products.csv 有 id 列, 真实数据没有; 有就必须重新取号)
+    if "id" in header:
+        ids = [int(r["id"]) for r in rows if (r.get("id") or "").isdigit()]
+        new_row["id"] = str(max(ids) + 1 if ids else 1)
     for col, val in overrides.items():
         new_row[col] = str(val)
 
@@ -143,10 +148,14 @@ def clone_material(products_csv, source_id, new_id, overrides=None,
     if weight_changed and not geo_changed and not length_changed:
         pass                                       # 最常见场景: 同规格只谈新重量, 无需重算
 
-    # ---- 3. 溯源备注 ----
+    # ---- 3. 溯源备注 (products.csv 没有 remark 列时跳过, 否则 DictWriter 报多余字段) ----
+    no_remark_col_note = None
     if "remark" not in overrides:
         origin = f"克隆自 {source_id} ({date.today().isoformat()}, 快照归位新增)"
-        new_row["remark"] = (new_row.get("remark", "") + " | " + origin).strip(" |")
+        if "remark" in header:
+            new_row["remark"] = (new_row.get("remark", "") + " | " + origin).strip(" |")
+        else:
+            no_remark_col_note = origin  # 无 remark 列, 溯源信息放到 reminders 里告知
 
     # ---- 4. 追加写入 products.csv ----
     rows.append(new_row)
@@ -157,6 +166,8 @@ def clone_material(products_csv, source_id, new_id, overrides=None,
 
     # ---- 5. 提醒清单 ----
     reminders = []
+    if no_remark_col_note:
+        reminders.append(f"products.csv 无 remark 列, 溯源备注未写入 ({no_remark_col_note})")
     if length_changed:
         reminders.append(
             "长度变更: 外观尺寸(appearance_*)和体积已置空, 请实测后补录 "

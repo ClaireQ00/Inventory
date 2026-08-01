@@ -28,9 +28,9 @@ git status                   # 看未提交的新文件
 
 **如果项目还没初始化 git**，就用 `ls -lat sql/ tools/ scripts/` 看最近修改的文件。
 
-### 第 2 步：逐条对照"项目 4 条铁律"检查
+### 第 2 步：逐条对照"项目 5 条铁律"检查
 
-> 这 4 条是从 `CLAUDE.md` 抽出来的核心约定，subagent 看不到主对话，所以写在这里。
+> 这 5 条是从 `CLAUDE.md` 抽出来的核心约定，subagent 看不到主对话，所以写在这里。
 
 #### 铁律 1：金额四件套（最常被违反）
 
@@ -110,6 +110,22 @@ Q025 / PVC / 印尼 / 大雄 是**当前联调数据**，不是硬编码逻辑�
 grep -rn "Q025\|PVC\|印尼\|大雄" sql/ tools/*.py
 ```
 如果命中代码逻辑（不是 demo 数据或注释）→ 报 Warning。
+
+#### 铁律 5：快照重量分阶段 + R11 快照优先（2026-08-01 新增，ADR-0005）
+
+报价明细 `weight_per_unit` 是「从 `products.weight` 带出、可覆盖」的**快照**。改动涉及报价/合同/反算链路时必须确认：
+
+- **快照隔离**：客户谈价改重量只改报价明细行上的快照，**不回写 `products.weight`**——发现"报价改重量时顺手更新主数据"的代码 → 报 Critical（历史报价会被污染）
+- **分阶段提醒**：`check_quotations` 子校验 5（偏差 >5%）——brief/draft 普通 WARN（临时谈判自由）；formal/converted 升级 `[正式报价须归位]` 强提醒（WARN 不阻断，但正式单据是返单长期依据，必须能归位物料编码）
+- **R11 取数优先级**：`check_packing_coefficient` 反算单重/系数必须是 **converted 来源报价快照 > 同客户最新报价快照（非 draft 优先）> 主数据**；fallback 子查询必须带 `q.customer_code = sc.customer_code` 同客户过滤——发现直接只认 `products.weight` 的反算 → 报 Critical（报价谈新重量后每次发货都误报）
+- **两遍查询**：已发货行（回写 `expected_unit_price/coeff_diff/coeff_check_status`）+ 未发货合同行（`[合同未发货]` WARN 无回写），缺一遍 → 报 Warning
+- **历史真相不动**：合同换码（`clone_material.py --update-contract`）时**已发货历史行必须跳过留痕**，"是否已发货"从发货明细现算，不信 `delivered_qty` 旧值（该字段由第 5 步校验回写，只有跑过校验才可信）
+
+**检查方法**：
+```bash
+grep -n "快照\|子校验\|合同未发货" tools/local_validator.py | head
+grep -n "customer_code = sc.customer_code" tools/local_validator.py   # 同客户过滤必须在
+```
 
 ### 第 3 步：跑校验
 

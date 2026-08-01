@@ -117,3 +117,6 @@
 | 分组码 | group_code,同组管径共用一个报价系数 |
 | 单卷重量 | weight_per_unit,KG,从 products.weight 带出可覆盖 |
 | 报价参数表 | quotation_params,全局参数(汇率/默认币种/有效期) |
+| 快照重量 | 报价明细 `weight_per_unit` 的语义:录入时从 `products.weight` 带出、可覆盖的行上副本。客户谈价改重量只改快照,主数据不动,别的报价/合同不受影响 |
+| 归位 | formal/converted 阶段要求快照重量与物料编码一致:要么改回主数据值,要么克隆新建物料并换码。由 `check_quotations` 子校验 5 分阶段提醒(brief/draft 普通 WARN,formal/converted `[正式报价须归位]` 强提醒 WARN,不阻断但报告里无处遁形),见 ADR-0005 |
+| 克隆建物料 | 用 `tools/clone_material.py` 以源物料为模板建新物料(几何派生列置空待重算),`--update-quote`/`--update-contract` 连带换码;合同已发货历史行自动跳过留痕(历史真相不动) |

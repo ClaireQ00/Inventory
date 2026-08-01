@@ -56,6 +56,16 @@ amount + currency + exchange_rate + amount_cny
 
 ## 自检命令
 
+## 快照重量链路铁律（2026-08-01 加，详见 ADR-0005）
+
+- 报价明细 `weight_per_unit` 是**快照**（从 `products.weight` 带出可覆盖）：谈价改重量只改行上快照，**永不回写主数据**
+- 分阶段提醒：brief/draft 可偏离（普通 WARN）；formal/converted 强提醒归位物料编码（`[正式报价须归位]`）
+- R11 反算取数**快照优先**：converted 报价快照 > 同客户最新报价（非 draft 优先）> 主数据；fallback 必须同客户过滤
+- 归位用 `tools/clone_material.py`（`--update-quote` / `--update-contract`）；合同已发货历史行不动（历史真相）
+- `delivered_qty` 由第 5 步校验回写，只有跑过校验才可信
+
+## 自检命令
+
 ```bash
 bash scripts/run_local_validation.sh           # 真实数据
 bash scripts/run_local_validation.sh --demo    # demo 假数据

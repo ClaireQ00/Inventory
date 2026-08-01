@@ -2,7 +2,7 @@
 
 > 每个**场景**对应 16 步校验里的一步或几步，给出**可复现的输入 + 明确的预期结果**（ERROR / WARN / 通过）。所有数据基于 `tools/make_demo_data.py` 真实生成的 demo 数据（物料号 `DEMO-*`、客户"客户A/B"、汇率 7.15），不臆造。
 >
-> 验收口径：跑完每个场景的"操作步骤"后，执行 `bash scripts/run_local_validation.sh --demo`，对照"预期结果"列逐条核对。16 步含义见 `docs/VALIDATION_GUIDE.md §3`，校验代码逻辑见 `tools/local_validator.py`。
+> 验收口径：跑完每个场景的"操作步骤"后，执行校验并对照"预期结果"列逐条核对。**不改动数据的场景**用 `bash scripts/run_local_validation.sh --demo`（会先重生成 demo 数据）；**改动了 demo_runtime 字段的场景**（C/D/E/F.5/G）改用 `python3 tools/local_validator.py --csv-dir data/csv/demo_runtime` 直接调校验器——否则 `--demo` 重生成会把改动覆盖掉。16 步含义见 `docs/VALIDATION_GUIDE.md §3`，校验代码逻辑见 `tools/local_validator.py`。
 
 ---
 
@@ -187,9 +187,9 @@ demo 默认数据里收款 `paid_date=2026-07-26`，汇率 7.15 → 第 12 步�
    ```
 2. 编辑 `data/csv/demo_runtime/receipts.csv`，把第 1 行的 `paid_date` 从 `2026-07-26` 改成 `2026-08-15`（其他字段不动）。
 3. **不**在 `exchange_rates.csv` 补 8 月 USD 汇率（保持只有 2026-07-01 一条）。
-4. 跑校验：
+4. 跑校验（**直接调校验器**：`--demo` 会重新生成数据、把第 2 步的改动覆盖掉）：
    ```bash
-   bash scripts/run_local_validation.sh --demo
+   python3 tools/local_validator.py --csv-dir data/csv/demo_runtime
    ```
 
 > ⚠️ 注意：本场景受 `datetime.now()` 影响——`check_exchange_rates:959-960` 用"今天"算 `this_month_start`。如果今天是 2026-07，`this_month_start=2026-07-01`，那 MAX(effective_date)=2026-07-01 仍 ≥ 本月1号，第 12 步**不会报 ERROR**。要稳定复现，请把系统时间调到 2026-08 任意一天再跑（或在 `exchange_rates.csv` 把 7 月那条 `effective_date` 改成更早，比如 2026-06-01）。
@@ -246,9 +246,9 @@ demo 默认报关 actual_qty = planned_qty（满发），第 10 步不触发。�
    1,CN20260726001,1,1,1,1,USD,500.00,7.15,3575.00,pending,,短装1件挂账
    ```
    （`diff_qty=1` 短装 1 件，`diff_amount=500` USD 按 unit_price_usd=500 算）
-4. 跑校验：
+4. 跑校验（**直接调校验器**：`--demo` 会重新生成数据、把第 2/3 步的改动覆盖掉）：
    ```bash
-   bash scripts/run_local_validation.sh --demo
+   python3 tools/local_validator.py --csv-dir data/csv/demo_runtime
    ```
 
 ### D.4 预期结果
@@ -299,9 +299,9 @@ demo 默认数据第 6 步是通过的（物料2 仓库1 入出恰好平衡）�
    4,1,2,5,超发测试
    ```
    （`stock_out_id=1` 是销售出库单 OUT20260726001，物料2 原本出 10 件，再加 5 件 = 累计出 15 件）
-3. 跑校验：
+3. 跑校验（**直接调校验器**：`--demo` 会重新生成数据、把第 2 步的改动覆盖掉）：
    ```bash
-   bash scripts/run_local_validation.sh --demo
+   python3 tools/local_validator.py --csv-dir data/csv/demo_runtime
    ```
 
 ### E.4 预期结果
@@ -349,7 +349,7 @@ demo 数据已内置完整报价链（无需改动）：
 | --- | --- | --- |
 | 报价参数 | `exchange_rate=7.25` / `default_currency=USD` / `valid_days=7` | `make_demo_data.py:294-302` |
 | 简要报价 | QT20260729001，brief，客户A(id=1)，1167.60 USD × 7.25 = 8465.10 CNY | `make_demo_data.py:314-329` |
-| 正式 QT | QT20260729002，formal，`parent_quote_id=1`（指向 QT001），暂无明细故 total_amount=0 | `make_demo_data.py:325-327` |
+| 正式 QT | QT20260729002，formal，`parent_quote_no=QT20260729001`（指向 QT001），暂无明细故 total_amount=0 | `make_demo_data.py:334-352` |
 | 报价明细 | QT001 两行：DEMO-M-001(64kg) + DEMO-M-002(41kg)，同组系数 1.112，各 10 卷 | `make_demo_data.py:346-356` |
 
 ### F.3 操作步骤
@@ -363,14 +363,15 @@ bash scripts/run_local_validation.sh --demo
 
 ### F.4 预期结果（第 15 步对照）
 
-第 15 步 `check_quotations`（`tools/local_validator.py:1174-1220`）跑 4 个子校验：
+第 15 步 `check_quotations`（`tools/local_validator.py:1284-1379`）跑 5 个子校验：
 
 | 子校验 | 预期 | 依据 |
 | --- | --- | --- |
-| ① 主表金额 = Σ 明细 subtotal | **通过** | QT001 `total_amount=1167.60` = 711.68 + 455.92（`check_quotations:1186-1188`，差额 ≤ 0.01）；QT002 无明细，`total_amount=0 = COALESCE(SUM,0)=0` 也通过 |
-| ② formal 的 parent 指向 brief | **通过** | QT002 是 formal，`parent_quote_id=1` 非空，且 id=1 的 QT001 是 brief（`check_quotations:1197-1201`） |
-| ③ converted 合同 ID 存在 | **跳过**（无 converted 状态报价） | demo 两单都是 `draft`，不进 `WHERE status='converted'` 分支（`check_quotations:1204-1207`） |
-| ④ 明细 subtotal 公式正确 | **通过** | 明细1：64 × 1.112 × 10 = 711.68 ✓；明细2：41 × 1.112 × 10 = 455.92 ✓（`check_quotations:1216-1220`，容差 0.01） |
+| ① 主表金额 = Σ 明细 subtotal | **通过** | QT001 `total_amount=1167.60` = 711.68 + 455.92（`check_quotations:1288-1297`，容差 0.05）；QT002 无明细，`total_amount=0 = COALESCE(SUM,0)=0` 也通过 |
+| ② formal 的 parent 指向 brief | **通过** | QT002 是 formal，`parent_quote_no=QT20260729001` 非空，且指向的 QT001 是 brief（`check_quotations:1313-1324`） |
+| ③ converted 合同 ID 存在 | **跳过**（无 converted 状态报价） | demo 两单都是 `draft`，不进 `WHERE status='converted'` 分支（`check_quotations:1326-1335`） |
+| ④ 明细 subtotal 公式正确 | **通过** | 明细1：64 × 1.112 × 10 = 711.68 ✓；明细2：41 × 1.112 × 10 = 455.92 ✓（`check_quotations:1337-1343`，容差 0.05） |
+| ⑤ 快照重量 vs 主数据分阶段提醒 | **通过**（无 WARN） | demo 明细快照重量 64/41kg 与 `products.weight` 一致，偏差 0% ≤ 5%，不触发（`check_quotations:1345-1379`，规则见 ADR-0005、触发样例见场景 G） |
 
 **对账明细**（重点）：
 ```
@@ -395,18 +396,18 @@ bash scripts/run_local_validation.sh --demo
 
 ### F.5 异常分支（可选验证）
 
-如果想看第 14 步子校验①报 ERROR，把 `data/csv/demo_runtime/quotation_items.csv` 第 1 行的 `subtotal` 从 `711.68` 改成 `700.00`，重跑：
+如果想看第 15 步子校验①报 ERROR，把 `data/csv/demo_runtime/quotation_items.csv` 第 1 行的 `subtotal` 从 `711.68` 改成 `700.00`，重跑 `python3 tools/local_validator.py --csv-dir data/csv/demo_runtime`（不要用 `--demo`，会重生成覆盖改动）：
 
 ```
-[ERROR] 报价 QT20260729001: total_amount=1167.6 与明细小计之和=1155.92 不一致
-[ERROR] 报价明细 id=1: subtotal=700.0 与 算711.68(重量64×系数1.112×数量10) 不一致
+[ERROR] 报价 QT20260729001: total_amount=1167.6 与明细小计之和=1155.92 不一致 (容差 0.05)
+[ERROR] 报价明细 id=1: subtotal=700.0 与 算711.68(重量64×系数1.112×数量10) 不一致 (容差 0.05)
 ```
 （主表 1167.6 是按"正确 subtotal 之和"填的，改了一个明细subtotal 后两边都报错——主表对不上、明细公式也对不上）
 
-如果想看子校验②报 ERROR，把 `data/csv/demo_runtime/quotations.csv` 第 3 行（QT002）的 `parent_quote_id` 从 `1` 改成空，重跑：
+如果想看子校验②报 ERROR，把 `data/csv/demo_runtime/quotations.csv` 第 3 行（QT002）的 `parent_quote_no` 从 `QT20260729001` 改成空，重跑 `python3 tools/local_validator.py --csv-dir data/csv/demo_runtime`：
 
 ```
-[ERROR] 正式报价 QT20260729002: 缺少 parent_quote_id, 必须从简要报价派生
+[ERROR] 正式报价 QT20260729002: 缺少 parent_quote_no, 必须从简要报价派生
 ```
 
 ### F.6 验证命令
@@ -414,6 +415,86 @@ bash scripts/run_local_validation.sh --demo
 ```bash
 bash scripts/run_local_validation.sh --demo
 ```
+
+---
+
+## 场景 G：报价快照重量分阶段提醒 + R11 快照优先取数（第 15/16 步，ADR-0005）
+
+### G.1 业务背景
+
+报价明细 `weight_per_unit` 是「从 `products.weight` 带出、可覆盖」的**快照**。客户谈价把重量谈成新值时，只改这一行的快照，主数据不动。由此有两条校验协同把关（规则全文见 `docs/adr/0005-snapshot-weight-staged-and-r11-snapshot-first.md`）：
+
+- **子校验⑤（第 15 步）**：快照 vs 主数据偏差 >5% 分阶段提醒——brief/draft 普通 WARN（临时谈判自由）；formal/converted 升级 `[正式报价须归位]` 强提醒（正式单据是返单长期依据）。
+- **R11（第 16 步）**：反算取数**快照优先**——converted 来源报价快照 > 同客户最新报价快照 > 主数据。报价谈成新重量后，反算拿快照去对合同单价，不再拿旧主数据误报。
+
+### G.2 前置条件
+
+demo 数据已内置联动链路（无需改动即可跑通全绿，见场景 A/F）：
+
+| 实体 | demo 数据 | 联动点 |
+| --- | --- | --- |
+| 简要报价 QT001 | brief / draft / 客户 C-001，明细1 DEMO-M-001 快照 64kg × 系数 1.112 | 与主数据 `products.weight=64` 一致，子校验⑤不触发 |
+| 销售合同 SC20260720001 | 客户 C-001，行1 DEMO-M-001 单价 71.168 = 1.112 × 64 | R11 反算的对照锚点 |
+| 发货明细 id=1 | 合同行1 发 5 件 | R11 第一遍查询（回写反算字段） |
+
+### G.3 操作步骤（模拟「客户把 64kg 谈成 67.5kg」）
+
+1. 生成 demo 数据：
+   ```bash
+   python3 tools/make_demo_data.py
+   ```
+2. 编辑 `data/csv/demo_runtime/quotation_items.csv`，把第 1 行的 `weight_per_unit` 从 `64` 改成 `67.5`（偏差 5.5% > 5%）。
+3. 编辑 `data/csv/demo_runtime/quotations.csv`，把 QT001 行的 `total_amount` 从 `1167.60` 改成 `1206.52`。
+   （原因：导入时 `subtotal` 由派生规则重算为 67.5 × 1.112 × 10 = 750.60，Σ 明细 = 750.60 + 455.92 = 1206.52；不改主表会触发子校验① ERROR，干扰本场景观察）
+4. 跑校验（**直接调校验器**，`--demo` 会重生成覆盖改动）：
+   ```bash
+   python3 tools/local_validator.py --csv-dir data/csv/demo_runtime
+   ```
+
+### G.4 预期结果
+
+| 步骤 | 预期 | 依据 |
+| --- | --- | --- |
+| 15/16 子校验①④ | **通过** | 主表 1206.52 = Σ 明细；subtotal 派生值与公式一致 |
+| 15/16 子校验⑤ | **WARN**（brief 普通提醒）：「报价 QT20260729001 物料 DEMO-M-001: 快照重量 67.5kg 与主数据 64.0kg 偏差 5.5% (>5%)。brief 阶段允许临时谈判值; 若该重量将长期延续, 转 formal 前请新增物料或更新 products.weight」 | (67.5−64)/64 = 5.47% > 5%，quote_type=brief 且 status=draft 走普通提醒分支（`check_quotations:1345-1379`） |
+| 16/16 R11 | **WARN**：「发货明细 id=1 (material_id=DEMO-M-001): 公斤价反算差异 -3.8920 超容差 0.01 (合同单价=71.168, 应等于=75.0600 = 系数1.112×单重67.5 [最新报价快照])」 | 取数快照优先：fallback 命中**同客户（C-001）最新报价** QT001 的快照 67.5；expected = 1.112 × 67.5 = 75.06，diff = 71.168 − 75.06 = −3.892（`check_packing_coefficient:1442-1501`） |
+| 其他步 | 同场景 A（第 5 步 WARN 是 demo 固有状态） | 改的只是报价快照与报价主表金额 |
+
+**最终退出码**：`0`（全是 WARN，无 ERROR）。
+
+### G.5 升级分支：报价转合同后（converted）提醒升级 + 取数来源切换
+
+接着 G.3 的改动，再编辑 `quotations.csv` QT001 行：`status` 从 `draft` 改成 `converted`，`converted_contract_no` 从空改成 `SC20260720001`，重跑同一条命令：
+
+| 步骤 | 预期变化 | 依据 |
+| --- | --- | --- |
+| 15/16 子校验③ | **通过** | `converted_contract_no=SC20260720001` 在 `sales_contracts` 存在 |
+| 15/16 子校验⑤ | WARN 文案**升级为 `[正式报价须归位]`**：「…快照重量 67.5kg 与主数据 64.0kg 偏差 5.5% (>5%)。formal/合同是客户返单的长期依据, 不允许带偏离主数据的快照 —— 请【新增物料】(新重量=新规格) 或【改用既有正确物料编码】后重新转单 (半自动工具: python3 tools/clone_material.py DEMO-M-001 <新编码> --weight 67.5 --update-quote QT20260729001)」 | `status='converted'` 走强提醒分支，文案直接给出归位工具命令行 |
+| 16/16 R11 | WARN 内容不变，仅取数来源从 `[最新报价快照]` 变成 `[converted报价快照]` | 合同 SC20260720001 现在有了 converted 来源报价，命中取数优先级第一档 |
+
+### G.6 修复路径（归位：把谈判结果固化成新物料）
+
+在数据副本上演练「克隆建物料 + 报价换码」：
+
+```bash
+python3 tools/clone_material.py DEMO-M-001 DEMO-M-001B --weight 67.5 \
+  --update-quote QT20260729001 \
+  --products-csv data/csv/demo_runtime/products.csv \
+  --quotation-csv data/csv/demo_runtime/quotation_items.csv
+python3 tools/local_validator.py --csv-dir data/csv/demo_runtime
+```
+
+预期（已实测，2026-08-01）：
+
+- **子校验⑤的 WARN 消失**——报价行换码到 DEMO-M-001B，其主数据重量就是 67.5，快照与主数据重新一致，归位完成；
+- **新物料行 `id` 自动取号**（源行 id=1 → 新行 id=4）。克隆工具会重新取号而不是照抄——否则 demo 这类带 `id` 列的 CSV 在导入时主键撞号，源物料会被 REPLACE 顶掉（真实数据 products.csv 无 `id` 列，不受影响）；
+- **第 5 步「未发完」WARN 不变**——换码不动合同与发货数据；
+- **R11 对旧物料行转为「缺反算数据→pending」WARN**：「发货明细 id=1 (material_id=DEMO-M-001): 缺反算数据 (合同单价=71.168, 单重=64.0, 报价系数=None), 标 pending」。原因：报价系数只存在于报价明细上，报价换码后旧物料失去系数来源，R11 无从反算。这是**换码的固有后果**，缓解路径：
+  - 若合同也按新重量执行 → `clone_material.py ... --update-contract <合同号>` 把合同未发行换码，并同步合同单价（已发货历史行会自动跳过留痕）；
+  - 若旧物料彻底不再使用 → 停用（`is_active=0`），pending WARN 即为最后提醒；
+  - 工具输出本身已带「重跑加 --update-quote / R11 快照锚点」提醒（clone_material.py:341 附近）。
+
+> 真实数据的完整案例见 `docs/TASKS.md §2 第五组`；合同换码后「合同行新码、已发货行旧码」并存是刻意保留的历史真相，第 5 步按 `(contract_no, item_no)` 关联不受影响（ADR-0005）。
 
 ---
 
@@ -427,6 +508,7 @@ bash scripts/run_local_validation.sh --demo
 | D 短装超装 | ✓ | ✓ | ✓ | ✓ | W | ✓ | ✓ | ✓ | ✓ | **E** | ✓/W | ✓ | ✓ | ✓ | ✓ | ✓ |
 | E 负库存容忍 | ✓ | ✓ | ✓ | ✓ | W | **W** | **E** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | F 报价派生 | ✓ | ✓ | ✓ | ✓ | W | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | **✓**（重点） | ✓ |
+| G 快照重量 | ✓ | ✓ | ✓ | ✓ | W | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | **W**（重点） | **W**（重点） |
 
 > 图例：✓=通过 / **W**=WARN / **E**=ERROR / 加粗=本场景重点验证的步骤。
 >
