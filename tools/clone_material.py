@@ -194,6 +194,130 @@ def clone_material(products_csv, source_id, new_id, overrides=None,
     }
 
 
+def _read_csv(path):
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"CSV 不存在: {path}")
+    with open(path, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        return reader.fieldnames, list(reader)
+
+
+def _write_csv(path, header, rows):
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=header)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def update_contract_material(contract_no, source_id, new_id, csv_dir,
+                             executed_status=("confirmed", "shipped", "completed")):
+    """合同阶段换物料编码 (合同没有规格字段, "改物料"=换 material_id)。
+
+    安全规则 (2026-08-01 与老板确认 "历史数据不要动, 要不就查无依据"):
+      - 合同明细 delivered_qty > 0 的行: 已部分/全部发货, 跳过不改 (历史留痕)
+      - 发货明细: 仅当所属发货单还是 draft (未执行) 才换码;
+        已执行 (confirmed/shipped/completed) 的发货单一行不动 —— 那些货真的发出去了
+      - 库存/贷记单里若还有旧物料的引用: 只提醒, 不动 (需要人工决策: 调拨/转换/保留)
+
+    参数:
+        contract_no: 合同号, 如 SC20260730001
+        source_id / new_id: 旧/新物料编码
+        csv_dir: 存放 sales_contract_items.csv / delivery_order_items.csv /
+                 delivery_orders.csv / inventory.csv / credit_notes.csv 的目录
+
+    返回:
+        {
+          "contract_rows_updated": int,
+          "delivery_rows_updated": int,
+          "skipped": [str...],     # 被跳过(历史留痕)的行及原因
+          "reminders": [str...],   # 需要人工处理的事项 (库存/价格/贷记单)
+        }
+    """
+    sci_path = os.path.join(csv_dir, "sales_contract_items.csv")
+    doi_path = os.path.join(csv_dir, "delivery_order_items.csv")
+    do_path = os.path.join(csv_dir, "delivery_orders.csv")
+    inv_path = os.path.join(csv_dir, "inventory.csv")
+    cn_path = os.path.join(csv_dir, "credit_notes.csv")
+
+    skipped, reminders = [], []
+
+    # ---- 1. 合同明细换码 (已发货的行跳过) ----
+    sci_header, sci_rows = _read_csv(sci_path)
+    contract_rows_updated = 0
+    for r in sci_rows:
+        if r.get("contract_no") == contract_no and r.get("material_id") == source_id:
+            delivered = float(r.get("delivered_qty") or 0)
+            if delivered > 0:
+                skipped.append(
+                    f"合同明细 item_no={r.get('item_no')}: 已发货 {delivered} 件, 历史留痕不换码"
+                )
+            else:
+                r["material_id"] = new_id
+                contract_rows_updated += 1
+    if contract_rows_updated:
+        _write_csv(sci_path, sci_header, sci_rows)
+
+    # ---- 2. 发货明细换码 (仅未执行的 draft 发货单) ----
+    delivery_rows_updated = 0
+    if os.path.exists(doi_path):
+        do_status = {}
+        if os.path.exists(do_path):
+            _, do_rows = _read_csv(do_path)
+            do_status = {r.get("delivery_no"): (r.get("status") or "draft")
+                         for r in do_rows}
+        doi_header, doi_rows = _read_csv(doi_path)
+        for r in doi_rows:
+            if r.get("contract_no") == contract_no and r.get("material_id") == source_id:
+                status = do_status.get(r.get("delivery_no"), "draft")
+                if status in executed_status:
+                    skipped.append(
+                        f"发货明细 {r.get('delivery_no')}: 发货单状态={status} 已执行, 历史留痕不换码"
+                    )
+                else:
+                    r["material_id"] = new_id
+                    delivery_rows_updated += 1
+        if delivery_rows_updated:
+            _write_csv(doi_path, doi_header, doi_rows)
+
+    # ---- 3. 库存与贷记单: 只提醒, 不动 ----
+    if os.path.exists(inv_path):
+        _, inv_rows = _read_csv(inv_path)
+        for r in inv_rows:
+            if r.get("material_id") == source_id:
+                qty_raw = r.get("quantity") or r.get("qty") or "0"
+                try:
+                    qty_num = float(qty_raw)
+                except (TypeError, ValueError):
+                    qty_num = 0.0
+                if qty_num == 0:
+                    continue  # 零库存不打扰
+                reminders.append(
+                    f"库存表还有旧物料 {source_id} (仓库 {r.get('warehouse_code')}, 数量 {qty_raw}): "
+                    f"换码后用新编码出库会对不上库存, 请人工处理 (如做物料转换出入库或保留旧编码发货)"
+                )
+    if os.path.exists(cn_path):
+        _, cn_rows = _read_csv(cn_path)
+        for r in cn_rows:
+            if r.get("contract_no") == contract_no and r.get("material_id") == source_id:
+                reminders.append(
+                    f"贷记单 {r.get('cn_no')} 引用旧物料 {source_id}: 属历史差异处理记录, 未改动"
+                )
+
+    # ---- 4. 价格提醒 ----
+    if contract_rows_updated or delivery_rows_updated:
+        reminders.append(
+            "换码只改了 material_id, unit_price/subtotal 未动: "
+            "若新规格价格有重谈, 请手工调整合同明细单价 (R11 反算会用新编码的报价快照重核)"
+        )
+
+    return {
+        "contract_rows_updated": contract_rows_updated,
+        "delivery_rows_updated": delivery_rows_updated,
+        "skipped": skipped,
+        "reminders": reminders,
+    }
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="克隆建物料: 复制源物料行 → 换编码 → 覆盖谈判达成值 → 派生列待重算",
@@ -211,8 +335,12 @@ def main():
                     metavar="列=值", help="覆盖任意其他列, 可多次使用")
     ap.add_argument("--update-quote", metavar="报价单号",
                     help="把该报价单里源物料的行换成新编码")
+    ap.add_argument("--update-contract", metavar="合同号",
+                    help="把该合同里源物料的行换成新编码 (已发货/已执行的历史行自动跳过留痕)")
     ap.add_argument("--products-csv", default=os.path.join(ROOT_DIR, "data", "csv", "products.csv"))
     ap.add_argument("--quotation-csv", default=os.path.join(ROOT_DIR, "data", "csv", "quotation_items.csv"))
+    ap.add_argument("--csv-dir", default=os.path.join(ROOT_DIR, "data", "csv"),
+                    help="合同/发货/库存 CSV 所在目录 (配合 --update-contract)")
     args = ap.parse_args()
 
     # 组装 overrides
@@ -246,6 +374,26 @@ def main():
         print(f"     ⚠ {msg}")
     if result["quote_rows_updated"]:
         print(f"     报价单 {args.update_quote}: {result['quote_rows_updated']} 行已换成新编码")
+
+    # ---- 合同换码 (可选, 独立函数, 前端可单独调用) ----
+    if args.update_contract:
+        try:
+            cres = update_contract_material(
+                args.update_contract, args.source_id, args.new_id, args.csv_dir,
+            )
+        except (ValueError, FileNotFoundError) as e:
+            print(f"[ERROR] 合同换码失败: {e}", file=sys.stderr)
+            sys.exit(1)
+        if cres["contract_rows_updated"] or cres["delivery_rows_updated"]:
+            print(f"     合同 {args.update_contract}: 明细 {cres['contract_rows_updated']} 行、"
+                  f"发货明细 {cres['delivery_rows_updated']} 行已换成新编码")
+        else:
+            print(f"     合同 {args.update_contract}: 没有可换的行 (可能都已发货, 见下)")
+        for msg in cres["skipped"]:
+            print(f"     ⏭ 跳过(历史留痕): {msg}")
+        for msg in cres["reminders"]:
+            print(f"     ⚠ {msg}")
+
     print()
     print("下一步: bash scripts/run_local_validation.sh  (校验 + 重算派生列)")
 
