@@ -42,6 +42,12 @@ fi
 while IFS= read -r f; do
   [[ "$f" == "./.git" || "$f" == "" ]] && continue
   rel="${f#./}"
+  # .env.example 是配置模板(全部占位符 CHANGE_ME_*), 设计上要进仓库供人复制;
+  # 只有 .env / .env.* 等真实配置才要求被 gitignore
+  if [[ "$rel" == ".env.example" ]]; then
+    echo "[OK]   $rel is a config template (placeholders only), safe to commit"
+    continue
+  fi
   if git -C "$ROOT_DIR" check-ignore -q "$rel" 2>/dev/null; then
     echo "[OK]   $f exists but is gitignored (local config, won't be committed)"
   else
