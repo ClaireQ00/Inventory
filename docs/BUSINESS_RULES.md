@@ -282,13 +282,17 @@ CI 同样以此为门禁(`scripts/ci.sh` / `.github/workflows/ci.yml`)。
 ```
 
 - **报价系数**:取 `quotation_items.price_coefficient`(通过 `material_id` 反查最近一条非 reject 报价)
-- **单重**(2026-08-01 改为快照优先,解决"回流误报"):取数优先级——
+- **单重**(2026-08-01 改为快照优先,解决"回流误报";同日加固):取数优先级——
   ① 该合同 converted 来源报价单的快照 `quotation_items.weight_per_unit`(谈判达成值,经 `quotations.converted_contract_no` 关联);
-  ② 最新有效报价的快照值(合同非报价转单时);
+  ② **同客户**最新有效报价的快照值(合同非报价转单时;**非 draft 优先**,还在谈的草稿不能盖过已确认报价,draft 仅作最后手段);
   ③ `products.weight` 主数据(无报价记录时兜底)。
   > 修复前一律用 `products.weight`:客户在报价时把重量谈成新值(只写在报价快照上)、主数据没更新时,
   > 每次做发货单 R11 都拿旧主数据重量误报 WARN。改用快照优先后,谈判达成的新重量不再误报;
   > 真正该暴露的"合同价 ≠ 谈判价"依然会 WARN。
+  > 加固(同日):fallback 子查询加**客户过滤**(`q.customer_code = 合同客户`),防多客户数据互相污染;
+  > 状态集对齐 ENUM(draft/sent/confirmed/converted),清掉历史遗留的 'accepted'。
+- **覆盖范围**(2026-08-01 补漏洞):① 有发货明细的合同行——反算并回写 `delivery_order_items` 三个反算字段;
+  ② **没有任何发货明细的合同行**——同样反算,WARN 带 `[合同未发货]` 前缀(合同签了没发货时单价录错原本完全隐形),无回写
 - **实际合同单价**:`sales_contract_items.unit_price`(原币种/件,R10 顺带澄清注释)
 
 > ⚠ 2026-07-31 修正:原公式误乘 `sales_contracts.exchange_rate`,把"原币/件"算成了"人民币/件",

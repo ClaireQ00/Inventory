@@ -1380,42 +1380,42 @@ def check_packing_coefficient(conn, report):
     容差 0.01: 超差报 warn 不报 error。合同单价按 2 位小数报价(如 1.112×7=7.784 → 7.78),
     0.001 过紧会把正常四舍五入误报; 0.01 覆盖 2 位小数报价的最大舍入误差(0.005)。
 
-    单重/系数取数来源 (2026-08-01 修复"回流"问题):
+    单重/系数取数来源 (2026-08-01 修复"回流"问题; 同日加固):
       ① 优先: 该合同 converted 来源报价单上的【快照值】 (quotation_items.weight_per_unit
          / price_coefficient, 经 quotations.converted_contract_no 关联) —— 这是谈判达成值,
          客户在报价时谈成的新重量不会再触发误报 WARN
-      ② 兜底: 最新有效报价的快照值 (老逻辑, 合同不是从报价转的情况)
+      ② 兜底: 最新有效报价的快照值 (老逻辑, 合同不是从报价转的情况)。
+         加固: 只取【同客户】的报价 (防跨客户污染), 且非 draft 优先
+         (还在谈的草稿不能盖过已确认的正式报价), draft 仅作最后手段
       ③ 最后: products.weight 主数据 (没有任何报价记录时)
       修复前一律用 products.weight, 报价改过重量的合同每次做发货单都误报 WARN。
+
+    覆盖范围 (2026-08-01 补漏洞): 第一遍查有发货明细的合同行(回写 doi 反算字段);
+      第二遍查【没有任何发货明细】的合同行 —— 合同签了还没发货时单价录错
+      原本完全隐形, 现在也反算, WARN 带 [合同未发货] 前缀, 无回写。
     """
 
-    # 通过 (contract_no, contract_item_no) 关联到 sales_contract_items;
-    # 单重/系数优先取 converted 来源报价的快照 (谈判达成值), 再退到最新报价/主数据
+    TOLERANCE = 0.01
     cur = conn.cursor()
-    cur.execute("""
-        SELECT doi.id, doi.contract_no, doi.contract_item_no, doi.material_id,
-               sci.unit_price   AS contract_unit_price,
-               cv.snap_weight,
-               cv.snap_coeff,
-               p.weight         AS master_weight,
-               (SELECT qi.price_coefficient
+
+    # fallback 子查询 (同客户 + 非draft优先) 在两遍查询里复用, 拼成 SQL 片段
+    _FB_W = """(SELECT qi.weight_per_unit
                   FROM quotation_items qi
                   JOIN quotations q ON q.quote_no = qi.quote_no
-                 WHERE qi.material_id = doi.material_id
-                   AND q.status IN ('draft', 'accepted', 'converted')
-                 ORDER BY q.id DESC
-                 LIMIT 1)        AS latest_coeff,
-               (SELECT qi.weight_per_unit
+                 WHERE qi.material_id = {mid_ref}
+                   AND q.customer_code = sc.customer_code
+                   AND q.status IN ('draft','sent','confirmed','converted')
+                 ORDER BY (q.status = 'draft'), q.id DESC
+                 LIMIT 1)"""
+    _FB_C = """(SELECT qi.price_coefficient
                   FROM quotation_items qi
                   JOIN quotations q ON q.quote_no = qi.quote_no
-                 WHERE qi.material_id = doi.material_id
-                   AND q.status IN ('draft', 'accepted', 'converted')
-                 ORDER BY q.id DESC
-                 LIMIT 1)        AS latest_weight
-        FROM delivery_order_items doi
-        JOIN sales_contract_items sci ON sci.contract_no = doi.contract_no
-                                     AND sci.item_no = doi.contract_item_no
-        JOIN products p                ON p.material_id = doi.material_id
+                 WHERE qi.material_id = {mid_ref}
+                   AND q.customer_code = sc.customer_code
+                   AND q.status IN ('draft','sent','confirmed','converted')
+                 ORDER BY (q.status = 'draft'), q.id DESC
+                 LIMIT 1)"""
+    _CV_JOIN = """
         LEFT JOIN (
             SELECT q.converted_contract_no AS contract_no, qi.material_id,
                    qi.weight_per_unit AS snap_weight, qi.price_coefficient AS snap_coeff
@@ -1424,29 +1424,53 @@ def check_packing_coefficient(conn, report):
             WHERE q.status = 'converted' AND q.converted_contract_no IS NOT NULL
             GROUP BY q.converted_contract_no, qi.material_id
             HAVING q.id = MAX(q.id)
-        ) cv ON cv.contract_no = doi.contract_no AND cv.material_id = doi.material_id
+        ) cv ON cv.contract_no = {cno_ref} AND cv.material_id = {mid_ref2}"""
+
+    def _sourcing(snap_w, snap_c, master_w, fb_w, fb_c):
+        """取数优先级: converted 报价快照 > 同客户最新报价快照(非draft优先) > 主数据"""
+        weight = snap_w if snap_w else (fb_w if fb_w else master_w)
+        coeff = snap_c if snap_c else fb_c
+        if snap_w:
+            src = "converted报价快照"
+        elif fb_w:
+            src = "最新报价快照"
+        else:
+            src = "主数据"
+        return weight, coeff, src
+
+    def _judge(contract_price, weight, coeff):
+        """返回 (expected, diff, status); 缺数据返回 None"""
+        if None in (contract_price, weight, coeff) or not weight:
+            return None
+        expected = round(coeff * weight, 4)
+        diff = round(float(contract_price) - expected, 4)
+        return expected, diff, ("pass" if abs(diff) <= TOLERANCE else "warn")
+
+    # ---- 第一遍: 有发货明细的合同行 (回写 doi 反算字段) ----
+    cur.execute(f"""
+        SELECT doi.id, doi.contract_no, doi.contract_item_no, doi.material_id,
+               sci.unit_price   AS contract_unit_price,
+               cv.snap_weight, cv.snap_coeff,
+               p.weight         AS master_weight,
+               {_FB_C.format(mid_ref='doi.material_id')} AS fb_coeff,
+               {_FB_W.format(mid_ref='doi.material_id')} AS fb_weight
+        FROM delivery_order_items doi
+        JOIN sales_contract_items sci ON sci.contract_no = doi.contract_no
+                                     AND sci.item_no = doi.contract_item_no
+        JOIN sales_contracts sc       ON sc.contract_no = doi.contract_no
+        JOIN products p                ON p.material_id = doi.material_id
+        {_CV_JOIN.format(cno_ref='doi.contract_no', mid_ref2='doi.material_id')}
         WHERE doi.contract_item_no IS NOT NULL
     """)
     rows = cur.fetchall()
-    if not rows:
-        return  # 没有可核对的发货明细, 跳过
 
-    TOLERANCE = 0.01
     updates = []  # (expected, diff, status, id)
 
-    for doi_id, cno, ci_no, mid, contract_price, snap_w, snap_c, master_w, latest_c, latest_w in rows:
-        # 取数优先级: converted 报价快照 > 最新报价快照 > products 主数据
-        weight = snap_w if snap_w else (latest_w if latest_w else master_w)
-        coeff = snap_c if snap_c else latest_c
-        if snap_w:
-            weight_src = "converted报价快照"
-        elif latest_w:
-            weight_src = "最新报价快照"
-        else:
-            weight_src = "主数据"
+    for doi_id, cno, ci_no, mid, contract_price, snap_w, snap_c, master_w, fb_c, fb_w in rows:
+        weight, coeff, weight_src = _sourcing(snap_w, snap_c, master_w, fb_w, fb_c)
+        judged = _judge(contract_price, weight, coeff)
 
-        # 缺任一数据 → pending (不算错, 提示)
-        if None in (contract_price, weight, coeff) or not weight:
+        if judged is None:
             updates.append((0.0, 0.0, "pending", doi_id))
             report.warn(
                 f"发货明细 id={doi_id} (material_id={mid}): 缺反算数据 "
@@ -1454,10 +1478,7 @@ def check_packing_coefficient(conn, report):
             )
             continue
 
-        # 正算 (丙方案修正): 应等于的合同单价(原币/件) = 报价系数 × 单重
-        expected = round(coeff * weight, 4)
-        diff = round(float(contract_price) - expected, 4)
-        status = "pass" if abs(diff) <= TOLERANCE else "warn"
+        expected, diff, status = judged
         updates.append((expected, diff, status, doi_id))
 
         if status == "warn":
@@ -1467,11 +1488,50 @@ def check_packing_coefficient(conn, report):
             )
 
     # 回写到 delivery_order_items (校验阶段顺便填派生字段, 跨表计算不适合 DERIVED_RULES)
-    cur.executemany(
-        "UPDATE delivery_order_items SET expected_unit_price=?, coeff_diff=?, coeff_check_status=? WHERE id=?",
-        [(e, d, s, i) for (e, d, s, i) in updates],
-    )
-    conn.commit()
+    if updates:
+        cur.executemany(
+            "UPDATE delivery_order_items SET expected_unit_price=?, coeff_diff=?, coeff_check_status=? WHERE id=?",
+            [(e, d, s, i) for (e, d, s, i) in updates],
+        )
+        conn.commit()
+
+    # ---- 第二遍 (2026-08-01 补漏洞): 没有任何发货明细的合同行 ----
+    # 合同签了还没做发货单时, 单价录错本来完全隐形; 这里同样反算, 只 WARN 无回写
+    cur.execute(f"""
+        SELECT sci.contract_no, sci.item_no, sci.material_id,
+               sci.unit_price   AS contract_unit_price,
+               cv.snap_weight, cv.snap_coeff,
+               p.weight         AS master_weight,
+               {_FB_C.format(mid_ref='sci.material_id')} AS fb_coeff,
+               {_FB_W.format(mid_ref='sci.material_id')} AS fb_weight
+        FROM sales_contract_items sci
+        JOIN sales_contracts sc ON sc.contract_no = sci.contract_no
+        JOIN products p         ON p.material_id = sci.material_id
+        {_CV_JOIN.format(cno_ref='sci.contract_no', mid_ref2='sci.material_id')}
+        WHERE NOT EXISTS (
+            SELECT 1 FROM delivery_order_items doi
+            WHERE doi.contract_no = sci.contract_no
+              AND doi.contract_item_no = sci.item_no
+        )
+    """)
+    for cno, ci_no, mid, contract_price, snap_w, snap_c, master_w, fb_c, fb_w in cur.fetchall():
+        weight, coeff, weight_src = _sourcing(snap_w, snap_c, master_w, fb_w, fb_c)
+        judged = _judge(contract_price, weight, coeff)
+
+        if judged is None:
+            report.warn(
+                f"[合同未发货] 合同 {cno} 明细 {ci_no} (material_id={mid}): 缺反算数据 "
+                f"(合同单价={contract_price}, 单重={weight}, 报价系数={coeff})"
+            )
+            continue
+
+        expected, diff, status = judged
+        if status == "warn":
+            report.warn(
+                f"[合同未发货] 合同 {cno} 明细 {ci_no} (material_id={mid}): 公斤价反算差异 {diff:+.4f} "
+                f"超容差 {TOLERANCE} (合同单价={contract_price}, 应等于={expected:.4f} = "
+                f"系数{coeff}×单重{weight} [{weight_src}])"
+            )
 
 
 # ============================================================

@@ -310,6 +310,28 @@ def update_contract_material(contract_no, source_id, new_id, csv_dir,
             "若新规格价格有重谈, 请手工调整合同明细单价 (R11 反算会用新编码的报价快照重核)"
         )
 
+        # R11 快照锚点检查: converted 来源报价若还挂旧码, R11 对不上快照会退到兜底取数
+        qi_path = os.path.join(csv_dir, "quotation_items.csv")
+        q_path = os.path.join(csv_dir, "quotations.csv")
+        if os.path.exists(qi_path) and os.path.exists(q_path):
+            _, q_rows = _read_csv(q_path)
+            _, qi_rows = _read_csv(qi_path)
+            anchor_quotes = {
+                r.get("quote_no") for r in q_rows
+                if r.get("status") == "converted"
+                and r.get("converted_contract_no") == contract_no
+            }
+            stale = {
+                r.get("quote_no") for r in qi_rows
+                if r.get("quote_no") in anchor_quotes and r.get("material_id") == source_id
+            }
+            for qno in sorted(stale):
+                reminders.append(
+                    f"converted 报价 {qno} 还挂着旧码 {source_id}: 建议一并换码 "
+                    f"(重跑本工具加 --update-quote {qno}), 否则 R11 反算找不到该合同的报价快照, "
+                    f"会退到'同客户最新报价/主数据'兜底取数"
+                )
+
     return {
         "contract_rows_updated": contract_rows_updated,
         "delivery_rows_updated": delivery_rows_updated,
