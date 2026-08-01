@@ -32,6 +32,7 @@
 | [0001](0001-derived-fields-in-application-layer.md) | 派生字段走应用层(Python),不使用数据库生成列 | 已接受 | 派生字段分层 |
 | [0002](0002-transfer-soft-link-no-dedicated-table.md) | 仓库调拨复用 stock_in/stock_out + transfer_ref 软关联,不建独立 transfer 表 | 已接受 | 调拨建模 |
 | [0003](0003-quotation-derive-from-brief.md) | 报价 brief 与 formal 共用 quotations 表 + parent_quote_id 软关联派生 + subtotal 直接公式 | 已接受 | 报价派生建模 |
+| [0004](0004-foreign-keys-use-business-codes-not-ids.md) | 外键改业务编号引用,弃用 AUTO_INCREMENT id 做关联 | 已接受 | 外键建模 |
 
 ---
 

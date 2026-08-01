@@ -23,5 +23,8 @@ nocodb-data/
 # Misc
 *.log
 
+# 测试运行期生成的临时夹具 (tests/run_tests.py 每次重建)
+tests/fixtures/
+
 # Claude Code 个人本地配置（团队共享规则进 .claude/settings.json，本地偏好不进仓库）
 .claude/settings.local.json

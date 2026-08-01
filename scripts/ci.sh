@@ -36,4 +36,11 @@ CSV_DIR="$TMPDIR" python3 tools/local_validator.py --csv-dir "$TMPDIR" || {
   exit 1
 }
 
+# 4. T2.X 独立测试套件 (故意触发错误的用例, 不污染 demo)
+echo "- Running T2.X independent test suite..."
+python3 tests/run_tests.py || {
+  echo "CI FAIL: T2.X 测试套件未通过"
+  exit 1
+}
+
 echo "CI checks passed."
