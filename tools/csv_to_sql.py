@@ -75,6 +75,9 @@ DERIVED_RULES = {
             ],
             "tolerance": 0.05,
             "tolerance_mode": "percent",  # 厚度也用 5% 容差
+            # 2026-08-01 真实主数据导入约定: 客户手填值与公式超差时保留客户值,
+            # 只 WARN 不阻止生成 (偏差提示写入 remark)
+            "mismatch_level": "warn",
             "description": "厚度(mm) 反推: 优先从 (外径-内径)/2 几何反推, 其次密度方程",
         },
         # A1: 外径 (mm) = 内径 + 壁厚 × 2
@@ -115,6 +118,8 @@ DERIVED_RULES = {
             "depends_on": ["product_category", "inner_diameter", "thickness", "length"],
             "tolerance": 0.05,
             "tolerance_mode": "percent",  # 5% 百分比容差
+            # 2026-08-01 真实主数据导入约定: 保留客户手填值, 超差只 WARN
+            "mismatch_level": "warn",
             "description": "单件重量(kg) = (内径+厚度)×厚度×3.14×密度×长度/1000",
         },
         # E1: 米重 (g/m)
@@ -124,6 +129,8 @@ DERIVED_RULES = {
             "depends_on": ["product_category", "inner_diameter", "thickness"],
             "tolerance": 0.05,
             "tolerance_mode": "percent",
+            # 2026-08-01 真实主数据导入约定: 保留客户手填值, 超差只 WARN
+            "mismatch_level": "warn",
             "description": "米重(g/m) = (内径+厚度)×厚度×3.14×密度",
         },
         # A4: 单件体积 CBM (m³) = 外观外径(mm)² × 外观高度(mm) × 0.93 / 1e6
@@ -451,40 +458,150 @@ def _safe_div(a, b, ndigits=3):
 #   所有重量都从密度出发算, 不要有两套公式。
 #
 #   统一公式链:
-#     1) 密度 ρ           = DENSITY_RULES[product_category](row)
+#     1) 密度 ρ           = DENSITY_RULES[产品大类](row)
 #     2) 理论米重 (g/m)   = (内径+厚度) × 厚度 × 3.14 × ρ
 #     3) 理论单件重量(kg) = 理论米重 × 长度 / 1000
 #
 #   单位约定: 内径/厚度 mm, 长度 m, 重量 kg, 米重 g/m
 #
-# 各类型密度规则:
+# 产品大类密度规则 (2026-08-01 老板确认, 详见 BUSINESS_RULES.md R4):
 #   线管    : ρ = 1.35 (固定)
+#   水带    : ρ = 1.35 (固定, 与线管相同)
 #   钢丝管  : ρ = 内径 × 0.003 + 1.46
+#   复合管  : ρ = 内径 × 0.003 + 1.46 (与钢丝管相同)
 #   塑筋管  : (TODO 待客户补充)
-#   水带    : (TODO 待客户补充)
+#
+# products.product_category 存的是客户原始类别 (70+ 种, 如"无味钢丝管"/
+# "钩编管"/"白复合防静电"), 先经 CATEGORY_ALIASES 映射成 4 个大类再查密度。
+# 映射不到的原始类别: 按名称关键词兜底 (含"钢丝"->钢丝管, 含"复合"->复合管,
+# 含"水带"->水带), 仍判不了返回 None (跳过校验)。
 #
 # 容差: 客户通常会"上下稍微浮动"确定最终重量, 5% 内算正常
 # ============================================================
 
-# 密度公式表: 每种物料类型 -> 一个 lambda, 输入 row, 输出密度
+# 原始产品类别 -> 产品大类 别名表 (2026-08-01 真实主数据 70 个类别全量梳理)
+CATEGORY_ALIASES = {
+    # ---- 钢丝管大类 ----
+    "钢丝管": "钢丝管",
+    "无味钢丝管": "钢丝管",
+    "耐高温钢丝管": "钢丝管",
+    "防静电钢丝管": "钢丝管",
+    # ---- 复合管大类 (老板: 复合管按钢丝管公式算) ----
+    "钢丝复合管": "复合管",
+    "白复合防静电": "复合管",
+    "绿色复合耐低温防静电": "复合管",
+    # ---- 水带大类 (老板: 水带密度与线管相同 = 1.35) ----
+    "水带": "水带",
+    "蓝色水带": "水带",
+    "红色水带": "水带",
+    "绿色水带": "水带",
+    "橙色水带": "水带",
+    "蓝龙水带（永利5号）": "水带",
+    # ---- 线管大类 (老板: 其余类别密度都与线管相同 = 1.35) ----
+    "线管": "线管",
+    "无味线管": "线管",
+    "流体管": "线管",
+    "钩编管": "线管",
+    "浩丝管": "线管",
+    "合股双编": "线管",
+    "双合股线": "线管",
+    "双编合股线管": "线管",
+    "双合股中压管": "线管",
+    "三胶两线管": "线管",
+    "三胶两线 氧气乙炔管": "线管",
+    "三胶两线 红蓝双连氧气管": "线管",
+    "三胶一线": "线管",
+    "三胶一线蓝龙": "线管",
+    "三胶一线花园管内胶白（不透明）中黑外绿": "线管",
+    "三胶一线柠檬黄三维花园管内胶白色（不透明）中黑无味外柠檬黄": "线管",
+    "三胶一线海之蓝三维花园管内胶白（不透明）中黑无味外海之蓝": "线管",
+    "两胶一线": "线管",
+    "黄色两胶一线": "线管",
+    "黑色两胶一线": "线管",
+    "黑四胶两线 胶管": "线管",
+    "四胶两线": "线管",
+    "黄四胶两线": "线管",
+    "红四胶两线": "线管",
+    "四胶两线 浩丝管": "线管",
+    "四胶三线 胶管": "线管",
+    "黄色三胶一线 花线管": "线管",
+    "蓝色三胶一线 花线管": "线管",
+    "工程管": "线管",
+    "工程管内瓷白中黑（黑无味）外透明三胶双编": "线管",
+    "黑园林工程高压专用管": "线管",
+    "蓝龙工业管": "线管",
+    "蓝龙管": "线管",
+    "黄金管": "线管",
+    "黄花园管": "线管",
+    "蓝花园管": "线管",
+    "黑双编花园管": "线管",
+    "日式线管": "线管",
+    "日式合股双编": "线管",
+    "黑两胶一线 合股双编": "线管",
+    "绿色牛筋防寒管": "线管",
+    "磨沙牛筋管": "线管",
+    "牛筋管 磨沙流体管 淡蓝色": "线管",
+    "黄流体": "线管",
+    "硅胶软管": "线管",
+    "乳胶管": "线管",
+    "原子管": "线管",
+    "喷雾管": "线管",
+    "水平管": "线管",
+    "黑色煤气管": "线管",
+    "仿广东管": "线管",
+    "桔红": "线管",
+    "P5黄色合股双编网线管": "线管",
+    "p8海蓝合股单编": "线管",
+    "内白外黄三胶一线 邢培栩": "线管",
+    "外兰内磁白双编管（原蓝龙线管颜色）": "线管",
+}
+
+# 密度公式表: 每个产品大类 -> 一个 lambda, 输入 row, 输出密度
+_DENSITY_GANGSI = lambda row: (
+    lambda id_: round(id_ * 0.003 + 1.46, 4) if id_ is not None else None
+)(_to_float(row.get("inner_diameter")))
+
 DENSITY_RULES = {
     "线管": lambda row: 1.35,
-    "钢丝管": lambda row: (
-        lambda id_: round(id_ * 0.003 + 1.46, 4) if id_ is not None else None
-    )(_to_float(row.get("inner_diameter"))),
-    # 塑筋管 / 水带 等待客户补充, 暂时返回 None (无法计算, 跳过校验)
+    "水带": lambda row: 1.35,  # 2026-08-01 老板确认: 与线管相同
+    "钢丝管": _DENSITY_GANGSI,
+    "复合管": _DENSITY_GANGSI,  # 2026-08-01 新增大类: 与钢丝管相同
+    # 塑筋管 等待客户补充, 暂时返回 None (无法计算, 跳过校验)
     "塑筋管": lambda row: None,
-    "水带": lambda row: None,
 }
+
+
+def resolve_category_group(raw_category):
+    """
+    把客户原始产品类别映射成产品大类 (钢丝管/线管/复合管/水带)。
+    先查全量别名表, 再按名称关键词兜底, 都判不了返回 None。
+    """
+    cat = (raw_category or "").strip()
+    if not cat:
+        return None
+    if cat in CATEGORY_ALIASES:
+        return CATEGORY_ALIASES[cat]
+    if cat in DENSITY_RULES:  # 直接就是大类名 (或塑筋管)
+        return cat
+    if "钢丝" in cat:
+        return "钢丝管"
+    if "复合" in cat:
+        return "复合管"
+    if "水带" in cat:
+        return "水带"
+    return None
 
 
 def calc_density(row):
     """
-    根据物料类型 (product_category 字段) 返回密度。
+    根据产品类别 (product_category 字段) 返回密度。
+    原始类别先经 resolve_category_group 映射成大类再查公式。
     未知类型或信息不全返回 None。
     """
-    category = (row.get("product_category") or "").strip()
-    fn = DENSITY_RULES.get(category)
+    group = resolve_category_group(row.get("product_category"))
+    if group is None:
+        return None
+    fn = DENSITY_RULES.get(group)
     if fn is None:
         return None
     return fn(row)
@@ -736,11 +853,14 @@ def apply_derived_rules(table, row, row_index=None, report=None):
 
             diff = abs(current_num - expected)
             if diff > allowed_diff:
-                # 公式值跟手填值对不上, 这是大事, 报错
+                # 公式值跟手填值对不上。默认 error 阻止生成;
+                # 规则声明 mismatch_level="warn" 时降级为提醒 (如 products 真实主数据,
+                # 客户手填值与密度公式超差时约定保留客户值, 偏差提示写入 remark)
+                level = rule.get("mismatch_level", "error")
                 loc = f"[{table} 第 {row_index} 行]" if row_index else f"[{table}]"
                 pct = round(diff / abs(expected) * 100, 2) if expected else "N/A"
                 report.append(
-                    ("error",
+                    (level,
                      f"{loc} 字段 {field} 手填值 {current_num} "
                      f"与公式计算值 {expected} 相差 {round(diff, 3)} ({pct}%) "
                      f"(超过容差 {diff_desc}), 请核对公式或数据")
