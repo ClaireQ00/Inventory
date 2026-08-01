@@ -24,6 +24,7 @@
 
 import os
 import csv
+from datetime import date
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # ⚠️ 演示数据只能写这里, 不能写到 data/csv/ 根目录 (会覆盖真实数据)
@@ -278,13 +279,16 @@ def main():
 
     # 12e. [新增] 汇率表 exchange_rates (第7模块)
     #      业务约定: 每月1日记录一次当月固定汇率
-    #      演示场景: 2026-07 月的 USD/EUR 汇率 (人民币记账用)
+    #      [改 2026-08-01] effective_date 不再硬编码, 动态取"当前月1号",
+    #      否则跨月后 check_exchange_rates 会报"本月汇率缺失"把 demo 卡死
+    month_1st = date.today().replace(day=1).isoformat()
+    month_label = f"{date.today().year}年{date.today().month}月"
     write_csv(
         "exchange_rates.csv",
         ["id", "currency", "rate_to_cny", "effective_date", "source", "remark"],
         [
-            [1, "USD", 7.15, "2026-07-01", "manual", "2026年7月美元固定汇率"],
-            [2, "EUR", 7.85, "2026-07-01", "manual", "2026年7月欧元固定汇率"],
+            [1, "USD", 7.15, month_1st, "manual", f"{month_label}美元固定汇率"],
+            [2, "EUR", 7.85, month_1st, "manual", f"{month_label}欧元固定汇率"],
         ],
     )
 
