@@ -110,6 +110,19 @@
 - [x] S5.8 [P1] `clone_material.py` 健壮性修复×2（2026-08-01 链路复查实测发现）：① products.csv 无 `remark` 列时写溯源备注导致 DictWriter 报多余字段 → 跳过并转 reminders 告知；② 带 `id` 列的 CSV 克隆行照抄源行 id → 导入主键撞号、源物料被 REPLACE 顶掉 → 自动取 max+1 新号（真实数据 products.csv 无 id 列，此前未暴露）
 - [ ] S5.9 [P2] 跟进：报价换码后旧物料失去报价系数来源，其历史合同/发货行 R11 转「缺反算→pending」WARN——当前按 ADR-0005 后果表缓解（合同侧换码 / 停用旧物料），未来前端阶段考虑「历史行免反算」开关
 
+### 第六组：前端工作台（2026-08-01 阶段一落地，并行 agent 交付 + 主 agent 实测验收）
+
+> 背景：老板决定取消零依赖原则（一切以项目为核心），前端参考项目（标准化外贸工作流）协作 agent 交付阶段一 Streamlit 快速原型。长期路线见 `docs/FRONTEND_PLAN.md`（三阶段：Streamlit → FastAPI+React → Blueprint Widget 监控层），交接细节见 `docs/HANDOFF_FRONTEND_PHASE1.md`。**边界：前端只做查询/报表，数据录入仍走 CSV → 校验 → 导入流程；核心业务逻辑（`tools/` 校验/派生/转换）保持纯标准库，第三方依赖只进前端/API 包装层。**
+
+- [x] F1.1 [P0] `tools/streamlit_app.py` 6 模块只读工作台（仪表盘/库存/合同/基础资料/报表/校验日志），728 行
+- [x] F1.2 [P0] `docker-compose.yml` 新增 streamlit 服务（端口 8501）+ `.env.example` 加 `STREAMLIT_PORT`（db/adminer 未动）
+- [x] F1.3 [P0] 主 agent 冒烟验收（2026-08-01）：从零重建容器 → pip 安装（**修复：默认 PyPI 源卡死，compose 改清华镜像源**）→ HTTP 200 → 容器内五表查询连通（products 12 / contracts 1 / inventory 5 / quotations 2 / delivery_orders 2）
+- [x] F1.4 [P1] `.env.example` 重复 `NOCODB_PORT` 行清除（验收时发现）
+- [ ] F1.5 [P1] 团队试用：发给外贸业务经理和财务经理，收集"还需要什么查询/报表"反馈（老板发起）
+- [ ] F1.6 [P2] 浏览器端逐页面人工核对（冒烟只验证了数据层，页面渲染需肉眼过一遍）
+- [ ] F2.1 [P2] 阶段二设计：FastAPI REST 接口规范（请求/响应 JSON）——**等 F1.5 试用反馈定优先级**，预计 3-6 个月，见 FRONTEND_PLAN §3 阶段二
+- [ ] F2.2 [P2] 阶段二骨架：`frontend/`（React+Vite+Tailwind）+ `api/`（FastAPI+PyMySQL）
+
 ---
 
 ## 3. 任务分组索引（按主题快速跳转）
@@ -122,6 +135,7 @@
 | 安全 | T2.7 / T2.9 | 敏感数据扫描 / 报错可读性 |
 | 阶段二 | T3.1 ~ T3.6 | 本阶段不做，仅登记 |
 | 快照重量链路 | S5.1 ~ S5.9 | 分阶段管控 + R11 快照优先 + 克隆建物料（ADR-0005） |
+| 前端工作台 | F1.1 ~ F2.2 | 阶段一 Streamlit 已落地验收；阶段二 FastAPI+React 待试用反馈 |
 | ~~已砍~~ | ~~T2.6 / T2.10~~ | ~~audit_logs 提前做无意义 / 日志锦上添花~~ |
 
 ---

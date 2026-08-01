@@ -1,25 +1,28 @@
 # ============================================================
 # Inventory 项目 - 一键环境编排 (兼容本地开发 + NAS 生产部署)
 # ------------------------------------------------------------
-# 启动两个服务:
-#   db      : MySQL 8, 启动时自动建表 + 灌基础数据 (执行 sql/*.sql)
-#   adminer : 网页版数据库管理器, 浏览器打开就能看表/查数据
+# 启动四个服务:
+#   db        : MySQL 8, 启动时自动建表 + 灌基础数据
+#   adminer   : 网页版数据库管理器
+#   streamlit : 阶段一快速原型界面 (查询 + 报表)
 #
 # ┌─ 本地开发 (开发者在自己的电脑跑)
 # │   cp .env.example .env
 # │   docker compose up -d
-# │   浏览器打开 http://localhost:8080
+# │   浏览器打开 http://localhost:8080 (Adminer)
+# │   浏览器打开 http://localhost:8501 (工作台)
 # │
 # └─ NAS 生产部署 (绿联 DXP4800 Plus 等, 给团队远程访问)
 #     详见 docs/NAS_DEPLOY.md
 #     本文件已按"最小暴露"原则配置: 数据库只绑 127.0.0.1, 公网连不到;
-#     只有 Adminer (网页) 对外, 用作团队查询入口。
+#     Adminer 和 Streamlit 对外, 用作团队入口。
 #
 # 常用命令:
-#   docker compose up -d            启动 (后台)
-#   docker compose logs -f db       看 MySQL 启动日志
-#   docker compose down             停止并删除容器 (数据保留)
-#   docker compose down             停止 (数据保留在 ./mysql-data)
+#   docker compose up -d              启动全部服务 (后台)
+#   docker compose up -d db           只启动数据库
+#   docker compose logs -f db         看 MySQL 启动日志
+#   docker compose logs -f streamlit  看工作台日志
+#   docker compose down               停止并删除容器 (数据保留)
 #   docker compose down && rm -rf mysql-data   彻底清空数据 (慎用!)
 # ============================================================
 
@@ -48,7 +51,7 @@ services:
       # ⚠️ 安全关键: 绑定 127.0.0.1 而非 0.0.0.0
       # 效果: 只有"宿主机本机"能连这个数据库, 局域网/公网都连不到。
       #   - 本地开发: 在本机用 mysql 客户端连 127.0.0.1:3306 调试, 没问题
-      #   - NAS 生产: 数据库被锁在 NAS 本机, 公网穿透进来也只到 Adminer, 碰不到 DB
+      #   - NAS 生产: 数据库被锁在 NAS 本机, 公网穿透进来也只到前端, 碰不到 DB
       # 如果以后确实要让局域网其他机器直连 DB, 把 127.0.0.1 改成 NAS 内网 IP
       - "127.0.0.1:3306:3306"
     volumes:
@@ -70,13 +73,50 @@ services:
     container_name: inventory-adminer
     restart: unless-stopped
     ports:
-      # Adminer 网页: 这是唯一对外的入口
+      # Adminer 网页: 数据库查询入口
       #   本地: http://localhost:8080
       #   NAS : http://NAS内网IP:8080  或经 DDNS+端口转发后 http://你的域名:8080
       - "${ADMINER_PORT:-8080}:8080"
     environment:
       # 默认连本编排里的 db 容器, 登录页服务器栏不用手填
       ADMINER_DEFAULT_SERVER: db
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # ────────────────────────────────────────────────────────────
+  # streamlit : 阶段一快速原型界面
+  #   浏览器访问: http://localhost:8501 (本地)
+  #   NAS 外网 : http://你的域名:8501 (经端口转发)
+  #   依赖     : streamlit + pymysql (PyPI, 仅前端层)
+  # ────────────────────────────────────────────────────────────
+  streamlit:
+    image: python:3.11-slim
+    container_name: inventory-streamlit
+    restart: unless-stopped
+    command: >
+      bash -c "
+        pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple streamlit pymysql &&
+        cd /app/tools &&
+        streamlit run streamlit_app.py
+          --server.port=8501
+          --server.address=0.0.0.0
+          --server.headless=true
+          --browser.gatherUsageStats=false
+      "
+    ports:
+      - "${STREAMLIT_PORT:-8501}:8501"
+    environment:
+      DB_HOST: db
+      DB_PORT: "3306"
+      DB_USER: ${MYSQL_USER:-inventory}
+      DB_PASSWORD: ${MYSQL_PASSWORD}
+      DB_NAME: ${MYSQL_DATABASE:-inventory_db}
+    volumes:
+      # 挂载工具脚本（含 streamlit_app.py）
+      - ./tools:/app/tools:ro
+      # 挂载校验日志目录（只读，供查看报告）
+      - ./data/logs:/app/data/logs:ro
     depends_on:
       db:
         condition: service_healthy
