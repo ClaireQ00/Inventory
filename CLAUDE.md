@@ -62,3 +62,9 @@ bash scripts/run_local_validation.sh --demo    # demo 假数据
 ```
 
 16 步全过才算改对了。校验前会自动跑 `tools/normalize_csv.py`（步骤 2c），把 Excel 编辑引入的 GBK/CRLF/多行字段问题自动修复，**填完 CSV 直接跑校验即可，不用手动管编码**（详见 `docs/IMPORT_TEMPLATES.md` 坑 5）。
+
+## 多 agent 并行协作约定（2026-08-01 踩坑后加）
+
+- **提交时只 `git add` 明确路径，永远不用 `git add -A` / `git add .`**——别的 agent 可能有半成品在工作区，`-A` 会把别人的活卷进你的 commit
+- 同一时间只让一个 agent 改 `tools/` 下的代码，避免互相覆盖
+- 工作区不干净时（有别的 agent 的未提交改动），不要跑 `scripts/claude-driver.sh`（它要求干净工作区，且每轮自动 commit）

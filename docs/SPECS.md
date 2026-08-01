@@ -81,11 +81,11 @@
 - `tools/csv_to_sql.py::apply_derived_rules()` 按优先级反推缺失字段(详见 `product-params/SKILL.md §3`):
   - 厚度反推三路径(优先级 A > B > C):A `外径→(外径-内径)/2` / B `内径+米重+密度 解方程` / C `内径+单重+长度`
   - 米重 / 单件重量按密度公式正算
-- 密度公式按 `product_category` 查 `tools/csv_to_sql.py::DENSITY_RULES`(线管 1.35;钢丝管 `内径×0.003+1.46`;塑筋管/水带 TODO 待客户补充)
+- 密度公式按 `product_category` 查 `tools/csv_to_sql.py::DENSITY_RULES`。4 个大类:线管/水带 固定 1.35;钢丝管/复合管 `内径×0.003+1.46`;塑筋管 TODO 待客户补充(2026-08-01 老板确认)。`product_category` 存客户原始类别(70+ 种),先经 `CATEGORY_ALIASES` 映射成大类再查密度
 
 **验收标准**:
 - AC1:客户给的参数在公式 5% 容差内,按**客户给定值**保存,不被覆盖(规则 `BUSINESS_RULES.md R4`;校验代码 `check_cross_field_consistency`)
-- AC2:客户手填值跟公式值偏差 > 5% → **报 ERROR 阻止生成 SQL**(`product-params/SKILL.md §5.1`)
+- AC2:客户手填 厚度/米重/单重 跟公式值偏差 > 5% → **报 WARN 不阻止生成,保留客户手填值**(2026-08-01 真实主数据导入约定,`mismatch_level: "warn"`,偏差提示写入 remark;此前为 ERROR)。几何派生字段(外径/体积)超差仍为 ERROR,见 F1.2
 - AC3:米重 × 长度 / 1000 vs 单件重量 偏差 > 5% → **报 WARN 不阻止生成**(`product-params/SKILL.md §5.2`,因为客户可单独虚标米重或单重)
 - AC4:`virtual_weight` / `virtual_length` **不进** `DERIVED_RULES`,不参与反向校验(`derived-fields/SKILL.md §2`)
 - AC5:产品类别 `product_category` 在 `DENSITY_RULES` 找不到公式时,跳过重量校验返回 None(不报错),不阻止生成 SQL(`BUSINESS_RULES.md R4` + `product-params/SKILL.md §1`)
@@ -126,7 +126,7 @@
 **验收标准**:
 - AC1:`weight_per_meter × length / 1000` vs `weight` 偏差 > 5% → WARN(`product-params/SKILL.md §5.2`)
 - AC2:**不阻止生成 SQL**(允许客户单独虚标米重或单重)
-- AC3:跟密度公式 5% 校验共存,不冲突(密度公式 5% 是 ERROR,本项 5% 是 WARN)
+- AC3:跟密度公式 5% 校验共存,不冲突(密度公式 5% 自 2026-08-01 起为 WARN,本项 5% 也是 WARN,两者都提醒不阻止)
 
 **涉及数据表**:`products`。代码 `tools/local_validator.py::check_cross_field_consistency` / `csv_to_sql.py::CROSS_FIELD_TOLERANCE = 0.05`。
 

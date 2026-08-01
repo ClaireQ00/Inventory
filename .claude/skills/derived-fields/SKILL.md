@@ -131,7 +131,8 @@ allowed-tools: Read, Grep, Glob, Bash(python3:*)
 **关键点：**
 - 字符串派生列（`tolerance: None`，如 `id_x_od`）**不做反向校验**
 - 虚标字段（`virtual_weight` / `virtual_length`）**不进 DERIVED_RULES**，所以也不会校验
-- 一旦发现 1 处不符，**停止写入 SQL 文件**，避免污染数据库
+- **例外（2026-08-01 起）**：products 的 3 个重量类字段（`thickness` / `weight_per_meter` / `weight`）声明了 `mismatch_level: "warn"`，手填超差只 WARN 提醒、保留客户值（客户承诺值允许超 5%，见 `BUSINESS_RULES.md R4` 和 `product-params` skill §5.1）。**本 skill 管辖的几何/金额派生字段（外径/体积/金额小计等）仍是 ERROR 阻止生成，不受影响**
+- 一旦发现 1 处 ERROR 级不符，**停止写入 SQL 文件**，避免污染数据库
 - 控制台输出形如：
   ```
   [ERROR] [products 第 3 行] 字段 outer_diameter 手填值 99.99 与公式计算值 18.5
