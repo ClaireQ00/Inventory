@@ -52,7 +52,10 @@ amount + currency + exchange_rate + amount_cny
 3. `tools/csv_to_sql.py::DERIVED_RULES` — 派生字段（仅当字段是派生时）
 4. `sample/templates/<表名>_template.csv` — CSV 模板表头（2026-07-30 真实数据试用踩坑后补，第 4 处由 `scripts/check-template-schema-sync.sh` 自动兜底）
 
-派生字段默认走应用层（Python 算），不用 MySQL GENERATED COLUMN。目前唯一例外是 `delivery_order_items.short_qty`（纯行内计算）。
+## 技术原则（2026-08-01 更新）
+
+- **取消零依赖原则**：一切以项目为核心，不拘泥形式和工具。核心校验脚本保持纯标准库（降低部署门槛），前端、Web 框架、数据处理等扩展模块按需引入第三方依赖（如 streamlit / FastAPI / React）
+- 派生字段默认走应用层（Python 算），不用 MySQL GENERATED COLUMN。目前唯一例外是 `delivery_order_items.short_qty`（纯行内计算）
 
 ## 自检命令
 

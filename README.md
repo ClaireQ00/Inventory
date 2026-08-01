@@ -53,7 +53,7 @@ bash scripts/load-csv-to-db.sh --demo    # 演示数据
 
 ### 方式二：本地直接校验（适合开发者）
 
-纯 Python 标准库项目，无需安装第三方依赖，只要有 Python 3.11+：
+核心校验工具链只要有 Python 3.11+ 即可运行（2026-08-01 起项目取消零依赖原则，前端等扩展模块按需引入第三方依赖）：
 
 ```bash
 bash scripts/run_local_validation.sh           # 用 data/csv 下的真实数据
@@ -70,7 +70,7 @@ bash scripts/run_local_validation.sh --demo    # 或用演示数据
 | SQLite | 本地校验用轻量数据库（开发调试） |
 | Adminer | 网页版数据库管理界面 |
 | Docker Compose | 一键启动环境 |
-| Python 3.11+（标准库） | 校验与转换工具链，零第三方依赖 |
+| Python 3.11+ | 校验与转换工具链（核心脚本纯标准库；扩展模块按需引入第三方库） |
 
 ---
 
@@ -89,7 +89,7 @@ inventory/
 ├── scripts/
 │   ├── run_local_validation.sh   # 本地一键校验
 │   └── load-csv-to-db.sh         # CSV → MySQL 灌数
-└── tools/                  # 校验与转换工具链（纯标准库）
+└── tools/                  # 校验与转换工具链（核心纯标准库，含 streamlit 前端等扩展）
 ```
 
 ---
