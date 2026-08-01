@@ -242,14 +242,25 @@ def update_contract_material(contract_no, source_id, new_id, csv_dir,
     skipped, reminders = [], []
 
     # ---- 1. 合同明细换码 (已发货的行跳过) ----
+    # delivered_qty 字段不可信 (真实数据里未回写, 全是 0 但实际已发货, 2026-08-01 实测踩坑),
+    # 跟第 5 步校验一样从发货明细现算: SUM(actual_quantity), 空则退回 SUM(quantity)
+    doi_header, doi_rows = _read_csv(doi_path) if os.path.exists(doi_path) else (None, [])
+    delivered_map = {}
+    for r in doi_rows:
+        if r.get("contract_no") == contract_no:
+            key = r.get("contract_item_no")
+            actual = float(r.get("actual_quantity") or 0)
+            planned = float(r.get("quantity") or 0)
+            delivered_map[key] = delivered_map.get(key, 0) + (actual or planned)
+
     sci_header, sci_rows = _read_csv(sci_path)
     contract_rows_updated = 0
     for r in sci_rows:
         if r.get("contract_no") == contract_no and r.get("material_id") == source_id:
-            delivered = float(r.get("delivered_qty") or 0)
+            delivered = delivered_map.get(r.get("item_no"), 0)
             if delivered > 0:
                 skipped.append(
-                    f"合同明细 item_no={r.get('item_no')}: 已发货 {delivered} 件, 历史留痕不换码"
+                    f"合同明细 item_no={r.get('item_no')}: 已从发货明细实发 {delivered:g} 件, 历史留痕不换码"
                 )
             else:
                 r["material_id"] = new_id
@@ -265,7 +276,6 @@ def update_contract_material(contract_no, source_id, new_id, csv_dir,
             _, do_rows = _read_csv(do_path)
             do_status = {r.get("delivery_no"): (r.get("status") or "draft")
                          for r in do_rows}
-        doi_header, doi_rows = _read_csv(doi_path)
         for r in doi_rows:
             if r.get("contract_no") == contract_no and r.get("material_id") == source_id:
                 status = do_status.get(r.get("delivery_no"), "draft")
