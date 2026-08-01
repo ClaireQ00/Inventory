@@ -1356,7 +1356,8 @@ def check_quotations(conn, report):
             report.warn(
                 f"[正式报价须归位] 报价 {qno} 物料 {mid}: 快照重量 {wpu}kg 与主数据 {pw}kg "
                 f"偏差 {pct_str}% (>5%)。formal/合同是客户返单的长期依据, 不允许带偏离主数据的快照 —— "
-                f"请【新增物料】(新重量=新规格) 或【改用既有正确物料编码】后重新转单"
+                f"请【新增物料】(新重量=新规格) 或【改用既有正确物料编码】后重新转单 "
+                f"(半自动工具: python3 tools/clone_material.py {mid} <新编码> --weight {wpu} --update-quote {qno})"
             )
         else:
             report.warn(
