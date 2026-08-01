@@ -1329,27 +1329,39 @@ def check_quotations(conn, report):
             if abs(sub - expected) > 0.05:
                 report.error(f"报价明细 id={iid}: subtotal={sub} 与 算{expected:.2f}(重量{wpu}×系数{coeff}×数量{qty}) 不一致 (容差 0.05)")
 
-    # 校验5 (2026-08-01 新增): 报价快照重量 vs 主数据 products.weight 偏差提醒
+    # 校验5 (2026-08-01 新增; 同日升级为分阶段判定): 报价快照重量 vs 主数据 products.weight 偏差提醒
     #   业务背景: weight_per_unit 是"从 products.weight 带出, 可覆盖"的快照。
-    #   报价时改重量多为一次性谈判; 但合同确认后, 该重量/型号大概率长期延续 ——
-    #   这时应该【新增物料】或【更新主数据】, 否则:
-    #     ① 下次报价仍从旧 products.weight 带出, 又要重谈一遍
-    #     ② 发货环节 R11 反算 (报价系数 × products.weight) 会持续 WARN
-    #   提醒级 WARN, 不阻断; 容差沿用产品参数 5% (BUSINESS_RULES.md R4)
+    #   分阶段处理 (2026-08-01 老板确认):
+    #     - brief/draft 阶段: 改重量多为一次性谈判, 允许偏离, 只提醒"若延续请新增物料"
+    #     - formal/converted 阶段: 正式 QT 和合同是客户返单的长期依据, 快照必须归位到
+    #       正确物料编码 —— 谈成新重量就【新增物料】或【改用既有正确编码】, 不允许带着
+    #       偏离主数据的快照转合同, 否则返单/再报价又从旧主数据带错值
+    #   历史数据不动: 本校验只提醒, 不改任何已有记录
+    #   容差沿用产品参数 5% (BUSINESS_RULES.md R4)
     cur.execute("""
-        SELECT qi.id, qi.quote_no, qi.material_id, qi.weight_per_unit, p.weight
+        SELECT qi.id, qi.quote_no, qi.material_id, qi.weight_per_unit, p.weight,
+               q.quote_type, q.status
         FROM quotation_items qi
         JOIN products p ON p.material_id = qi.material_id
+        JOIN quotations q ON q.quote_no = qi.quote_no
     """)
-    for qi_id, qno, mid, wpu, pw in cur.fetchall():
+    for qi_id, qno, mid, wpu, pw, qtype, qstatus in cur.fetchall():
         if not wpu or not pw:
             continue
         diff_pct = abs(float(wpu) - float(pw)) / float(pw)
-        if diff_pct > 0.05:
+        if diff_pct <= 0.05:
+            continue
+        pct_str = round(diff_pct * 100, 1)
+        if qtype == 'formal' or qstatus == 'converted':
             report.warn(
-                f"报价 {qno} 物料 {mid}: 快照重量 {wpu}kg 与主数据 {pw}kg 偏差 {round(diff_pct*100, 1)}% (>5%)。"
-                f"若该重量变更将长期延续(合同已定), 建议新增物料或更新 products.weight; "
-                f"若仅本单临时谈判, 忽略即可"
+                f"[正式报价须归位] 报价 {qno} 物料 {mid}: 快照重量 {wpu}kg 与主数据 {pw}kg "
+                f"偏差 {pct_str}% (>5%)。formal/合同是客户返单的长期依据, 不允许带偏离主数据的快照 —— "
+                f"请【新增物料】(新重量=新规格) 或【改用既有正确物料编码】后重新转单"
+            )
+        else:
+            report.warn(
+                f"报价 {qno} 物料 {mid}: 快照重量 {wpu}kg 与主数据 {pw}kg 偏差 {pct_str}% (>5%)。"
+                f"brief 阶段允许临时谈判值; 若该重量将长期延续, 转 formal 前请新增物料或更新 products.weight"
             )
 
 

@@ -873,7 +873,10 @@
 - AC3:**金额四件套铁律** —— 主表 `total_amount + currency + exchange_rate + total_amount_cny` 齐全(`BUSINESS_RULES.md R1`);`total_amount_cny` 派生 = `total_amount × exchange_rate`
 - AC4:`quotations.total_amount` 必须等于明细 `subtotal` 之和;`quotations.total_volume` 应等于 Σ 明细 `total_volume`(WARN 容差 0.01)(见 VALIDATION_GUIDE 第 15 步;代码 `tools/local_validator.py::check_quotations` 子校验 1/1b)
 - AC5:同一报价单同一物料只能一行(唯一约束 `uk_qi_quote_itemno` + `uk_qi_quote_material`,见 `DATA_MODEL.md §4.9`)
-- AC6:**快照重量偏差提醒**(2026-08-01 新增)——明细 `weight_per_unit` 与主数据 `products.weight` 偏差 > 5% 时报 WARN,提示"若重量变更将长期延续(合同已定),建议新增物料或更新 `products.weight`;仅本单临时谈判则忽略"(见 VALIDATION_GUIDE 第 15 步;代码 `check_quotations` 子校验 5,容差沿用 R4 的 5%)。背景:报价改重量多为临时,但合同确认后大概率延续,不处理会导致下次报价仍从旧主数据带出(R11 反算已改为快照优先,见 R11,不会因此误报)
+- AC6:**快照重量分阶段规则**(2026-08-01 新增,老板确认)——明细 `weight_per_unit` 与主数据 `products.weight` 偏差 > 5% 时按报价阶段区别处理(代码 `check_quotations` 子校验 5,容差沿用 R4 的 5%):
+  - **brief/draft**:WARN 提醒"临时谈判值,若长期延续转 formal 前请新增物料或更新主数据"——报价改重量多为临时,允许偏离
+  - **formal/converted**:WARN 提醒"正式 QT/合同是客户返单的长期依据,必须【新增物料】或【改用既有正确编码】归位,不允许带偏离快照转单"——否则返单/再报价又从旧主数据带错值
+  - 历史数据不动,只提醒不改数(见 R10 快照重量分阶段规则;R11 反算已改为快照优先取数)
 
 **涉及数据表**:`quotations` / `quotation_items`。规则出处 `BUSINESS_RULES.md R10`。
 

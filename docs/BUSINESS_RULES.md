@@ -254,6 +254,10 @@ CI 同样以此为门禁(`scripts/ci.sh` / `.github/workflows/ci.yml`)。
 - **报价系数**:不同管径组用不同系数(如实际数据 1.112/1.065/1.075 USD/KG),存于 quotation_items.price_coefficient
 - **分组**:同一报价单内可有多组系数,用 group_code 区分(如 'A组-1.112')
 - **单卷重量**:从 products.weight 带出,可在报价明细里覆盖(weight_per_unit)
+- **快照重量分阶段规则**(2026-08-01 老板确认):
+  - **brief/draft 阶段**:允许临时谈判值,快照可偏离主数据(校验 WARN 提醒"若延续请新增物料")
+  - **formal/converted 阶段**:正式 QT 和合同是客户返单的长期依据,快照**必须归位**到正确物料编码 —— 谈成新重量就【新增物料】(新重量=新规格) 或【改用既有正确编码】,不允许带偏离主数据的快照转合同(校验 WARN 提醒,代码 `check_quotations` 子校验 5)
+  - **历史数据不动**:已有单据一行不改,规则只对校验提醒生效,保留查账依据
 - **派生关系**(全部走 DERIVED_RULES,不要手填):
   - total_weight(总重KG) = weight_per_unit × quantity
   - unit_price(单卷价) = weight_per_unit × price_coefficient
