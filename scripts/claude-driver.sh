@@ -3,10 +3,10 @@
 # claude-driver.sh —— 让本地 claude CLI 在本项目里持续、无人值守地干活。
 #
 # 设计思路:
-#   1. 不写死任务文本。每轮让 claude 自己读 CLAUDE.md + docs/CLAUDE_BRIEF.md,
+#   1. 不写死任务文本。每轮让 claude 自己读 CLAUDE.md + docs/TASKS.md,
 #      判断"还没做完的事",挑一件推进。这样最贴合本项目已有的工作约定。
 #   2. 每轮干完后强制跑 scripts/run_local_validation.sh(CLAUDE.md 规定的自检,
-#      12 步全过才算对)。自检失败 → 计入失败连击,3 次就熔断。
+#      16 步全过才算对)。自检失败 → 计入失败连击,3 次就熔断。
 #   3. 安全护栏:最大轮数 / 超时 / 失败熔断 / 紧急停止哨兵文件。
 #
 # 用法:
@@ -29,6 +29,18 @@ STOP_FILE="/tmp/claude-driver.stop"      # 紧急停止哨兵文件
 LOG_DIR="$PROJECT_DIR/.claude-driver-logs"
 VALIDATE_SCRIPT="scripts/run_local_validation.sh"
 # ==================================================================
+
+# timeout 是 GNU coreutils 的命令, macOS 默认没有(2026-07-29 日志实测报
+# "timeout: command not found" 导致每轮直接失败)。优先用 brew 装的 gtimeout,
+# 都没有就裸跑 claude —— 单轮超时失效, 靠 --max-turns 和熔断兜底。
+TIMEOUT_CMD=""
+if command -v timeout >/dev/null 2>&1; then
+  TIMEOUT_CMD="timeout"
+elif command -v gtimeout >/dev/null 2>&1; then
+  TIMEOUT_CMD="gtimeout"
+else
+  echo "⚠️  未找到 timeout/gtimeout, 单轮超时保护失效 (建议: brew install coreutils)"
+fi
 
 cd "$PROJECT_DIR" || { echo "❌ 项目目录不存在: $PROJECT_DIR"; exit 1; }
 mkdir -p "$LOG_DIR"
@@ -89,7 +101,7 @@ while [ "$ROUND" -lt "$MAX_ROUNDS" ]; do
    - 验收场景:见 docs/SCENARIOS.md
 4. 严格遵守:改 schema 四处同步(R7: schema+SQLITE_SCHEMA+DERIVED_RULES+模板表头)、客户/币种/口岸/品类都是数据不硬编码(R6)、真实敏感数据只放 data/ 或 private/ 不进仓库(R8)。
 5. 做完这一小块后:
-   (a) 务必运行: bash $VALIDATE_SCRIPT  (13 步全过才算对)
+   (a) 务必运行: bash $VALIDATE_SCRIPT  (16 步全过才算对)
    (b) 在 docs/TASKS.md 里把该任务的状态从'待办'改为'已完成',打勾 [x]
 6. 最后在【单独一行】输出本轮状态:
    CONTINUE  —— 还有后续待办任务,下一轮请继续
@@ -99,8 +111,13 @@ while [ "$ROUND" -lt "$MAX_ROUNDS" ]; do
 
   # 用 timeout 兜底,超时就杀掉;stderr 合并进日志
   set +e
-  timeout "$ROUND_TIMEOUT" claude --continue --max-turns 80 -p "$PROMPT" \
-    >"$ROUND_LOG" 2>&1
+  if [ -n "$TIMEOUT_CMD" ]; then
+    "$TIMEOUT_CMD" "$ROUND_TIMEOUT" claude --continue --max-turns 80 -p "$PROMPT" \
+      >"$ROUND_LOG" 2>&1
+  else
+    claude --continue --max-turns 80 -p "$PROMPT" \
+      >"$ROUND_LOG" 2>&1
+  fi
   CLAUDE_EXIT=$?
   set -e
 

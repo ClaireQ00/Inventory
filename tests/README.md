@@ -26,5 +26,5 @@ python3 tests/run_tests.py
 ## 目录约定
 
 - `tests/fixtures/` 是**运行期生成**的临时数据（已被 `.gitignore` 排除），不要手工改。
-- 用例数据与 `data/csv/demo/` 完全隔离，改坏也不影响真实 demo。
+- 用例数据与 `data/csv/demo_runtime/` 完全隔离，改坏也不影响真实 demo。
 - 测试直接 import `tools/` 下的模块（`csv_to_sql.py` / `local_validator.py` / `make_demo_data.py`），无第三方依赖。

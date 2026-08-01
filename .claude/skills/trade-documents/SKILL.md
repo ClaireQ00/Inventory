@@ -180,27 +180,27 @@ resolution = 'pending' 且 created_at 距今 > 90 天 → ERROR (严重逾期)
 
 **场景**：销售合同 100 件，发货单计划 100，实际装柜 95，短装 5 件用 credit_note 处理。
 
-**数据准备**（5 张表）：
+**数据准备**（5 张表，外键全部用业务编号，见 ADR-0004）：
 
 ```csv
 # 1. sales_contract_items (合同 100 件)
-id=3, contract_id=1, product_id=1, quantity=100, delivered_qty=0
+id=3, contract_no=SC20260720001, item_no=001, material_id=M-001, quantity=100, delivered_qty=0
 
 # 2. delivery_order_items (计划 100, 实际 95, 短装 5)
-id=3, delivery_id=2, contract_item_id=3, product_id=1,
-quantity=100, actual_quantity=95, short_qty=5
+id=3, delivery_no=DN20260726001, contract_no=SC20260720001, contract_item_no=001,
+material_id=M-001, quantity=100, actual_quantity=95, short_qty=5
 
 # 3. shipping_records (报关单)
-id=2, shipping_no='SH20260727001', delivery_id=2, total_pkgs=95
+id=2, shipping_no=SH20260727001, delivery_no=DN20260726001, total_pkgs=95
 
 # 4. shipping_record_items (实际 95, planned 100)
-id=3, shipping_id=2, product_id=1, planned_qty=100, actual_qty=95
+id=3, shipping_no=SH20260727001, material_id=M-001, planned_qty=100, actual_qty=95
 # → 校验: |95-100|/100 = 5%, 正好等于容差, 报 WARN (不报 ERROR)
 
 # 5. credit_notes (5 件短装 → 补发)
-id=1, cn_no='CN20260727001', shipping_id=2, contract_item_id=3,
-product_id=1, diff_qty=5, diff_amount=1000, resolution='replenish',
-resolved_at='2026-08-15'
+id=1, cn_no=CN20260727001, shipping_no=SH20260727001, contract_no=SC20260720001,
+contract_item_no=001, material_id=M-001, diff_qty=5, diff_amount=1000,
+resolution='replenish', resolved_at='2026-08-15'
 ```
 
 **校验结果**：
@@ -316,6 +316,6 @@ resolved_at='2026-08-15'
 | `sample/templates/shipping_record_items_template.csv` | 报关明细录入模板 |
 | `sample/templates/credit_notes_template.csv` | 贷记单录入模板 |
 | `sample/templates/delivery_order_items_template.csv` | 发货明细模板（含 actual_quantity/short_qty） |
-| `data/csv/demo/shipping_records.csv` | demo 数据 |
-| `data/csv/demo/shipping_record_items.csv` | demo 数据 |
-| `data/csv/demo/credit_notes.csv` | demo 数据（默认空，演示正常场景） |
+| `data/csv/demo_runtime/shipping_records.csv` | demo 数据 |
+| `data/csv/demo_runtime/shipping_record_items.csv` | demo 数据 |
+| `data/csv/demo_runtime/credit_notes.csv` | demo 数据（默认空，演示正常场景） |

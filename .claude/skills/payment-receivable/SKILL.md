@@ -92,10 +92,10 @@ source          VARCHAR(32)     -- manual/boc(中行)/pboc(人行)
 | 字段 | 含义 | 必填 |
 | --- | --- | --- |
 | `receipt_no` | 收款单号 (RC 开头) | ✅ |
-| `customer_id` | 哪个客户打的钱 | ✅ |
-| `contract_id` | 关联合同 (可空, 多合同合并付款时) | — |
-| `shipping_id` | 关联报关单 (可空) | — |
-| `delivery_id` | 关联发货单 (可空) | — |
+| `customer_code` | 哪个客户打的钱 (业务编号, 关联 customers.code, 见 ADR-0004) | ✅ |
+| `contract_no` | 关联合同号 (可空, 多合同合并付款时) | — |
+| `shipping_no` | 关联报关单号 (可空) | — |
+| `delivery_no` | 关联发货单号 (可空) | — |
 | `amount` | 外币到账金额 | ✅ |
 | `currency` | 币种, 默认 USD | ✅ |
 | `exchange_rate` | 当期汇率 (按 paid_date 查汇率表) | ✅ |
@@ -127,7 +127,7 @@ source          VARCHAR(32)     -- manual/boc(中行)/pboc(人行)
 
 ```
 对每个 sales_contract:
-  total_receipts = SUM(receipts.amount WHERE contract_id=X AND status='confirmed')
+  total_receipts = SUM(receipts.amount WHERE contract_no=X AND status='confirmed')
 
   ├─ total_receipts > contract.total_amount × 1.05  → ERROR "超收, 可能录错"
   ├─ total_receipts < contract.total_amount × 0.95  → WARN  "未收齐, 催款"
@@ -171,14 +171,14 @@ shipping_records:
 
 # 3. 客户打第一笔款 (USD 4500, 跟报关单对齐)
 receipts:
-  id=1, receipt_no=RC20260726001, customer_id=1, contract_id=1,
-  shipping_id=1, amount=4500, currency=USD, exchange_rate=7.15,
+  id=1, receipt_no=RC20260726001, customer_code=Q025, contract_no=SC20260720001,
+  shipping_no=SH20260726001, amount=4500, currency=USD, exchange_rate=7.15,
   amount_cny=32175, paid_date=2026-07-26, pay_method=T/T,
   bank_ref=BK-001, status=confirmed
 
 # 4. 客户打第二笔尾款 (USD 25500)
 receipts:
-  id=2, receipt_no=RC20260810001, customer_id=1, contract_id=1,
+  id=2, receipt_no=RC20260810001, customer_code=Q025, contract_no=SC20260720001,
   amount=25500, currency=USD, exchange_rate=7.18,  # 注意: 跨月了, 8月汇率变了
   amount_cny=183090, paid_date=2026-08-10, pay_method=T/T,
   bank_ref=BK-002, status=confirmed
