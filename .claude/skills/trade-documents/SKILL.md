@@ -106,7 +106,7 @@ allowed-tools: Read, Grep, Glob, Bash(python3:*)
 
 **代码常量**：`tools/local_validator.py::SHORT_SHIPMENT_TOLERANCE = 0.05`
 
-**校验函数**：`check_shipping_vs_delivery()` （步骤 9/10）
+**校验函数**：`check_shipping_vs_delivery()` （步骤 10/16）
 
 ```
 ratio = |actual - planned| / planned
@@ -134,7 +134,7 @@ ratio > 5%  → ERROR (违反 UCP600, 必须补 credit_note 否则海关/银行�
 | `refund` | 退款 | 不补了，退钱给客户 |
 | `writeoff` | 注销 | 差异小或客户不要了，直接销账 |
 
-**闭环校验**：`check_credit_notes_balance()` （步骤 10/10）
+**闭环校验**：`check_credit_notes_balance()` （步骤 11/16）
 
 ```
 resolution = 'pending' 且 created_at 距今 > 30 天 → WARN  (催办)
@@ -205,8 +205,8 @@ resolved_at='2026-08-15'
 
 **校验结果**：
 - 步骤 5（发货 vs 合同）：实际 95 < 合同 100 → WARN "未发完"
-- 步骤 9（报关 vs 发货）：5% 偏差，正好临界 → WARN
-- 步骤 10（credit_note 闭环）：已 `replenish` 不算 pending → 不报
+- 步骤 10（报关 vs 发货）：5% 偏差，正好临界 → WARN
+- 步骤 11（credit_note 闭环）：已 `replenish` 不算 pending → 不报
 
 ---
 
@@ -221,7 +221,7 @@ resolved_at='2026-08-15'
 - ❌ **不要**把"虚标"（虚报重量）当成正常业务，那是违规
 - ➡️ 涉及密度/厚度/米重 → `product-params` skill
 - ➡️ 涉及外径/体积/金额派生 → `derived-fields` skill
-- ➡️ 涉及**仓库间调拨**（`out_type='transfer'` / `in_type='transfer'`，靠 `transfer_ref` 配对）→ **不在本 skill 范围**。调拨是仓库内部挪货，**不走信用证/短装/credit_note 流程**，由 `local_validator.py::check_transfer_pairs` 第 13 步校验。规则见 `docs/BUSINESS_RULES.md §R3.5`
+- ➡️ 涉及**仓库间调拨**（`out_type='transfer'` / `in_type='transfer'`，靠 `transfer_ref` 配对）→ **不在本 skill 范围**。调拨是仓库内部挪货，**不走信用证/短装/credit_note 流程**，由 `local_validator.py::check_transfer_pairs` 第 14 步校验。规则见 `docs/BUSINESS_RULES.md §R3.5`
 
 ---
 
@@ -310,7 +310,7 @@ resolved_at='2026-08-15'
 | 文件 | 作用 |
 | --- | --- |
 | `sql/01_schema.sql` | `shipping_records` / `shipping_record_items` / `credit_notes` 表定义；`delivery_order_items.actual_quantity/short_qty` 字段 |
-| `tools/local_validator.py` | `SHORT_SHIPMENT_TOLERANCE = 0.05` 常量；`check_shipping_vs_delivery` (步骤 9)；`check_credit_notes_balance` (步骤 10)；`check_delivery_vs_contract` (步骤 5 已改为优先用 actual_quantity) |
+| `tools/local_validator.py` | `SHORT_SHIPMENT_TOLERANCE = 0.05` 常量；`check_shipping_vs_delivery` (步骤 10)；`check_credit_notes_balance` (步骤 11)；`check_delivery_vs_contract` (步骤 5 已改为优先用 actual_quantity) |
 | `tools/csv_to_sql.py` | `DERIVED_RULES["delivery_order_items"]["short_qty"]`；`DERIVED_RULES["shipping_record_items"]["subtotal_usd"]` |
 | `sample/templates/shipping_records_template.csv` | 报关单录入模板 |
 | `sample/templates/shipping_record_items_template.csv` | 报关明细录入模板 |

@@ -76,7 +76,7 @@ SQLite 镜像的类型会简化：
 
 ### 第 5 步：专门检查调拨字段配套（2026-07-29 新增）
 
-`stock_in` 和 `stock_out` 两张表都新增了调拨能力，必须**两边同时具备**以下三项，缺一会让 `check_transfer_pairs` 第 13 步挂：
+`stock_in` 和 `stock_out` 两张表都新增了调拨能力，必须**两边同时具备**以下三项，缺一会让 `check_transfer_pairs` 第 14 步挂：
 
 | 检查项 | stock_in | stock_out |
 |---|---|---|
@@ -131,7 +131,7 @@ grep -n "'transfer'" sql/01_schema.sql
 ### 需要修复的项（按优先级）
 
 1. [Critical] shipping_records 缺 exchange_rate 字段
-   - 影响：本地校验步骤 11 会挂；外币金额折算不出 amount_cny
+   - 影响：本地校验步骤 12 会挂；外币金额折算不出 amount_cny
    - 修复：在 sql/01_schema.sql 和 SQLITE_SCHEMA 里都加 exchange_rate 字段
 2. ...
 ```

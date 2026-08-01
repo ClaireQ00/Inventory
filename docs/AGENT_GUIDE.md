@@ -18,8 +18,8 @@
 | --- | --- | --- |
 | `product-params` | 密度 / 厚度反推 / 米重 / 内径 | `products`；`csv_to_sql.py::DENSITY_RULES` |
 | `derived-fields` | 外径 / 体积 / 金额小计（行内派生） | 4 张明细表；`DERIVED_RULES` |
-| `trade-documents` | 报关 / 短装 / 唛头 / UCP600 / credit_note | `shipping_records` / `credit_notes`；check 9, 10 |
-| `payment-receivable` | 收款 / 汇率 / 水单 / T/T / 应收对账 | `exchange_rates` / `receipts`；check 11, 12 |
+| `trade-documents` | 报关 / 短装 / 唛头 / UCP600 / credit_note | `shipping_records` / `credit_notes`；check 10, 11 |
+| `payment-receivable` | 收款 / 汇率 / 水单 / T/T / 应收对账 | `exchange_rates` / `receipts`；check 12, 13 |
 
 **路由表见** `CLAUDE.md` 顶部，4 个 skill **互斥**——一个问题只走一个 skill，不要混。
 
@@ -50,7 +50,7 @@
 ### 1.3 真实可用的自检命令
 
 ```bash
-bash scripts/run_local_validation.sh           # 真实数据模式（14 步全过才算对）
+bash scripts/run_local_validation.sh           # 真实数据模式（16 步全过才算对）
 bash scripts/run_local_validation.sh --demo    # demo 假数据模式（联调流程长啥样）
 bash scripts/ci.sh                              # CI 一键检查（含敏感数据扫描）
 bash scripts/check-sensitive-data.sh           # 单独扫敏感数据
@@ -140,7 +140,7 @@ CI（GitHub Actions）：
 
 判断标准（**全部满足**才动手）：
 
-1. **项目规模**：表数量 / 代码量翻倍（当前 20 表 / ~1700 行 Python）
+1. **项目规模**：表数量 / 代码量翻倍（当前 25 表 / ~3400 行 Python）
 2. **真实数据**：四张基础表之外的业务数据真实补齐（采购 / 销售 / 库存 / 报关 / 收款）
 3. **使用场景**：出现"需要并行执行"或"需要工具权限隔离"的真实需求
 4. **现有 skill 撑不住**：一个问题跨 3+ skill，且 skill 之间的路由开始打架
@@ -176,7 +176,7 @@ Claude Code 里的 "agent" 本质是**带专属工具权限和系统提示的子
 
 ## 参考
 
-- `CLAUDE.md` — 4 个 skill 路由表 + 金额四件套铁律 + 改 schema 必须 sync 的三处
+- `CLAUDE.md` — 4 个 skill 路由表 + 金额四件套铁律 + 改 schema 必须 sync 的四处
 - `docs/BUSINESS_FLOW.md` — 一笔订单从询盘到收款的完整流程（**看这个比看 agent 更有用**）
-- `docs/VALIDATION_GUIDE.md` — 14 步校验详解
+- `docs/VALIDATION_GUIDE.md` — 16 步校验详解
 - `CONTRIBUTING.md` — 贡献流程

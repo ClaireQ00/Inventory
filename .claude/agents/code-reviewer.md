@@ -61,7 +61,7 @@ amount + currency + exchange_rate + amount_cny
 
 **检查方法**：
 ```bash
-# 用 grep 看字段是否在前三处都出现
+# 用 grep 看字段是否在前四处都出现
 grep -n "新字段名" sql/01_schema.sql tools/local_validator.py tools/csv_to_sql.py
 # 看 sample/templates/ 下对应表的 CSV 表头是否同步
 head -1 sample/templates/<表名>_template.csv | tr ',' '\n' | grep -n "新字段名"
@@ -69,7 +69,7 @@ head -1 sample/templates/<表名>_template.csv | tr ',' '\n' | grep -n "新字�
 bash scripts/check-template-schema-sync.sh
 ```
 
-如果前三处某处缺了 → 报 Critical。
+如果前四处某处缺了 → 报 Critical。
 第 4 处由 `scripts/check-template-schema-sync.sh` 自动兜底（已集成进 `run_local_validation.sh` 第 2b 步，WARN 级别不阻断），但**新增字段时仍要在 code review 阶段就把表头同步掉**，别等运行时报警。
 
 **跨表关联字段特别注意**：像 `transfer_ref` 这种字段同时挂在多张表（`stock_in` + `stock_out`），如果只在一张表加了，`check_transfer_pairs` 校验会挂。**两张表都要加、配套 ENUM 也都要包含 `'transfer'`**。
@@ -79,8 +79,8 @@ bash scripts/check-template-schema-sync.sh
 调拨 = 一对配对的出入库单（同 `transfer_ref`）。改动涉及 `stock_in` / `stock_out` 时必须确认：
 
 - 两张表的 `in_type` / `out_type` ENUM 都包含 `'transfer'` 值
-- 同一个 `transfer_ref` 的 `stock_out` 出库总量 == `stock_in` 入库总量（按 `product_id` 聚合）
-- 由 `check_transfer_pairs`（步骤 13/13）校验
+- 同一个 `transfer_ref` 的 `stock_out` 出库总量 == `stock_in` 入库总量（按 `material_id` 聚合）
+- 由 `check_transfer_pairs`（步骤 14/16）校验
 - 负库存允许但报警（`check_stock_out_vs_inventory` 是 **WARN 不是 ERROR**，外贸调拨常"先做后补"）
 
 #### 铁律 3：Skill 路由互斥
@@ -117,7 +117,7 @@ grep -rn "Q025\|PVC\|印尼\|大雄" sql/ tools/*.py
 bash scripts/run_local_validation.sh --demo
 ```
 
-13 步全过才算 OK。任何一步失败 → 把失败信息原文搬进报告。
+16 步全过才算 OK。任何一步失败 → 把失败信息原文搬进报告。
 
 **真实数据校验**（如果 `data/csv` 有真实 CSV）：
 ```bash
@@ -157,7 +157,7 @@ bash scripts/run_local_validation.sh
 - [文件名:行号] 优化点
 
 ### 校验结果
-- run_local_validation.sh --demo: ✓ 13/13 全过 / ✗ 第 N 步失败（错误信息）
+- run_local_validation.sh --demo: ✓ 16/16 全过 / ✗ 第 N 步失败（错误信息）
 - run_local_validation.sh (真实数据): ✓ / ✗ / 未跑
 
 ### 总评

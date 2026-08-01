@@ -80,7 +80,7 @@ CSV 是项目的"事实源"(`docs/PRIVATE_DATA_GUIDELINES.md`)。`sales_contract
 ## 相关 (Related)
 
 - **关联文档**:
-  - `docs/BUSINESS_RULES.md R7`(三处同步,本次未改 R7,但实务上加了一处"CSV 模板示例值")
+  - `docs/BUSINESS_RULES.md R7`(schema 同步义务。实施本文时 R7 写的还是"三处同步",本次未改 R7 条文,但实务上另需同步"CSV 模板示例值"一处;2026-07-30 起 R7 已升级为"四处同步",以现状为准)
   - `docs/DATA_MODEL.md`(字段清单已按新业务编号字段更新)
   - `docs/IMPORT_TEMPLATES.md` 坑 4(已改写为"已修复(ADR-0004)")
   - `docs/TASKS.md` 坑 3(AUTO_INCREMENT 漂移的根因记录)

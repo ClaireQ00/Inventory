@@ -14,7 +14,7 @@
 | 你想找什么 | 看哪份文档 |
 | --- | --- |
 | 业务怎么走(9 个节点、3 个角色) | `docs/BUSINESS_FLOW.md` |
-| 业务硬性规则 R1~R10(事实源) | `docs/BUSINESS_RULES.md` |
+| 业务硬性规则 R1~R11(事实源) | `docs/BUSINESS_RULES.md` |
 | 每张表的字段、外键、派生规则 | `docs/DATA_MODEL.md` |
 | 16 步校验怎么跑、错误怎么排查 | `docs/VALIDATION_GUIDE.md` |
 | **每个功能点要满足什么才算做完(本文)** | `docs/SPECS.md` |
@@ -206,10 +206,10 @@
 **用户故事**:作为业务经理,我想给供应商签一份采购单,标明要哪些物料、各多少件、各 CNY 多少,以便供应商按单备货、仓库后续到货入库时能引用。
 
 **输入**:
-- 主表 `purchase_orders`:`po_no`(如 PO20260726001)、`supplier_id`、`order_date`、`expected_date`、`total_amount`(CNY)、`status`(`draft`/`confirmed`/`partial_received`/`received`/`cancelled`)
-- 明细 `purchase_order_items`:每行 `product_id`、`quantity`、`unit_price`(CNY/件)、`subtotal`(派生 = 数量 × 单价)、`volume_subtotal`(派生 = 单件体积 × 数量)、`received_qty`(由入库回写)
+- 主表 `purchase_orders`:`po_no`(如 PO20260726001)、`supplier_code`、`order_date`、`expected_date`、`total_amount`(CNY)、`status`(`draft`/`confirmed`/`partial_received`/`received`/`cancelled`)
+- 明细 `purchase_order_items`:每行 `material_id`、`quantity`、`unit_price`(CNY/件)、`subtotal`(派生 = 数量 × 单价)、`volume_subtotal`(派生 = 单件体积 × 数量)、`received_qty`(由入库回写)
 
-**输出**:1 张采购主表 + N 行明细。**唯一约束 `uk_poi_po_product (po_id, product_id)`**:同一采购单同一物料只能一行。
+**输出**:1 张采购主表 + N 行明细。**唯一约束 `uk_poi_po_material (po_no, material_id)`**:同一采购单同一物料只能一行。
 
 **验收标准**:
 - AC1:`status` 五态机:`draft` → `confirmed` → `partial_received` → `received` / `cancelled`(`DATA_MODEL.md §4.2`)
@@ -264,15 +264,15 @@
 **用户故事**:作为仓库保管员,我想记录货物实际进仓,标明来源(采购到货 / 调拨接收 / 生产 / 退货),以便库存余额自动增加,后续能追溯到源头单据。
 
 **输入**:
-- 主表 `stock_in`:`in_no`、`in_type`(ENUM `purchase`/`production`/`transfer`/`return`)、`warehouse_id`、`po_id`(仅 `purchase` 类型填)、`in_date`、`status`(`draft`/`confirmed`/`cancelled`)、`transfer_ref`(仅 `transfer` 类型填,与配对的 `stock_out` 同号)
-- 明细 `stock_in_items`:每行 `product_id`、`quantity`
+- 主表 `stock_in`:`in_no`、`in_type`(ENUM `purchase`/`production`/`transfer`/`return`)、`warehouse_code`、`po_no`(仅 `purchase` 类型填)、`in_date`、`status`(`draft`/`confirmed`/`cancelled`)、`transfer_ref`(仅 `transfer` 类型填,与配对的 `stock_out` 同号)
+- 明细 `stock_in_items`:每行 `material_id`、`quantity`
 
 **输出**:库存增加 + 写一条流水到 `stock_logs`(`change_qty` 正数)
 
 **验收标准**:
 - AC1:`in_type='purchase'` 时,入库数 ≤ 采购数(见 VALIDATION_GUIDE 第 3 步;代码 `check_stock_in_vs_purchase`)
 - AC2:`in_type='transfer'` 时,必须填 `transfer_ref`,跟配对的 `stock_out.transfer_ref` 同值(见 §8 / VALIDATION_GUIDE 第 14 步)
-- AC3:`inventory` 表唯一约束 `uk_product_warehouse (product_id, warehouse_id)` —— 同物料同仓库只有一行(`DATA_MODEL.md §4.4`)
+- AC3:`inventory` 表唯一约束 `uk_material_warehouse (material_id, warehouse_code)` —— 同物料同仓库只有一行(`DATA_MODEL.md §4.4`)
 
 **涉及数据表**:`stock_in` / `stock_in_items` / `inventory` / `stock_logs`。规则出处 `BUSINESS_FLOW.md 节点 4`。
 
@@ -283,13 +283,13 @@
 **用户故事**:作为仓库保管员,我想记录货物实际出仓,标明去向(销售装柜 / 调拨发出 / 生产 / 报废),以便库存余额自动减少、销售出库衔接发货单回填实发数。
 
 **输入**:
-- 主表 `stock_out`:`out_no`、`out_type`(ENUM `sale`/`production`/`transfer`/`scrap`)、`warehouse_id`、`delivery_id`(仅 `sale` 类型填)、`out_date`、`status`、`transfer_ref`(仅 `transfer` 类型填)
-- 明细 `stock_out_items`:每行 `product_id`、`quantity`
+- 主表 `stock_out`:`out_no`、`out_type`(ENUM `sale`/`production`/`transfer`/`scrap`)、`warehouse_code`、`delivery_no`(仅 `sale` 类型填)、`out_date`、`status`、`transfer_ref`(仅 `transfer` 类型填)
+- 明细 `stock_out_items`:每行 `material_id`、`quantity`
 
 **输出**:库存减少 + 写一条流水到 `stock_logs`(`change_qty` 负数)。**销售装柜时**:必须回填 `delivery_order_items.actual_quantity`(实发数),否则 `short_qty` 永远是 0,触发后续报关校验报错。
 
 **验收标准**:
-- AC1:`out_type='sale'` 时,必须填 `delivery_id`,且装柜后回填 `actual_quantity`(`BUSINESS_FLOW.md 节点 6`)
+- AC1:`out_type='sale'` 时,必须填 `delivery_no`,且装柜后回填 `actual_quantity`(`BUSINESS_FLOW.md 节点 6`)
 - AC2:`out_type='transfer'` 时,必须填 `transfer_ref`(见 §8)
 - AC3:累计出库 > 累计入库 → **WARN 不报错**(见 F3.5,2026-07-29 由 ERROR 降级)
 
@@ -303,7 +303,7 @@
 
 **输入**:`stock_in_items` + `stock_out_items`
 
-**输出**:`stock_logs` 表按 `(product_id, warehouse_id, source_type, source_id, source_no)` 自动重建。每次跑校验前 `tools/local_validator.py::rebuild_stock_logs` 重建一次。
+**输出**:`stock_logs` 表按 `(material_id, warehouse_code, source_type, source_id, source_no)` 自动重建。每次跑校验前 `tools/local_validator.py::rebuild_stock_logs` 重建一次。
 
 **验收标准**:
 - AC1:流水 `change_qty` 入库为正、出库为负,`after_qty` 记录变更后余额(`DATA_MODEL.md §4.4`)
@@ -318,7 +318,7 @@
 
 **用户故事**:作为财务/QA,我想确认"当前库存余额"等于"流水累加",以便发现库存账实不符(如漏录出入库)。
 
-**输入**:`inventory.quantity` vs `SUM(stock_logs.change_qty)`(按 `product_id` + `warehouse_id` 分组)
+**输入**:`inventory.quantity` vs `SUM(stock_logs.change_qty)`(按 `material_id` + `warehouse_code` 分组)
 
 **输出**:不平报 ERROR,指出具体物料 + 仓库
 
@@ -389,11 +389,11 @@
 **用户故事**:作为业务经理,我想跟客户签一份销售合同,标明贸易术语(FOB/CIF/CFR/EXW)、装运港/卸货港、合同数量、外币单价、付款条件、包装条款,以便后续发货/报关/收款都能引用这份"承诺值"。
 
 **输入**:
-- 主表 `sales_contracts`:`contract_no`(如 SC20260726001)、`customer_id`、`sign_date`、`delivery_deadline`、金额四件套(`total_amount` + `currency`(默认 USD) + `exchange_rate` + `total_amount_cny`(派生))、`total_volume`(展示用统计,= Σ 明细 `volume_subtotal`)、贸易术语(`trade_terms` / `port_loading` / `port_discharge` / `freight` / `insurance`)、**付款/包装条款**(`payment_term` TEXT、`packing` TEXT,2026-07-29 加,从 formal 报价转单时拷贝)、`status`(`draft`/`confirmed`/`delivering`/`completed`/`cancelled`)
-- 明细 `sales_contract_items`:每行 `product_id`、`quantity`(合同数)、`unit_price`、`subtotal`(派生)、`volume_subtotal`(派生)、`delivered_qty`(由发货单回写)
+- 主表 `sales_contracts`:`contract_no`(如 SC20260726001)、`customer_code`、`sign_date`、`delivery_deadline`、金额四件套(`total_amount` + `currency`(默认 USD) + `exchange_rate` + `total_amount_cny`(派生))、`total_volume`(展示用统计,= Σ 明细 `volume_subtotal`)、贸易术语(`trade_terms` / `port_loading` / `port_discharge` / `freight` / `insurance`)、**付款/包装条款**(`payment_term` TEXT、`packing` TEXT,2026-07-29 加,从 formal 报价转单时拷贝)、`status`(`draft`/`confirmed`/`delivering`/`completed`/`cancelled`)
+- 明细 `sales_contract_items`:每行 `material_id`、`quantity`(合同数)、`unit_price`、`subtotal`(派生)、`volume_subtotal`(派生)、`delivered_qty`(由发货单回写)
 - **卖方信息**:不录在合同表里,合同模板渲染时通过 `WHERE suppliers.is_self=1` 调取本公司的 `company_profiles`/`billing_profiles`(见 F1.5)
 
-**输出**:1 张合同主表 + N 行明细。**唯一约束 `uk_sci_contract_product`**:同一合同同一物料只能一行。
+**输出**:1 张合同主表 + N 行明细。**唯一约束 `uk_sci_contract_itemno` + `uk_sci_contract_material`**:同一合同同一物料只能一行。
 
 **验收标准**:
 - AC1:**金额四件套铁律** —— `total_amount + currency + exchange_rate + total_amount_cny` 必须齐全(规则 `BUSINESS_RULES.md R1`;字段映射见 `DATA_MODEL.md §7.2`)
@@ -466,14 +466,14 @@
 **用户故事**:作为业务经理,我想给客户下一次发货指令,标明计划发哪些物料、各多少件(商务承诺),关联到具体合同明细,以便仓库按单备货、合同"已发数量"能正确回写。
 
 **输入**:
-- 主表 `delivery_orders`:`delivery_no`、`customer_id`、`delivery_date`、`receiver`/`receiver_phone`/`receiver_address`、`transport_no`、`total_volume`(展示用统计,= Σ 明细 `volume_subtotal`;跟 `shipping_records.total_cbm` 报关实际数是两个概念)、`status`(`draft`/`confirmed`/`shipped`/`delivered`/`cancelled`)
-- 明细 `delivery_order_items`:每行 `contract_item_id`(关联合同明细)、`product_id`、`quantity`(计划发货数,商务承诺,**不改**)、`actual_quantity`(实际装柜数,默认 = `quantity`)、`short_qty`(派生)、`volume_subtotal`(派生)
+- 主表 `delivery_orders`:`delivery_no`、`customer_code`、`delivery_date`、`receiver`/`receiver_phone`/`receiver_address`、`transport_no`、`total_volume`(展示用统计,= Σ 明细 `volume_subtotal`;跟 `shipping_records.total_cbm` 报关实际数是两个概念)、`status`(`draft`/`confirmed`/`shipped`/`delivered`/`cancelled`)
+- 明细 `delivery_order_items`:每行 `contract_no` + `contract_item_no`(关联合同明细)、`material_id`、`quantity`(计划发货数,商务承诺,**不改**)、`actual_quantity`(实际装柜数,默认 = `quantity`)、`short_qty`(派生)、`volume_subtotal`(派生)
 
 **输出**:1 张发货主表 + N 行明细。一次发货可对应多个合同明细(同一客户多合同一起发)。
 
 **验收标准**:
 - AC1:`quantity` 是商务承诺,**装柜后不改**(改的是 `actual_quantity`)(`trade-documents/SKILL.md §3`)
-- AC2:`contract_item_id` 必填,用于回写 `sales_contract_items.delivered_qty`(`DATA_MODEL.md §4.5`)
+- AC2:`contract_no` + `contract_item_no` 必填,用于回写 `sales_contract_items.delivered_qty`(`DATA_MODEL.md §4.5`)
 - AC3:状态机 `draft` → `confirmed` → `shipped` → `delivered` / `cancelled`(`DATA_MODEL.md §4.5`)
 
 **涉及数据表**:`delivery_orders` / `delivery_order_items`。规则出处 `BUSINESS_FLOW.md 节点 5`。
@@ -491,7 +491,7 @@
 **验收标准**:
 - AC1:`actual_quantity` 默认 = `quantity`,装柜后由仓库回填实际值(`BUSINESS_FLOW.md 节点 6`)
 - AC2:销售装柜出库时必须回填,否则 `short_qty` 永远是 0,后续报关校验会报错(`BUSINESS_FLOW.md 节点 6`)
-- AC3:销售出库必填 `stock_out.delivery_id` 关联到本发货单(F3.2)
+- AC3:销售出库必填 `stock_out.delivery_no` 关联到本发货单(F3.2)
 
 **涉及数据表**:`delivery_order_items` / `stock_out` / `sales_contract_items`。规则出处 `BUSINESS_FLOW.md 节点 6`。
 
@@ -507,7 +507,7 @@
 
 **验收标准**:
 - AC1:`short_qty = quantity - actual_quantity`(正=短装,负=超装)
-- AC2:**唯一走 DB 生成列的派生字段** —— MySQL `GENERATED ALWAYS AS (quantity - actual_quantity) STORED`(`sql/01_schema.sql` 第 498 行;`DATA_MODEL.md §5.1` 表格 ⚠️ 标注)
+- AC2:**唯一走 DB 生成列的派生字段** —— MySQL `GENERATED ALWAYS AS (quantity - actual_quantity) STORED`(`sql/01_schema.sql` 第 532 行;`DATA_MODEL.md §5.1` 表格 ⚠️ 标注)
 - AC3:SQLite 镜像和 `csv_to_sql.py` 走应用层兜底版(`DERIVED_RULES["delivery_order_items"]["short_qty"]`)
 - AC4:改 schema 时同步四处(`BUSINESS_RULES.md R7`)
 
@@ -559,8 +559,8 @@
 **用户故事**:作为仓库/报关行,我想装船后记录实际报关数据(集装箱号、唛头、毛净重、CBM、外币金额),以便生成 Commercial Invoice + Packing List 给海关和银行。
 
 **输入**:
-- 主表 `shipping_records`:`shipping_no`、`delivery_id`、`shipping_date`、`container_no`、`seal_no`、`vessel`、报关核心(`total_pkgs`/`total_gross_wt`/`total_net_wt`/`total_cbm`)、金额四件套(`total_amount` + `currency` + `exchange_rate` + `total_amount_cny`(派生))、`status`(`draft`/`customs_cleared`/`closed`/`cancelled`)
-- 明细 `shipping_record_items`:每行 `product_id`、`planned_qty`(从发货单带过来)、`actual_qty`(实际装柜,必填)、`shipping_mark`(唛头)、`gross_weight_per`、`net_weight_per`、`unit_volume`、`unit_price_usd`、`subtotal_usd`(派生)
+- 主表 `shipping_records`:`shipping_no`、`delivery_no`、`shipping_date`、`container_no`、`seal_no`、`vessel`、报关核心(`total_pkgs`/`total_gross_wt`/`total_net_wt`/`total_cbm`)、金额四件套(`total_amount` + `currency` + `exchange_rate` + `total_amount_cny`(派生))、`status`(`draft`/`customs_cleared`/`closed`/`cancelled`)
+- 明细 `shipping_record_items`:每行 `material_id`、`planned_qty`(从发货单带过来)、`actual_qty`(实际装柜,必填)、`shipping_mark`(唛头)、`gross_weight_per`、`net_weight_per`、`unit_volume`、`unit_price_usd`、`subtotal_usd`(派生)
 - **一张发货单可分多次装船**(partial shipment),每次一条 `shipping_records`(`DATA_MODEL.md §4.6`)
 
 **输出**:CI + PL 数据源
@@ -586,7 +586,7 @@
 **验收标准**:
 - AC1:5 个必备字段(`shipping_mark` / `gross_weight_per` / `net_weight_per` / `actual_qty` / `unit_volume`)缺一报错(`trade-documents/SKILL.md §6`)
 - AC2:毛重 ≥ 净重(单件毛重含包装,净重是裸重,`trade-documents/SKILL.md §2`)
-- AC3:`unit_volume` 来自 `products.volume`(单件体积,见 F1.2),报关行不能自改(`derived-fields/SKILL.md §11` 跨 skill 协作场景)
+- AC3:`unit_volume` 来自 `products.volume`(单件体积,见 F1.2),报关行不能自改(`derived-fields/SKILL.md`「跨 skill 协作场景」章节)
 
 **涉及数据表**:`shipping_record_items` + `products`。规则出处 `BUSINESS_RULES.md R3`(报关必填字段)。
 
@@ -616,7 +616,7 @@
 
 **用户故事**:作为业务+财务,我想把超 5% 的差异(短装/超装)用 credit_note 记录下来,并强制在 30 天内处理完,以便差异可追溯、不挂账太久。
 
-**输入**:`credit_notes` 表:`cn_no`、`shipping_id`、`contract_item_id`、`product_id`、`diff_qty`(正=短装,负=超装)、金额四件套(`diff_amount` + `currency` + `exchange_rate` + `diff_amount_cny`(派生))、`resolution`、`resolved_at`
+**输入**:`credit_notes` 表:`cn_no`、`shipping_no`、`contract_no` + `contract_item_no`、`material_id`、`diff_qty`(正=短装,负=超装)、金额四件套(`diff_amount` + `currency` + `exchange_rate` + `diff_amount_cny`(派生))、`resolution`、`resolved_at`
 
 **输出**:闭环或逾期报警
 
@@ -679,7 +679,7 @@
 **输出**:`exchange_rates` 表一行记录
 
 **验收标准**:
-- AC1:**唯一约束** `uk_currency_effective (currency, effective_date)` —— 同币种同月仅一条(`sql/01_schema.sql` 第 649 行;`BUSINESS_RULES.md R2`)
+- AC1:**唯一约束** `uk_currency_effective (currency, effective_date)` —— 同币种同月仅一条(`sql/01_schema.sql` 第 696 行;`BUSINESS_RULES.md R2`)
 - AC2:`rate_to_cny` 为 0 或 NULL → 业务上数据缺陷(`payment-receivable/SKILL.md §2`)
 - AC3:见 VALIDATION_GUIDE 第 12 步(代码 `check_exchange_rates`)
 
@@ -692,8 +692,8 @@
 **用户故事**:作为财务经理,我想记录客户每次付款(金额、币种、到账日、付款方式、水单号),以便折算 CNY 后跟合同对账。
 
 **输入**:`receipts` 表:
-- 标识:`receipt_no`(如 RC20260815001)、`customer_id`
-- 关联(均可空):`contract_id` / `shipping_id` / `delivery_id`(预收款时无合同)
+- 标识:`receipt_no`(如 RC20260815001)、`customer_code`
+- 关联(均可空):`contract_no` / `shipping_no` / `delivery_no`(预收款时无合同)
 - 金额四件套:`amount` + `currency`(默认 USD) + `exchange_rate`(按 `paid_date` 查表) + `amount_cny`(派生)
 - 收款信息:`paid_date`、`pay_method`(ENUM `T/T`/`L/C`/`D/P`/`D/A`/`other`,默认 T/T)、`bank_ref`(水单号)
 - `status`(`draft`/`confirmed`/`cancelled`)
@@ -732,7 +732,7 @@
 
 **用户故事**:作为财务/QA,我想确认累计收款没超过合同金额(允许 ±5%)、币种一致,以便发现"超收可能录错"或"未收齐要催款"。
 
-**输入**:`SUM(receipts.amount WHERE contract_id=X AND status='confirmed')` vs `sales_contracts.total_amount`
+**输入**:`SUM(receipts.amount WHERE contract_no=X AND status='confirmed')` vs `sales_contracts.total_amount`
 
 **输出**:
 - 累计收款 > 合同 × 1.05 → ERROR "超收"
@@ -745,7 +745,7 @@
 - AC2:**只统计 `confirmed` 收款**,`draft` / `cancelled` 不算(`payment-receivable/SKILL.md §3.2`)
 - AC3:**按原币种聚合**(`receipts.currency` 必须跟 `sales_contracts.currency` 一致)
 - AC4:±5% 容差跟 UCP600 短装容差对齐(`payment-receivable/SKILL.md §3.3`)
-- AC5:当前阶段一个 receipt 只关联一个 `contract_id`;多合同合并付款留阶段二(`receipt_allocations` 子表,见 `BUSINESS_FLOW.md §4.3`、`payment-receivable/SKILL.md §7`)
+- AC5:当前阶段一个 receipt 只关联一个 `contract_no`;多合同合并付款留阶段二(`receipt_allocations` 子表,见 `BUSINESS_FLOW.md §4.3`、`payment-receivable/SKILL.md §7`)
 
 **涉及数据表**:`receipts` + `sales_contracts`。
 
@@ -776,8 +776,8 @@
 **用户故事**:作为仓库保管员,我想把主仓的货挪到口岸附近的临时仓(或外协仓),系统通过同一个 `transfer_ref` 号把两笔出入库串起来,以便库存自动加减、不漏单。
 
 **输入**:
-- 源仓出库:`stock_out`(`out_type='transfer'`、`warehouse_id`=源仓、`transfer_ref` 如 `TR20260729001`)+ `stock_out_items`
-- 目标仓入库:`stock_in`(`in_type='transfer'`、`warehouse_id`=目标仓、**同一个** `transfer_ref`)+ `stock_in_items`
+- 源仓出库:`stock_out`(`out_type='transfer'`、`warehouse_code`=源仓、`transfer_ref` 如 `TR20260729001`)+ `stock_out_items`
+- 目标仓入库:`stock_in`(`in_type='transfer'`、`warehouse_code`=目标仓、**同一个** `transfer_ref`)+ `stock_in_items`
 
 **输出**:两笔出入库单据,自动写 `stock_logs` / 更新 `inventory`。`transfer_ref` 编号建议 `TR + 日期 + 序号`。
 
@@ -785,7 +785,7 @@
 
 **验收标准**:
 - AC1:`stock_out.transfer_ref` 与配对的 `stock_in.transfer_ref` **必须同值**(`DATA_MODEL.md §6.2`)
-- AC2:两表都加了索引 `idx_si_transfer` / `idx_so_transfer` 加速按 `transfer_ref` 聚合(`sql/01_schema.sql` 第 348/398 行)
+- AC2:两表都加了索引 `idx_si_transfer` / `idx_so_transfer` 加速按 `transfer_ref` 聚合(`sql/01_schema.sql` 第 379/429 行)
 - AC3:调拨的两笔单据必须用 ENUM `'transfer'` 类型(`in_type` / `out_type` 已含该枚举值,`BUSINESS_RULES.md R3.5`)
 - AC4:库存对账(F3.4)自动覆盖调拨——`stock_logs` 流水自动重建包含 transfer 类型
 
@@ -797,7 +797,7 @@
 
 **用户故事**:作为 QA,我想确认每个 `transfer_ref` 的出库总量 = 入库总量(按物料分),以便发现"调拨中途丢货"或"漏录另一半单据"。
 
-**输入**:按 `(transfer_ref, product_id)` 聚合:
+**输入**:按 `(transfer_ref, material_id)` 聚合:
 - 出库总量 = `SUM(stock_out_items.quantity)` WHERE `stock_out.out_type='transfer'`
 - 入库总量 = `SUM(stock_in_items.quantity)` WHERE `stock_in.in_type='transfer'`
 
@@ -807,7 +807,7 @@
 
 **验收标准**:
 - AC1:见 VALIDATION_GUIDE 第 14 步(代码 `check_transfer_pairs`)
-- AC2:聚合 key 是 `(transfer_ref, product_id)`,**按物料分组**对账(`DATA_MODEL.md §6.3`)
+- AC2:聚合 key 是 `(transfer_ref, material_id)`,**按物料分组**对账(`DATA_MODEL.md §6.3`)
 - AC3:在途(已出未到)报 WARN,到货后入库即可消除(`VALIDATION_GUIDE §6`)
 
 **涉及数据表**:`stock_out` + `stock_out_items` + `stock_in` + `stock_in_items`。规则出处 `BUSINESS_RULES.md R3.5`。
@@ -850,8 +850,8 @@
 | # | 功能点 | 主负责角色 | 涉及表 |
 | --- | --- | --- | --- |
 | F9.1 | 简要报价录入(brief) | 业务经理 | `quotations` + `quotation_items` |
-| F9.2 | 正式 QT 生成(formal,从 brief 派生) | 业务经理 | `quotations`(`parent_quote_id` 软关联) |
-| F9.3 | 报价转销售合同(converted) | 业务经理 | `quotations.converted_contract_id` + `sales_contracts` |
+| F9.2 | 正式 QT 生成(formal,从 brief 派生) | 业务经理 | `quotations`(`parent_quote_no` 软关联) |
+| F9.3 | 报价转销售合同(converted) | 业务经理 | `quotations.converted_contract_no` + `sales_contracts` |
 | F9.4 | 报价金额计算(KG × 系数定价,subtotal 派生) | 系统(自动) | `quotation_items` + `quotations` |
 
 ---
@@ -861,8 +861,8 @@
 **用户故事**:作为业务经理,我想在正式签合同前先给客户一份简要报价,只录"每卷重量 × 报价系数 × 数量"就能算出单价和小计,不用手工套公式,以便快速回应客户询盘。
 
 **输入**:
-- 主表 `quotations`:`quote_no`(如 `QT20260729001`)、`customer_id`、`quote_type='brief'`、`quote_date`、`valid_until`、金额四件套(`total_amount` + `currency`(默认 USD) + `exchange_rate` + `total_amount_cny`(派生))、`total_volume`(展示用统计,= Σ 明细 `quotation_items.total_volume`)、`status`(`draft`/`sent`/`confirmed`/`converted`/`cancelled`)
-- 明细 `quotation_items`:每行 `product_id`(关联 `products` 带出 `weight`/`volume`)、`group_code`(分组码,如 `A组-1.112`)、`price_coefficient`(报价系数 USD/KG)、`weight_per_unit`(单卷重量 KG,从 `products.weight` 带出可覆盖)、`quantity`(卷数)、派生字段(`total_weight`/`unit_price`/`subtotal`/`total_volume`)
+- 主表 `quotations`:`quote_no`(如 `QT20260729001`)、`customer_code`、`quote_type='brief'`、`quote_date`、`valid_until`、金额四件套(`total_amount` + `currency`(默认 USD) + `exchange_rate` + `total_amount_cny`(派生))、`total_volume`(展示用统计,= Σ 明细 `quotation_items.total_volume`)、`status`(`draft`/`sent`/`confirmed`/`converted`/`cancelled`)
+- 明细 `quotation_items`:每行 `material_id`(关联 `products` 带出 `weight`/`volume`)、`group_code`(分组码,如 `A组-1.112`)、`price_coefficient`(报价系数 USD/KG)、`weight_per_unit`(单卷重量 KG,从 `products.weight` 带出可覆盖)、`quantity`(卷数)、派生字段(`total_weight`/`unit_price`/`subtotal`/`total_volume`)
 - **不带条款**:brief 阶段 5 个贸易条款字段(`trade_terms`/`port_loading`/`port_discharge`/`payment_term`/`packing`)留空,等 formal 阶段补(见 F9.2)
 
 **输出**:1 张简要报价主表 + N 行明细。主表 `total_amount = Σ quotation_items.subtotal`(应用层汇总,非 `DERIVED_RULES`);`total_volume = Σ quotation_items.total_volume`(同模式,展示用统计)。
@@ -872,7 +872,7 @@
 - AC2:派生字段(4 个)走 `tools/csv_to_sql.py::DERIVED_RULES["quotation_items"]`,空则自动算,手填超容差报 ERROR(`derived-fields` 加算+反向校验双行为)
 - AC3:**金额四件套铁律** —— 主表 `total_amount + currency + exchange_rate + total_amount_cny` 齐全(`BUSINESS_RULES.md R1`);`total_amount_cny` 派生 = `total_amount × exchange_rate`
 - AC4:`quotations.total_amount` 必须等于明细 `subtotal` 之和;`quotations.total_volume` 应等于 Σ 明细 `total_volume`(WARN 容差 0.01)(见 VALIDATION_GUIDE 第 15 步;代码 `tools/local_validator.py::check_quotations` 子校验 1/1b)
-- AC5:同一报价单同一物料只能一行(唯一约束 `uk_qi_quote_product`,见 `DATA_MODEL.md §4.9`)
+- AC5:同一报价单同一物料只能一行(唯一约束 `uk_qi_quote_itemno` + `uk_qi_quote_material`,见 `DATA_MODEL.md §4.9`)
 
 **涉及数据表**:`quotations` / `quotation_items`。规则出处 `BUSINESS_RULES.md R10`。
 
@@ -880,16 +880,16 @@
 
 ### F9.2 正式 QT 生成(formal,从 brief 派生)
 
-**用户故事**:作为业务经理,我想在简要报价确认后,基于它派生出一份正式 QT(formal)发给客户,系统通过 `parent_quote_id` 把两者关联起来,以便保留派生追溯链(正式 QT 从哪份简要报价来的一目了然)。
+**用户故事**:作为业务经理,我想在简要报价确认后,基于它派生出一份正式 QT(formal)发给客户,系统通过 `parent_quote_no` 把两者关联起来,以便保留派生追溯链(正式 QT 从哪份简要报价来的一目了然)。
 
-**输入**:`quotations` 新增一行,`quote_type='formal'`、`parent_quote_id` 指向源 brief 的 `id`,其他字段从 brief 复制或细化。**formal 阶段必须补齐 5 个贸易条款**:`trade_terms`(FOB/CIF/CFR/EXW)、`port_loading`、`port_discharge`、`payment_term`(自由文本)、`packing`(自由文本)。
+**输入**:`quotations` 新增一行,`quote_type='formal'`、`parent_quote_no` 指向源 brief 的 `quote_no`,其他字段从 brief 复制或细化。**formal 阶段必须补齐 5 个贸易条款**:`trade_terms`(FOB/CIF/CFR/EXW)、`port_loading`、`port_discharge`、`payment_term`(自由文本)、`packing`(自由文本)。
 
-**输出**:1 张 formal 报价(即 PROFORMA INVOICE),`parent_quote_id` 软关联到源 brief。
+**输出**:1 张 formal 报价(即 PROFORMA INVOICE),`parent_quote_no` 软关联到源 brief。
 
 **验收标准**:
-- AC1:`quote_type='formal'` 时,`parent_quote_id` **必须非空**(见 VALIDATION_GUIDE 第 15 步;代码 `check_quotations` 子校验 2)
-- AC2:`parent_quote_id` 指向的必须是 `quote_type='brief'` 的报价(不能 formal 派生 formal)
-- AC3:`parent_quote_id` 是**自引用软关联**(`ON DELETE SET NULL`),类似调拨 `transfer_ref` 的思路——靠应用层校验,非外键强约束(见 ADR-0003)
+- AC1:`quote_type='formal'` 时,`parent_quote_no` **必须非空**(见 VALIDATION_GUIDE 第 15 步;代码 `check_quotations` 子校验 2)
+- AC2:`parent_quote_no` 指向的必须是 `quote_type='brief'` 的报价(不能 formal 派生 formal)
+- AC3:`parent_quote_no` 是**自引用软关联**(`ON DELETE SET NULL`),类似调拨 `transfer_ref` 的思路——靠应用层校验,非外键强约束(见 ADR-0003)
 - AC4:brief 与 formal **共用 `quotations` 表**,靠 `quote_type` 区分,不建独立表(见 ADR-0003 决策)
 - AC5:formal 的 5 个贸易条款字段(`trade_terms`/`port_loading`/`port_discharge`/`payment_term`/`packing`)是 formal → SC 转单时的拷贝源(F9.3 转合同 + F4.1 录合同都会用)
 
@@ -899,14 +899,14 @@
 
 ### F9.3 报价转销售合同(converted)
 
-**用户故事**:作为业务经理,我想在正式 QT 被客户确认后,把它转成销售合同(PI),系统回填 `converted_contract_id` 串联起"报价→合同"链路,以便后续发货/报关/收款都能追溯到最初的报价。
+**用户故事**:作为业务经理,我想在正式 QT 被客户确认后,把它转成销售合同(PI),系统回填 `converted_contract_no` 串联起"报价→合同"链路,以便后续发货/报关/收款都能追溯到最初的报价。
 
-**输入**:`quotations.status` 推进到 `'converted'`,`converted_contract_id` 回填对应的 `sales_contracts.id`。
+**输入**:`quotations.status` 推进到 `'converted'`,`converted_contract_no` 回填对应的 `sales_contracts.contract_no`。
 
-**输出**:`quotations` 状态变 `converted`,`converted_contract_id` 指向新建的销售合同。
+**输出**:`quotations` 状态变 `converted`,`converted_contract_no` 指向新建的销售合同。
 
 **验收标准**:
-- AC1:`status='converted'` 时,若 `converted_contract_id` 非空,则该 ID 必须在 `sales_contracts` 存在(见 VALIDATION_GUIDE 第 15 步;代码 `check_quotations` 子校验 3)
+- AC1:`status='converted'` 时,若 `converted_contract_no` 非空,则该合同号必须在 `sales_contracts` 存在(见 VALIDATION_GUIDE 第 15 步;代码 `check_quotations` 子校验 3)
 - AC2:状态机 `draft` → `sent` → `confirmed` → `converted` / `cancelled`(`DATA_MODEL.md §4.9`)
 - AC3:转合同后衔接 `sales_contracts` 的金额四件套 + 后续发货/报关/收款流程(跨模块,见 §4 销售模块)
 
@@ -1046,9 +1046,9 @@ bash scripts/run_local_validation.sh --demo    # demo 假数据
 | --- | --- |
 | `docs/DATA_MODEL.md` | 物理数据模型单一事实源(25 张表字段/外键/派生) |
 | `docs/BUSINESS_FLOW.md` | 业务流程全景图(9 节点 / 3 角色) |
-| `docs/BUSINESS_RULES.md` | 业务规则事实源(R1~R10) |
+| `docs/BUSINESS_RULES.md` | 业务规则事实源(R1~R11) |
 | `docs/VALIDATION_GUIDE.md` | 16 步校验流程 + 错误排查 |
-| `docs/adr/0003-quotation-derive-from-brief.md` | 报价 brief/formal 共用表 + parent_quote_id 派生 + subtotal 直接公式决策 |
+| `docs/adr/0003-quotation-derive-from-brief.md` | 报价 brief/formal 共用表 + parent_quote_no 派生 + subtotal 直接公式决策 |
 | `docs/GLOSSARY.md` | 业务术语表 |
 | `.claude/skills/product-params/SKILL.md` | 密度/厚度反推/米重深度规则 |
 | `.claude/skills/derived-fields/SKILL.md` | 外径/体积/金额派生深度规则 |

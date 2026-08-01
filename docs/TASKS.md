@@ -129,7 +129,7 @@
 
 ### 4.2 数据层
 
-- [x] `sql/01_schema.sql` —— MySQL 真表（44KB，22 张表）
+- [x] `sql/01_schema.sql` —— MySQL 真表（44KB，25 张表）
 - [x] `sql/02_seed_data.sql` —— 种子数据
 - [x] `sql/03_master_data.sql` —— 基础资料
 - [x] `sample/templates/*_template.csv` —— **23 个**导入模板（`stock_logs` 由校验器自动重建、`audit_logs` 阶段一空壳，两张表**故意无模板**）
@@ -139,7 +139,7 @@
 - [x] `docs/GLOSSARY.md` —— 术语表
 - [x] `docs/BUSINESS_RULES.md` —— R1~R11 业务规则事实源
 - [x] `docs/BUSINESS_FLOW.md` —— 9 节点业务流程
-- [x] `docs/DATA_MODEL.md` —— 22 表数据模型
+- [x] `docs/DATA_MODEL.md` —— 25 表数据模型
 - [x] `docs/SPECS.md` —— 功能需求规格（F1.1~F9.3 + §10 阶段二）
 - [x] `docs/DESIGN.md` —— 技术设计
 - [x] `docs/VALIDATION_GUIDE.md` —— 16 步校验指南

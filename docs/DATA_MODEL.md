@@ -144,7 +144,7 @@ erDiagram
   - 重量:`weight_per_meter`(g/m)、`weight`(kg)
   - 外观:`appearance_outer`、`appearance_height`、`volume`(派生)
 - **外键**:无(基础字典)
-- **派生字段**:✅ 见 §5(7 个:厚度反推、外径、内径x外径、单重、米重、体积、体积小计)
+- **派生字段**:✅ 见 §5(7 个:厚度反推、外径、内径x外径、单重、米重、体积、spec)
 - **路由约定**:密度/厚度/米重 → `product-params` skill;外径/体积 → `derived-fields` skill
 
 #### `warehouses` — 仓库目录
@@ -173,78 +173,78 @@ erDiagram
 
 #### `purchase_orders` — 采购单主表
 - **职责**:跟供应商签的进货单,**CNY 计价**(采购是内购,不走外币四件套)。
-- **关键字段**:`po_no`(如 PO20260726001)、`supplier_id`、`order_date`、`expected_date`、`total_amount`(CNY)、`total_volume`(展示用统计,= Σ 明细 `volume_subtotal`,DECIMAL(10,4))、`status`
+- **关键字段**:`po_no`(如 PO20260726001)、`supplier_code`、`order_date`、`expected_date`、`total_amount`(CNY)、`total_volume`(展示用统计,= Σ 明细 `volume_subtotal`,DECIMAL(10,2))、`status`
 - **状态机**:`draft` / `confirmed` / `partial_received` / `received` / `cancelled`(比通用四态多了两个到货中间态)
-- **外键**:`supplier_id → suppliers(id)`
+- **外键**:`supplier_code → suppliers(code)`
 - **派生字段**:无(金额在明细层算)
 - **校验**:`check_purchase_orders`(步骤 2/16):主表 `total_amount` 必须等于明细 `subtotal` 之和;`total_volume` 应等于 Σ 明细 `volume_subtotal`(WARN 级,容差 0.01)
 
 #### `purchase_order_items` — 采购明细
 - **职责**:一行一种物料。
-- **关键字段**:`po_id`、`product_id`、`quantity`、`unit_price`(CNY/件)、`subtotal`(派生)、`volume_subtotal`(派生)、`received_qty`(回写)
-- **外键**:`po_id → purchase_orders(id) ON DELETE CASCADE`、`product_id → products(id)`
-- **唯一约束**:`uk_poi_po_product (po_id, product_id)` —— 同一采购单同一物料只能一行
+- **关键字段**:`po_no`、`material_id`、`quantity`、`unit_price`(CNY/件)、`subtotal`(派生)、`volume_subtotal`(派生)、`received_qty`(回写)
+- **外键**:`po_no → purchase_orders(po_no) ON DELETE CASCADE`、`material_id → products(material_id)`
+- **唯一约束**:`uk_poi_po_material (po_no, material_id)` —— 同一采购单同一物料只能一行
 - **派生字段**:✅ `subtotal` = 数量 × 单价;`volume_subtotal` = 单件体积 × 数量
 
 ### 4.3 销售模块
 
 #### `sales_contracts` — 销售合同主表
 - **职责**:跟客户签的合同,**外币金额四件套**(详见 §7)。
-- **关键字段**:`contract_no`、`customer_id`、`sign_date`、`delivery_deadline`、金额四件套(`total_amount` + `currency` + `exchange_rate` + `total_amount_cny`)、`total_volume`(展示用统计,= Σ 明细 `volume_subtotal`,DECIMAL(10,4))、贸易术语(`trade_terms`/`port_loading`/`port_discharge`/`freight`/`insurance`)、**付款/包装条款**(`payment_term` 自由文本、`packing` 自由文本,2026-07-29 加,从 formal 报价转单时拷贝)、`status`
+- **关键字段**:`contract_no`、`customer_code`、`sign_date`、`delivery_deadline`、金额四件套(`total_amount` + `currency` + `exchange_rate` + `total_amount_cny`)、`total_volume`(展示用统计,= Σ 明细 `volume_subtotal`,DECIMAL(10,2))、贸易术语(`trade_terms`/`port_loading`/`port_discharge`/`freight`/`insurance`)、**付款/包装条款**(`payment_term` 自由文本、`packing` 自由文本,2026-07-29 加,从 formal 报价转单时拷贝)、`status`
 - **状态机**:`draft` / `confirmed` / `delivering` / `completed` / `cancelled`
-- **外键**:`customer_id → customers(id)`
+- **外键**:`customer_code → customers(code)`
 - **派生字段**:✅ `total_amount_cny` = `total_amount` × `exchange_rate`
 - **校验**:`check_sales_contracts`(步骤 4/16):主表金额必须等于明细小计之和;`total_volume` 应等于 Σ 明细 `volume_subtotal`(WARN 级,容差 0.01)
 
 #### `sales_contract_items` — 销售合同明细
 - **职责**:合同的商品行。
-- **关键字段**:`contract_id`、`product_id`、`quantity`(合同数)、`unit_price`、`subtotal`(派生)、`volume_subtotal`(派生)、`delivered_qty`(由发货单回写)
-- **外键**:`contract_id → sales_contracts(id) ON DELETE CASCADE`、`product_id → products(id)`
-- **唯一约束**:`uk_sci_contract_product`
+- **关键字段**:`contract_no`、`material_id`、`quantity`(合同数)、`unit_price`、`subtotal`(派生)、`volume_subtotal`(派生)、`delivered_qty`(由发货单回写)
+- **外键**:`contract_no → sales_contracts(contract_no) ON DELETE CASCADE`、`material_id → products(material_id)`
+- **唯一约束**:`uk_sci_contract_itemno (contract_no, item_no)`、`uk_sci_contract_material (contract_no, material_id)`(双唯一键:行号唯一 + 同合同同物料不可重复)
 - **派生字段**:✅ `subtotal`、`volume_subtotal`
 
 ### 4.4 库存模块
 
 #### `inventory` — 当前库存
 - **职责**:"某仓某物料现在还剩多少"。**一个物料 + 一个仓库 = 一行记录**。
-- **关键字段**:`product_id`、`warehouse_id`、`quantity`
-- **唯一约束**:`uk_product_warehouse (product_id, warehouse_id)`
-- **外键**:`product_id`、`warehouse_id`
+- **关键字段**:`material_id`、`warehouse_code`、`quantity`
+- **唯一约束**:`uk_material_warehouse (material_id, warehouse_code)`
+- **外键**:`material_id`、`warehouse_code`
 - **派生字段**:无
 - **校验**:`check_reconciliation`(步骤 7/16):`inventory` 必须等于 `stock_logs` 流水累加,不平报 ERROR
 
 #### `stock_in` — 入库单主表
 - **职责**:货物实际进仓的凭证。来源由 `in_type` 区分。
-- **关键字段**:`in_no`、`in_type`(ENUM: `purchase`/`production`/`transfer`/`return`)、`warehouse_id`、`po_id`(采购入库时填)、`in_date`、`status`、`transfer_ref`(调拨入库时填,与配对 `stock_out` 同号)
+- **关键字段**:`in_no`、`in_type`(ENUM: `purchase`/`production`/`transfer`/`return`)、`warehouse_code`、`po_no`(采购入库时填)、`in_date`、`status`、`transfer_ref`(调拨入库时填,与配对 `stock_out` 同号)
 - **状态机**:`draft` / `confirmed` / `cancelled`
-- **外键**:`warehouse_id → warehouses(id)`、`po_id → purchase_orders(id)`
+- **外键**:`warehouse_code → warehouses(code)`、`po_no → purchase_orders(po_no)`
 - **派生字段**:无
 - **索引**:`idx_si_transfer` 加在 `transfer_ref` 上,加速调拨配对查询
 
 #### `stock_in_items` — 入库明细
 - **职责**:入库单的商品行。
-- **关键字段**:`stock_in_id`、`product_id`、`quantity`
-- **外键**:`stock_in_id → stock_in(id) ON DELETE CASCADE`、`product_id → products(id)`
+- **关键字段**:`in_no`、`material_id`、`quantity`
+- **外键**:`in_no → stock_in(in_no) ON DELETE CASCADE`、`material_id → products(material_id)`
 - **派生字段**:无
 
 #### `stock_out` — 出库单主表
 - **职责**:货物实际出仓的凭证。来源由 `out_type` 区分。
-- **关键字段**:`out_no`、`out_type`(ENUM: `sale`/`production`/`transfer`/`scrap`)、`warehouse_id`、`delivery_id`(销售出库时填)、`out_date`、`status`、`transfer_ref`(调拨出库时填)
+- **关键字段**:`out_no`、`out_type`(ENUM: `sale`/`production`/`transfer`/`scrap`)、`warehouse_code`、`delivery_no`(销售出库时填)、`out_date`、`status`、`transfer_ref`(调拨出库时填)
 - **状态机**:`draft` / `confirmed` / `cancelled`
-- **外键**:`warehouse_id → warehouses(id)`、`delivery_id → delivery_orders(id)`
+- **外键**:`warehouse_code → warehouses(code)`、`delivery_no → delivery_orders(delivery_no)`
 - **派生字段**:无
 - **索引**:`idx_so_transfer` 加在 `transfer_ref` 上
 
 #### `stock_out_items` — 出库明细
 - **职责**:出库单的商品行。
-- **关键字段**:`stock_out_id`、`product_id`、`quantity`
-- **外键**:`stock_out_id → stock_out(id) ON DELETE CASCADE`、`product_id → products(id)`
+- **关键字段**:`out_no`、`material_id`、`quantity`
+- **外键**:`out_no → stock_out(out_no) ON DELETE CASCADE`、`material_id → products(material_id)`
 - **派生字段**:无
 
 #### `stock_logs` — 出入库流水
 - **职责**:统一的流水账本。所有入库/出库操作自动写一条,用于对账和追溯。`inventory` 是"结果",`stock_logs` 是"原因"。
-- **关键字段**:`product_id`、`warehouse_id`、`change_qty`(入库正、出库负)、`after_qty`、`source_type`(ENUM: `stock_in`/`stock_out`/`adjust`)、`source_id`、`source_no`(冗余字段,方便查询)
-- **外键**:`product_id`、`warehouse_id`(`source_id` 是软关联,无硬外键)
+- **关键字段**:`material_id`、`warehouse_code`、`change_qty`(入库正、出库负)、`after_qty`、`source_type`(ENUM: `stock_in`/`stock_out`/`adjust`)、`source_id`、`source_no`(冗余字段,方便查询)
+- **外键**:`material_id`、`warehouse_code`(`source_id` 是软关联,无硬外键)
 - **派生字段**:无
 - **重建机制**:`tools/local_validator.py::rebuild_stock_logs` 每次校验前根据 `stock_in_items` + `stock_out_items` 重建,保证流水与明细一致
 
@@ -252,21 +252,21 @@ erDiagram
 
 #### `delivery_orders` — 发货单主表
 - **职责**:给客户送货的凭证(合同账的执行)。一次发货可能对应多个合同明细(同一客户多个合同一起发)。
-- **关键字段**:`delivery_no`、`customer_id`、`delivery_date`、`receiver`/`receiver_phone`/`receiver_address`、`transport_no`、`total_volume`(展示用统计,= Σ 明细 `volume_subtotal`,DECIMAL(10,4))、`status`
+- **关键字段**:`delivery_no`、`customer_code`、`delivery_date`、`receiver`/`receiver_phone`/`receiver_address`、`transport_no`、`total_volume`(展示用统计,= Σ 明细 `volume_subtotal`,DECIMAL(10,2))、`status`
 - **状态机**:`draft` / `confirmed` / `shipped` / `delivered` / `cancelled`
-- **外键**:`customer_id → customers(id)`
+- **外键**:`customer_code → customers(code)`
 - **派生字段**:无
 - **校验**:`check_delivery_order_volume`(步骤 9/16):主表 `total_volume` 应等于 Σ 明细 `volume_subtotal`(WARN 级,容差 0.01 CBM)。⚠️ **这个 total_volume 跟下面 shipping_records 的 total_cbm 是两个概念**——前者是按计划数累加的展示统计(给客户看),后者是装柜后报关真实数(要交海关)。
 
 #### `delivery_order_items` — 发货明细
 - **职责**:发货单的商品行,每行关联一个合同明细。**两套账机制的落点**(见 `BUSINESS_RULES.md` R3)。
 - **关键字段**:
-  - `delivery_id`、`contract_item_id`(回写已发数量用)、`product_id`
+  - `delivery_no`、`contract_no` + `contract_item_no`(复合引用合同明细行,回写已发数量用)、`material_id`
   - `quantity`(计划发货数,商务承诺,**不改**)
   - `actual_quantity`(实际装柜数,装柜后填,默认 = `quantity`)
   - `short_qty`(短装数,**数据库 GENERATED**)
   - `volume_subtotal`(派生)
-- **外键**:`delivery_id → delivery_orders(id) ON DELETE CASCADE`、`contract_item_id → sales_contract_items(id)`、`product_id → products(id)`
+- **外键**:`delivery_no → delivery_orders(delivery_no) ON DELETE CASCADE`、`(contract_no, contract_item_no) → sales_contract_items(contract_no, item_no)`(复合外键)、`material_id → products(material_id)`
 - **派生字段**:✅ `short_qty` = `quantity - actual_quantity`(正=短装,负=超装)
   - **唯一例外**:这是项目里**唯一走 DB 生成列**的派生字段(MySQL `GENERATED ALWAYS AS ... STORED`),因为它是纯行内计算,无需跨表。
   - 其他派生字段默认走应用层(Python),见 `BUSINESS_RULES.md` R5。
@@ -276,22 +276,22 @@ erDiagram
 
 #### `shipping_records` — 报关单据主表
 - **职责**:装柜后记录实际报关数据。**一张发货单可分多次装船**(partial shipment),每次一条记录。是 Packing List + Commercial Invoice 的数据源。
-- **关键字段**:`shipping_no`、`delivery_id`、`shipping_date`、`container_no`、`seal_no`、`vessel`、报关核心(`total_pkgs`/`total_gross_wt`/`total_net_wt`/`total_cbm`)、金额四件套(`total_amount` + `currency` + `exchange_rate` + `total_amount_cny`)、`status`
+- **关键字段**:`shipping_no`、`delivery_no`、`shipping_date`、`container_no`、`seal_no`、`vessel`、报关核心(`total_pkgs`/`total_gross_wt`/`total_net_wt`/`total_cbm`)、金额四件套(`total_amount` + `currency` + `exchange_rate` + `total_amount_cny`)、`status`
 - **状态机**:`draft` / `customs_cleared` / `closed` / `cancelled`
-- **外键**:`delivery_id → delivery_orders(id)`
+- **外键**:`delivery_no → delivery_orders(delivery_no)`
 - **派生字段**:✅ `total_amount_cny` = `total_amount` × `exchange_rate`
 - **校验**:`check_shipping_vs_delivery`(步骤 10/16):实际数 vs 计划数 ±5% 容差(UCP600)
 
 #### `shipping_record_items` — 报关明细
 - **职责**:报关清单(Packing List + CI 数据源)。**报关必备字段缺一不可**(唛头/毛净重/件数/体积/单价)。
-- **关键字段**:`shipping_id`、`product_id`、`planned_qty`(从发货单带过来)、`actual_qty`(实际装柜,必填)、`shipping_mark`(唛头)、`gross_weight_per`/`net_weight_per`、`unit_volume`、`unit_price_usd`、`subtotal_usd`(派生)
-- **外键**:`shipping_id → shipping_records(id) ON DELETE CASCADE`、`product_id → products(id)`
+- **关键字段**:`shipping_no`、`material_id`、`planned_qty`(从发货单带过来)、`actual_qty`(实际装柜,必填)、`shipping_mark`(唛头)、`gross_weight_per`/`net_weight_per`、`unit_volume`、`unit_price_usd`、`subtotal_usd`(派生)
+- **外键**:`shipping_no → shipping_records(shipping_no) ON DELETE CASCADE`、`material_id → products(material_id)`
 - **派生字段**:✅ `subtotal_usd` = `actual_qty` × `unit_price_usd`
 
 #### `credit_notes` — 贷记单
 - **职责**:处理短装/超装差异,衔接"合同账"与"报关账"。4 种 resolution:`pending`/`replenish`/`refund`/`writeoff`。
-- **关键字段**:`cn_no`、`shipping_id`、`contract_item_id`、`product_id`、`diff_qty`(正=短装,负=超装)、金额四件套(`diff_amount` + `currency` + `exchange_rate` + `diff_amount_cny`)、`resolution`、`resolved_at`
-- **外键**:`shipping_id → shipping_records(id)`、`contract_item_id → sales_contract_items(id)`、`product_id → products(id)`
+- **关键字段**:`cn_no`、`shipping_no`、`contract_no`/`contract_item_no`、`material_id`、`diff_qty`(正=短装,负=超装)、金额四件套(`diff_amount` + `currency` + `exchange_rate` + `diff_amount_cny`)、`resolution`、`resolved_at`
+- **外键**:`shipping_no → shipping_records(shipping_no)`、`(contract_no, contract_item_no) → sales_contract_items(contract_no, item_no)`、`material_id → products(material_id)`
 - **派生字段**:✅ `diff_amount_cny` = `diff_amount` × `exchange_rate`
 - **校验**:`check_credit_notes_balance`(步骤 11/16):`pending` 超 30 天 WARN,超 90 天 ERROR
 
@@ -307,9 +307,9 @@ erDiagram
 
 #### `receipts` — 收款单
 - **职责**:客户每次付款记一笔,系统按 `paid_date` 自动查汇率折算 CNY。可关联合同/报关单/发货单(预收款时无合同)。
-- **关键字段**:`receipt_no`、`customer_id`、`contract_id`/`shipping_id`/`delivery_id`(均可空)、金额四件套(`amount` + `currency` + `exchange_rate` + `amount_cny`)、`paid_date`、`pay_method`(ENUM: `T/T`/`L/C`/`D/P`/`D/A`/`other`)、`bank_ref`(水单号)、`status`
+- **关键字段**:`receipt_no`、`customer_code`、`contract_no`/`shipping_no`/`delivery_no`(均可空)、金额四件套(`amount` + `currency` + `exchange_rate` + `amount_cny`)、`paid_date`、`pay_method`(ENUM: `T/T`/`L/C`/`D/P`/`D/A`/`other`)、`bank_ref`(水单号)、`status`
 - **状态机**:`draft` / `confirmed` / `cancelled`
-- **外键**:`customer_id`、`contract_id`、`shipping_id`、`delivery_id`(全可空)
+- **外键**:`customer_code`、`contract_no`、`shipping_no`、`delivery_no`(全可空)
 - **派生字段**:✅ `amount_cny` = `amount` × `exchange_rate`
 - **校验**:`check_receipts_vs_contract`(步骤 13/16):累计收款不应超过合同总额,币种必须一致
 
@@ -331,16 +331,16 @@ erDiagram
 - **关键字段**:`param_key`(唯一,如 `exchange_rate`/`default_currency`/`valid_days`)、`param_value`、`description`、`effective_date`
 - **外键**:无
 - **派生字段**:无
-- **代码位置**:`sql/01_schema.sql:729-740`、`tools/local_validator.py:433-442`
+- **代码位置**:`sql/01_schema.sql:777-787`、`tools/local_validator.py:459-468`
 
 #### `quotations` — 报价主表(简要报价 brief + 正式 QT formal 共用)
-- **职责**:承载整条派生链:**简要报价(`quote_type='brief'`)→ 正式 QT(`quote_type='formal'`,从 brief 派生)→ 销售合同 PI(转单后回填 `converted_contract_id`)**。两种类型共用一张表,靠 `quote_type` + `parent_quote_id` + `status` 区分,不建独立表(理由见 ADR-0003)。
+- **职责**:承载整条派生链:**简要报价(`quote_type='brief'`)→ 正式 QT(`quote_type='formal'`,从 brief 派生)→ 销售合同 PI(转单后回填 `converted_contract_no`)**。两种类型共用一张表,靠 `quote_type` + `parent_quote_no` + `status` 区分,不建独立表(理由见 ADR-0003)。
 - **关键字段**:
-  - 标识:`quote_no`(如 `QT20260729001`)、`customer_id`、`quote_type`(ENUM `brief`/`formal`)、`version`(简要报价可多版本)
-  - 派生关系:`parent_quote_id`(**自引用软关联**,正式 QT 指向其简要报价来源;`ON DELETE SET NULL`,类似调拨 `transfer_ref` 的软关联思路)
+  - 标识:`quote_no`(如 `QT20260729001`)、`customer_code`、`quote_type`(ENUM `brief`/`formal`)、`version`(简要报价可多版本)
+  - 派生关系:`parent_quote_no`(**自引用软关联**,正式 QT 指向其简要报价来源;`ON DELETE SET NULL`,类似调拨 `transfer_ref` 的软关联思路)
   - 日期:`quote_date`、`valid_until`(有效期至)
   - 金额四件套(R1):`total_amount` + `currency`(默认 USD) + `exchange_rate` + `total_amount_cny`(派生)
-  - `total_volume`(展示用统计,= Σ 明细 `quotation_items.total_volume`,DECIMAL(10,4),跟 `shipping_records.total_cbm` 是两个概念)
+  - `total_volume`(展示用统计,= Σ 明细 `quotation_items.total_volume`,DECIMAL(10,2),跟 `shipping_records.total_cbm` 是两个概念)
   - **贸易/付款/包装条款**(2026-07-29 加,对齐 PI/QT 模板,转合同时拷贝到 `sales_contracts`):
     - `trade_terms` ENUM `FOB`/`CIF`/`CFR`/`EXW`(默认 `FOB`,与 `sales_contracts` 类型对齐)
     - `port_loading` / `port_discharge`(装运港 / 卸货港,如 `Qingdao` / `Jakarta`)
@@ -348,25 +348,25 @@ erDiagram
     - `packing` TEXT(包装条款自由文本,如 `PACKED IN WOVEN BAGS OF 500 COILS EACH`)
     - **brief 阶段这 5 字段留空**,formal 阶段补齐;formal → SC 转单时连同明细一起拷贝
   - 状态机:`status` ENUM `draft`/`sent`/`confirmed`/`converted`/`cancelled`
-  - 转单回填:`converted_contract_id`(转成销售合同后回填,衔接 `sales_contracts`)
-- **外键**:`customer_id → customers(id)`、`parent_quote_id → quotations(id) ON DELETE SET NULL`(自引用)
+  - 转单回填:`converted_contract_no`(转成销售合同后回填,衔接 `sales_contracts`)
+- **外键**:`customer_code → customers(code)`、`parent_quote_no → quotations(quote_no) ON DELETE SET NULL`(自引用)
 - **派生字段**:✅ `total_amount_cny` = `total_amount × exchange_rate`(见 §5.1)
   - **注意**:`total_amount` **不是** `DERIVED_RULES` 算的,而是 `= Σ quotation_items.subtotal`,由应用层在导入明细后汇总(check_quotations 第 15 步校验,见 §校验)。`total_volume` 同模式:`= Σ quotation_items.total_volume`,第 15 步一并校验
-- **校验**:`check_quotations`(步骤 15/16):主表 `total_amount` 必须等于明细 `subtotal` 之和;主表 `total_volume` 应等于 Σ 明细 `total_volume`(WARN 级,容差 0.01);formal 的 `parent_quote_id` 必须指向存在的 brief;converted 状态的 `converted_contract_id` 必须在 `sales_contracts` 存在
-- **代码位置**:`sql/01_schema.sql:745-775`、`tools/local_validator.py:446-472`
+- **校验**:`check_quotations`(步骤 15/16):主表 `total_amount` 必须等于明细 `subtotal` 之和;主表 `total_volume` 应等于 Σ 明细 `total_volume`(WARN 级,容差 0.01);formal 的 `parent_quote_no` 必须指向存在的 brief;converted 状态的 `converted_contract_no` 必须在 `sales_contracts` 存在
+- **代码位置**:`sql/01_schema.sql:793-829`、`tools/local_validator.py:472-505`
 
 #### `quotation_items` — 报价明细
 - **职责**:报价单的商品行。**定价不走绝对价,走 KG×系数**(R10):同一报价单可有多组系数,用 `group_code` 分组(如 `A组-1.112`)。
 - **关键字段**:
-  - 关联:`quote_id`、`product_id`(关联 `products` 带出 `weight`/`volume`)
+  - 关联:`quote_no`、`material_id`(关联 `products` 带出 `weight`/`volume`)
   - 定价基准:`group_code`(分组码,同组共用系数)、`price_coefficient`(报价系数 USD/KG,**放明细不放主表**,因为一张单有多组)、`weight_per_unit`(单卷重量 KG,从 `products.weight` 带出可覆盖)、`quantity`(卷数)
   - 派生字段(4 个,全走 `DERIVED_RULES`):`total_weight`、`unit_price`、`subtotal`、`total_volume`
   - 体积:`volume`(单卷体积,从 `products` 带出或手填)
-- **外键**:`quote_id → quotations(id) ON DELETE CASCADE`、`product_id → products(id)`
-- **唯一约束**:`uk_qi_quote_product (quote_id, product_id)` —— 同一报价单同一物料只能一行
+- **外键**:`quote_no → quotations(quote_no) ON DELETE CASCADE`、`material_id → products(material_id)`
+- **唯一约束**:`uk_qi_quote_itemno (quote_no, item_no)`、`uk_qi_quote_material (quote_no, material_id)` —— 行号唯一 + 同一报价单同一物料只能一行
 - **派生字段**:✅ 见 §5.1(4 个)。**关键设计**:`subtotal` 用**直接公式** `weight_per_unit × price_coefficient × quantity`,**不依赖**派生的 `unit_price`(因为 `apply_derived_rules` 单轮遍历,依赖链会失效;详见 ADR-0003)
 - **校验**:`check_quotations`(步骤 15/16)子校验 4:明细 `subtotal` 必须等于 `weight_per_unit × price_coefficient × quantity`
-- **代码位置**:`sql/01_schema.sql:781-805`、`tools/local_validator.py:476-497`
+- **代码位置**:`sql/01_schema.sql:840-868`、`tools/local_validator.py:509-532`
 
 ---
 
@@ -383,6 +383,7 @@ erDiagram
 | `products` | `thickness` | 厚度反推(路径 A 优先:外径几何;B/C 密度方程) | 5% | `DERIVED_RULES["products"]["thickness"]` + `calc_theoretical_thickness` |
 | `products` | `outer_diameter` | 内径 + 厚度 × 2 | 0.05 mm | `DERIVED_RULES["products"]["outer_diameter"]` |
 | `products` | `id_x_od` | 字符串拼接,如 `6.5x10.5` | 无(字符串) | `DERIVED_RULES["products"]["id_x_od"]` + `_format_id_od` |
+| `products` | `spec` | 规格字符串拼接:`{英寸} ID{内径mm} -{标称米数}M`,按标称米数自动带 (短|中|长) 标签(<=20 短,21~45 中,46~99 长,>=100 无标签) | 无(字符串) | `DERIVED_RULES["products"]["spec"]` + `_build_spec` |
 | `products` | `weight` | (内径+厚度)×厚度×3.14×密度×长度/1000 | 5% | `DERIVED_RULES["products"]["weight"]` + `calc_theoretical_weight` |
 | `products` | `weight_per_meter` | (内径+厚度)×厚度×3.14×密度 | 5% | `DERIVED_RULES["products"]["weight_per_meter"]` + `calc_theoretical_weight_per_meter` |
 | `products` | `volume` | 外观外径(mm)² × 外观高度(mm) × 0.93 / 1e6 (CBM) | 0.001 m³ | `DERIVED_RULES["products"]["volume"]` |
@@ -392,7 +393,7 @@ erDiagram
 | `sales_contract_items` | `volume_subtotal` | 单件体积 × 数量 | 0.01 | `DERIVED_RULES["sales_contract_items"]["volume_subtotal"]` |
 | `delivery_order_items` | `volume_subtotal` | 单件体积 × quantity (计划数) | 0.01 | `DERIVED_RULES["delivery_order_items"]["volume_subtotal"]` |
 | `delivery_order_items` | `short_qty` | 计划 - 实际(应用层兜底版) | 0 | `DERIVED_RULES["delivery_order_items"]["short_qty"]` |
-| `delivery_order_items` | `short_qty` ⚠️ | **同字段,DB 生成列版**(MySQL `GENERATED ALWAYS AS`) | — | `sql/01_schema.sql` 第 498 行 |
+| `delivery_order_items` | `short_qty` ⚠️ | **同字段,DB 生成列版**(MySQL `GENERATED ALWAYS AS`) | — | `sql/01_schema.sql` 第 532 行 |
 | `shipping_record_items` | `subtotal_usd` | 实际装柜数 × 单价 | 0.01 | `DERIVED_RULES["shipping_record_items"]["subtotal_usd"]` |
 | `shipping_records` | `total_amount_cny` | 外币金额 × 当期汇率 | 0.01 | `DERIVED_RULES["shipping_records"]["total_amount_cny"]` |
 | `credit_notes` | `diff_amount_cny` | 外币差异 × 当期汇率 | 0.01 | `DERIVED_RULES["credit_notes"]["diff_amount_cny"]` |
@@ -404,7 +405,7 @@ erDiagram
 | `quotation_items` | `total_volume` | 单卷体积 × 数量 | 0.001 | `DERIVED_RULES["quotation_items"]["total_volume"]` |
 | `quotations` | `total_amount_cny` | 外币金额 × 当期汇率 | 0.01 | `DERIVED_RULES["quotations"]["total_amount_cny"]` |
 
-> **报价模块派生字段说明**:`quotation_items.subtotal` 故意**不写成** `unit_price × quantity`,而是直接展开成原始字段 `weight_per_unit × price_coefficient × quantity`。原因是 `apply_derived_rules` 是**单轮遍历**(不做多轮依赖链计算),若 `subtotal` 依赖派生的 `unit_price`,会在 `unit_price` 尚未加算前就被跳过。详见 `docs/adr/0003-quotation-derive-from-brief.md` + `tools/csv_to_sql.py:343-346` 注释。
+> **报价模块派生字段说明**:`quotation_items.subtotal` 故意**不写成** `unit_price × quantity`,而是直接展开成原始字段 `weight_per_unit × price_coefficient × quantity`。原因是 `apply_derived_rules` 是**单轮遍历**(不做多轮依赖链计算),若 `subtotal` 依赖派生的 `unit_price`,会在 `unit_price` 尚未加算前就被跳过。详见 `docs/adr/0003-quotation-derive-from-brief.md` + `tools/csv_to_sql.py:334-337` 注释。
 > `quotations.total_amount`(主表外币总额)**不进** `DERIVED_RULES`,它是 `= Σ quotation_items.subtotal`,由应用层在导入明细后汇总,第 15 步 `check_quotations` 校验一致性。`quotations.total_volume`、`sales_contracts.total_volume`、`purchase_orders.total_volume`、`delivery_orders.total_volume` 同模式——都是主表展示用统计(= Σ 各自明细 `volume_subtotal` 或 `total_volume`),WARN 级校验,跟 `shipping_records.total_cbm`(装柜后报关真实数)是两个概念。
 
 ### 5.2 派生机制双行为(加算 + 反向校验)
@@ -469,7 +470,7 @@ stock_in  (in_type='transfer',  transfer_ref='TR20260729001', warehouse=目标�
 
 `tools/local_validator.py::check_transfer_pairs`(步骤 14/16):
 
-1. 按 `(transfer_ref, product_id)` 聚合出库总量(`stock_out` + `stock_out_items`,`out_type='transfer'`)
+1. 按 `(transfer_ref, material_id)` 聚合出库总量(`stock_out` + `stock_out_items`,`out_type='transfer'`)
 2. 按同 key 聚合入库总量(`stock_in` + `stock_in_items`,`in_type='transfer'`)
 3. 对比:每个物料**出库总量 = 入库总量**,差额非 0 → ERROR
 4. 只有一边(只出库没入库或反之)→ WARN(在途、漏录或方向录错)

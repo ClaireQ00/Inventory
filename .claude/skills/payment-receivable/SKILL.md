@@ -72,7 +72,7 @@ effective_date  DATE            -- 生效日 (一般是月初 1 号)
 source          VARCHAR(32)     -- manual/boc(中行)/pboc(人行)
 ```
 
-**查询规则** (校验函数 `check_exchange_rates`, 步骤 11/13):
+**查询规则** (校验函数 `check_exchange_rates`, 步骤 12/16):
 
 ```
 对每个用到外币的业务记录 (合同/报关/收款), 取它当月的币种:
@@ -121,7 +121,7 @@ source          VARCHAR(32)     -- manual/boc(中行)/pboc(人行)
 
 **关键规则**: 只有 `status='confirmed'` 的收款才会被 `check_receipts_vs_contract` 拿来跟合同金额比对。
 
-### 3.3 对账校验 (步骤 12/13)
+### 3.3 对账校验 (步骤 13/16)
 
 **校验函数**: `check_receipts_vs_contract()`
 
@@ -265,7 +265,7 @@ receipts:
 | 文件 | 作用 |
 | --- | --- |
 | `sql/01_schema.sql` | `exchange_rates` / `receipts` 表定义; sales_contracts/shipping_records/credit_notes 加金额四件套字段 |
-| `tools/local_validator.py` | `check_exchange_rates` (步骤 11); `check_receipts_vs_contract` (步骤 12); SQLITE_SCHEMA 同步新增表 |
+| `tools/local_validator.py` | `check_exchange_rates` (步骤 12); `check_receipts_vs_contract` (步骤 13); SQLITE_SCHEMA 同步新增表 |
 | `tools/csv_to_sql.py` | `DERIVED_RULES["receipts"]["amount_cny"]`; 4 个表的 `*_cny` 派生规则 |
 | `sample/templates/exchange_rates_template.csv` | 汇率录入模板 |
 | `sample/templates/receipts_template.csv` | 收款录入模板 |

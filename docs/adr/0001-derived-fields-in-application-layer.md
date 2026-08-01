@@ -13,7 +13,7 @@
 - `outer_diameter`(外径)= `inner_diameter + thickness × 2`
 - `short_qty`(短装数)= `quantity - actual_quantity`
 
-系统共 8 张表、19 个这类字段(完整清单见 `docs/DATA_MODEL.md §5.1`)。
+系统共 11 张表、23 条这类派生规则(完整清单见 `docs/DATA_MODEL.md §5.1`)。
 
 **要决定的问题**:这些派生字段在哪一层计算?有三个候选位置:
 
@@ -30,29 +30,29 @@
 **唯一例外**:`delivery_order_items.short_qty` 走 DB 生成列(理由见下方"例外的理由")。
 
 - 派生字段集中表:`DERIVED_RULES`(csv_to_sql.py:47),按表名分组的字典。
-- 计算入口:`apply_derived_rules`(csv_to_sql.py:547 起)实现"加算 + 反向校验"双行为。
-- 反向校验容差:支持 `tolerance_mode: absolute|percent`(csv_to_sql.py:621)。
-- 三处同步义务见 `BUSINESS_RULES.md R7`。
+- 计算入口:`apply_derived_rules`(csv_to_sql.py:653 起)实现"加算 + 反向校验"双行为。
+- 反向校验容差:支持 `tolerance_mode: absolute|percent`(csv_to_sql.py:727)。
+- 四处同步义务见 `BUSINESS_RULES.md R7`。
 
 ## 理由 (Rationale)
 
 ### 为什么选应用层,不选 DB 生成列
 
 **1. 跨表派生,DB 生成列做不了。**
-`purchase_order_items.volume_subtotal` 依赖 `products.volume`(单件体积),这是**跨表**关系。MySQL `GENERATED COLUMN` 只能引用**本行**其他列,跨表 JOIN 它管不了。所以这种字段只能在 Python 端算完再落库。证据:`local_validator.py::check_volume_subtotals`(步骤 8/15)专门做跨表体积校验,正是因为 DB 约束保证不了。
+`purchase_order_items.volume_subtotal` 依赖 `products.volume`(单件体积),这是**跨表**关系。MySQL `GENERATED COLUMN` 只能引用**本行**其他列,跨表 JOIN 它管不了。所以这种字段只能在 Python 端算完再落库。证据:`local_validator.py::check_volume_subtotals`(步骤 8/16)专门做跨表体积校验,正是因为 DB 约束保证不了。
 
 **2. 反向校验需要容差逻辑,DB 表达不了。**
 客户经常"上下浮动"填一个值(比如理论米重 100g,客户填 102g),系统不能强行覆盖,而是要**比对公式值,超容差才报错**。`apply_derived_rules` 做的是"软约束 + 容差":CSV 没填就自动算,填了就跟公式比,超容差报 ERROR。DB 生成列是**硬覆盖**——客户填的值会被直接丢掉,这违背业务需求(R4:按客户给定值保存)。
 
 **3. 密度按品类查表,放 DB 难维护。**
-重量计算依赖 `DENSITY_RULES`(csv_to_sql.py:397),不同 `product_category` 用不同公式(线管固定 1.35;钢丝管 `内径×0.003+1.46`)。这种"按业务字典查公式"的逻辑放在 Python 字典里加一行就能扩品类(R6:数据即数据),放 DB 要写一堆 `CASE WHEN`,改起来痛苦。
+重量计算依赖 `DENSITY_RULES`(csv_to_sql.py:470),不同 `product_category` 用不同公式(线管固定 1.35;钢丝管 `内径×0.003+1.46`)。这种"按业务字典查公式"的逻辑放在 Python 字典里加一行就能扩品类(R6:数据即数据),放 DB 要写一堆 `CASE WHEN`,改起来痛苦。
 
 **4. 厚度反推有三条路径,DB 写不了分支。**
-`calc_theoretical_thickness`(csv_to_sql.py:451)按优先级 A > B > C 走(A 几何反推;B 密度方程;C 密度方程另一组)。`depends_on_any`(csv_to_sql.py:574)支持"任一组依赖齐即可"的 OR 关系。这种多路径分支逻辑写进 DB 生成列几乎不可能。
+`calc_theoretical_thickness`(csv_to_sql.py:524)按优先级 A > B > C 走(A 几何反推;B 密度方程;C 密度方程另一组)。`depends_on_any`(csv_to_sql.py:680)支持"任一组依赖齐即可"的 OR 关系。这种多路径分支逻辑写进 DB 生成列几乎不可能。
 
 ### 例外:`short_qty` 为何走 DB 生成列
 
-`delivery_order_items.short_qty` 是**唯一**走 MySQL `GENERATED ALWAYS AS (quantity - actual_quantity) STORED` 的字段(sql/01_schema.sql:498)。理由:
+`delivery_order_items.short_qty` 是**唯一**走 MySQL `GENERATED ALWAYS AS (quantity - actual_quantity) STORED` 的字段(sql/01_schema.sql:532)。理由:
 
 - **纯行内计算**——只依赖同一行的 `quantity` 和 `actual_quantity`,**不跨表、不容差、不分路径**。DB 生成列恰好擅长这种场景。
 - **强一致性**——`actual_quantity` 一改,`short_qty` 自动重算,不存在"应用层忘算"的风险。
@@ -77,25 +77,25 @@
 
 ### 负面后果 / 取舍
 
-- **三处同步负担**(`BUSINESS_RULES.md R7`):加新派生字段必须同步改三处——`sql/01_schema.sql`(MySQL 真表)、`tools/local_validator.py::SQLITE_SCHEMA`(SQLite 镜像)、`tools/csv_to_sql.py::DERIVED_RULES`(派生规则)。漏一处就会出现"校验通过但数据算错"。
-  - **缓解**:用 `schema-sync-checker` agent 做静态对照 + 13 步自检兜底(`scripts/run_local_validation.sh`)。
-- **SQLite 镜像不能完全复刻 DB 生成列**:SQLite 不支持 `STORED` 生成列,`short_qty` 在 SQLite 里是普通 `INTEGER NOT NULL DEFAULT 0`(local_validator.py:277),靠应用层 lambda 兜底(csv_to_sql.py:231-244)算出来再写进 SQLite。这是一处"两套库行为不完全一致"的代价。
+- **四处同步负担**(`BUSINESS_RULES.md R7`):加新派生字段必须同步改四处——`sql/01_schema.sql`(MySQL 真表)、`tools/local_validator.py::SQLITE_SCHEMA`(SQLite 镜像)、`tools/csv_to_sql.py::DERIVED_RULES`(派生规则)、`sample/templates/<表名>_template.csv`(CSV 模板表头)。漏一处就会出现"校验通过但数据算错"。
+  - **缓解**:用 `schema-sync-checker` agent 做静态对照 + 16 步自检兜底(`scripts/run_local_validation.sh`)。
+- **SQLite 镜像不能完全复刻 DB 生成列**:SQLite 不支持 `STORED` 生成列,`short_qty` 在 SQLite 里是普通 `INTEGER NOT NULL DEFAULT 0`(local_validator.py:298),靠应用层 lambda 兜底(csv_to_sql.py:222-235)算出来再写进 SQLite。这是一处"两套库行为不完全一致"的代价。
 
 ## 相关 (Related)
 
 - **关联文档**:
   - `docs/DESIGN.md §2`(派生字段策略设计,含完整理由和代码证据)
-  - `docs/DESIGN.md §8`(三处同步设计)
-  - `docs/BUSINESS_RULES.md R5`(行内派生字段规则)、`R7`(三处同步)、`R4`(产品参数计算,容差 5%)
-  - `docs/DATA_MODEL.md §5.1`(派生字段完整清单:8 表 19 字段)
+  - `docs/DESIGN.md §8`(四处同步设计)
+  - `docs/BUSINESS_RULES.md R5`(行内派生字段规则)、`R7`(四处同步)、`R4`(产品参数计算,容差 5%)
+  - `docs/DATA_MODEL.md §5.1`(派生字段完整清单:11 表 23 条派生规则)
 - **关联代码**:
   - `tools/csv_to_sql.py:47`(`DERIVED_RULES` 定义)
-  - `tools/csv_to_sql.py:231-244`(`short_qty` 应用层兜底版)
-  - `tools/csv_to_sql.py:397`(`DENSITY_RULES`)
-  - `tools/csv_to_sql.py:451`(`calc_theoretical_thickness`)
-  - `tools/csv_to_sql.py:574`(`depends_on_any`)、`tools/csv_to_sql.py:621`(`tolerance_mode`)
-  - `sql/01_schema.sql:498`(`short_qty` DB 生成列,唯一例外)
-  - `tools/local_validator.py:277`(`short_qty` 在 SQLite 镜像里是普通 INT)
-  - `tools/local_validator.py::check_volume_subtotals`(步骤 8/15,跨表体积校验)
+  - `tools/csv_to_sql.py:222-235`(`short_qty` 应用层兜底版)
+  - `tools/csv_to_sql.py:470`(`DENSITY_RULES`)
+  - `tools/csv_to_sql.py:524`(`calc_theoretical_thickness`)
+  - `tools/csv_to_sql.py:680`(`depends_on_any`)、`tools/csv_to_sql.py:727`(`tolerance_mode`)
+  - `sql/01_schema.sql:532`(`short_qty` DB 生成列,唯一例外)
+  - `tools/local_validator.py:298`(`short_qty` 在 SQLite 镜像里是普通 INT)
+  - `tools/local_validator.py::check_volume_subtotals`(步骤 8/16,跨表体积校验)
 
 DONE

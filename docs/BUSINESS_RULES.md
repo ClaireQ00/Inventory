@@ -253,8 +253,8 @@ CI 同样以此为门禁(`scripts/ci.sh` / `.github/workflows/ci.yml`)。
   - total_volume(总体积) = volume × quantity(volume 复用 inventory 体积公式)
 - **报价主表金额四件套**:total_amount = Σ subtotal,仍遵循 R1(currency/exchange_rate/total_amount_cny)
 - **报价主表 total_volume**:**应用层汇总**(同 total_amount 模式,不是 DERIVED_RULES)= Σ quotation_items.total_volume。同字段也存在于 `sales_contracts` / `purchase_orders` / `delivery_orders` 主表(各自 = Σ 明细 volume_subtotal)。**展示用统计**(给客户看),WARN 级校验,跟 `shipping_records.total_cbm` 报关实际数是两个概念
-- **派生关系**:正式 QT form(quote_type='formal')从简要报价(quote_type='brief')派生,parent_quote_id 指向来源
-- **转换**:报价转销售合同后,status='converted',converted_contract_id 回填
+- **派生关系**:正式 QT form(quote_type='formal')从简要报价(quote_type='brief')派生,parent_quote_no 指向来源
+- **转换**:报价转销售合同后,status='converted',converted_contract_no 回填
 - 影响表:quotation_params / quotations / quotation_items(新增 3 表)
 
 ---
@@ -313,5 +313,5 @@ CI 同样以此为门禁(`scripts/ci.sh` / `.github/workflows/ci.yml`)。
 | 2026-07-29 | R3.5 调拨配对 | 新增 `transfer_ref` 字段 + `check_transfer_pairs` 第 13 步;负库存校验由 ERROR 降级为 WARN。自检从 12 步增至 13 步 |
 | 2026-07-29 | R10 报价定价 | 新增报价模块,KG×系数定价 + 简要报价→QT form→PI 派生。新增 `check_quotations` 第 14 步,自检从 13 步增至 14 步 |
 | 2026-07-29 | R11 Packing Plan 反算 | 客户确认方案 A(复用 delivery_order_items)+ 丙方案(正算应等于的合同单价)。新增 `check_packing_coefficient` 第 15 步,自检从 14 步增至 15 步;同步澄清 `sales_contract_items.unit_price` 为"原币种/件" |
-| 2026-07-30 | 主表 total_volume 字段 | 4 张主表(quotations/sales_contracts/purchase_orders/delivery_orders)新增 `total_volume` 字段(DECIMAL(10,4),展示用统计 = Σ 明细 volume_subtotal/quotation_items.total_volume)。新增 `check_delivery_order_volume` 第 9 步,自检从 15 步增至 16 步。**与 `shipping_records.total_cbm` 是两个概念**——前者是给客户看的展示统计,后者是装柜后报关真实 CBM。校验用 WARN 级(容差 0.01),不阻断业务流程 |
+| 2026-07-30 | 主表 total_volume 字段 | 4 张主表(quotations/sales_contracts/purchase_orders/delivery_orders)新增 `total_volume` 字段(DECIMAL(10,2),展示用统计 = Σ 明细 volume_subtotal/quotation_items.total_volume)。新增 `check_delivery_order_volume` 第 9 步,自检从 15 步增至 16 步。**与 `shipping_records.total_cbm` 是两个概念**——前者是给客户看的展示统计,后者是装柜后报关真实 CBM。校验用 WARN 级(容差 0.01),不阻断业务流程 |
 | 2026-07-31 | R11 反算公式修正 | 真实数据 Q025 跑出 11 条 WARN:公式误乘汇率导致单位不匹配(原币 vs 人民币)。修正为 `报价系数×单重`,容差 0.001→0.01(2 位小数报价);demo 合同件价同步修正 |

@@ -47,7 +47,7 @@
 
 ### A.1 业务背景
 
-一笔完整的外贸订单从询盘到收款的全流程（`BUSINESS_FLOW.md §2` 的 9 个节点）。demo 用"客户A / SC20260720001 / 4500 USD / T/T 全款"作为样本，覆盖 14 步全流程。
+一笔完整的外贸订单从询盘到收款的全流程（`BUSINESS_FLOW.md §2` 的 9 个节点）。demo 用"客户A / SC20260720001 / 4500 USD / T/T 全款"作为样本，覆盖 16 步全流程。
 
 > **类比**：这是体检的"全项套餐"，从头到脚扫一遍，任何一步亮红灯都说明流程断了。
 
@@ -78,26 +78,28 @@ bash scripts/run_local_validation.sh --demo
 
 （无任何数据改动，直接跑全套 demo）
 
-### A.4 预期结果（14 步对照）
+### A.4 预期结果（16 步对照）
 
 | 步骤 | 预期 | 依据（代码行号 + 数据） |
 | --- | --- | --- |
-| 1/14 | **通过** | products/warehouses/suppliers/customers 四表非空（`check_master_data:513-539`） |
-| 2/14 | **通过** | PO total_amount=20000 = Σ明细 10000+10000（`check_purchase_orders:555-559`） |
-| 3/14 | **通过**（恰好到货，无 WARN） | 入库 10+10 = 采购 10+10，不触发 `received < ordered` 的 WARN（`check_stock_in_vs_purchase:579-587`） |
-| 4/14 | **通过** | 合同 total_amount=30000 = Σ明细 16000+14000（`check_sales_contracts:603-607`） |
-| 5/14 | **WARN**：「合同 SC20260720001 / 物料 DEMO-M-001: 已发 5 < 合同 8（未发完）」「物料 DEMO-M-002: 已发 10 < 合同 14（未发完）」 | 发货 5/10 < 合同 8/14（`check_delivery_vs_contract:641-644`） |
-| 6/14 | **通过** | 物料1仓1：入10 出5+3调拨=8 ≤ 10；物料2仓1：入10 出10 恰好平衡（`check_stock_out_vs_inventory:689-694`） |
-| 7/14 | **通过** | 流水累加 = inventory（10-5-3=2；10-10=0；调拨入=3）（`check_reconciliation:776-788`） |
-| 8/14 | **通过** | DEMO-M-001 外观外径40²×外观高度30×0.93/1e6=0.04464，PO 填 volume_subtotal=0.446（10件），偏差 0.0004 ≤ 0.01（`check_volume_subtotals:836-840`） |
-| 9/14 | **通过**（不触发任何 WARN/ERROR） | 报关 actual_qty = planned_qty（5/5, 10/10），偏差 0%（`check_shipping_vs_delivery:870-884`，`ratio>0` 才进 WARN 分支） |
-| 10/14 | **通过**（跳过） | credit_notes 空表，`SELECT ... WHERE resolution='pending'` 返回 0 行（`check_credit_notes_balance:900-905`） |
-| 11/14 | **通过** | MAX(effective_date)=2026-07-01，不早于本月1号 2026-07-01（`check_exchange_rates:973-987`） |
-| 12/14 | **通过**（注意：不报"未收齐"WARN） | 收款 4500 USD ≤ 合同 30000 USD；`total_received==0` 才报"未收款"WARN，4500≠0 不触发（`check_receipts_vs_contract:1016-1036`） |
-| 13/14 | **通过** | TR20260729001 出库3/物料1 = 入库3/物料1（`check_transfer_pairs:1080-1088`） |
-| 14/14 | **通过** | 报价 QT001 total_amount=1167.60 = Σ明细 711.68+455.92；QT002 formal 的 parent=1 指向 brief（`check_quotations:1174-1220`，详见场景 F） |
+| 1/16 | **通过** | products/warehouses/suppliers/customers 四表非空（`check_master_data`） |
+| 2/16 | **通过** | PO total_amount=20000 = Σ明细 10000+10000（`check_purchase_orders`） |
+| 3/16 | **通过**（恰好到货，无 WARN） | 入库 10+10 = 采购 10+10，不触发 `received < ordered` 的 WARN（`check_stock_in_vs_purchase`） |
+| 4/16 | **通过** | 合同 total_amount=30000 = Σ明细 16000+14000（`check_sales_contracts`） |
+| 5/16 | **WARN**：「合同 SC20260720001 / 物料 DEMO-M-001: 已发 5 < 合同 8（未发完）」「物料 DEMO-M-002: 已发 10 < 合同 14（未发完）」 | 发货 5/10 < 合同 8/14（`check_delivery_vs_contract`） |
+| 6/16 | **通过** | 物料1仓1：入10 出5+3调拨=8 ≤ 10；物料2仓1：入10 出10 恰好平衡（`check_stock_out_vs_inventory`） |
+| 7/16 | **通过** | 流水累加 = inventory（10-5-3=2；10-10=0；调拨入=3）（`check_reconciliation`） |
+| 8/16 | **通过** | DEMO-M-001 外观外径40²×外观高度30×0.93/1e6=0.04464，PO 填 volume_subtotal=0.446（10件），偏差 0.0004 ≤ 0.01（`check_volume_subtotals`） |
+| 9/16 | **通过** | 发货单 DN20260726001 总体积 = Σ 明细 volume_subtotal（`check_delivery_order_volume`） |
+| 10/16 | **通过**（不触发任何 WARN/ERROR） | 报关 actual_qty = planned_qty（5/5, 10/10），偏差 0%（`check_shipping_vs_delivery`） |
+| 11/16 | **通过**（跳过） | credit_notes 空表，`SELECT ... WHERE resolution='pending'` 返回 0 行（`check_credit_notes_balance`） |
+| 12/16 | **通过** | MAX(effective_date)=2026-07-01，不早于本月1号 2026-07-01（`check_exchange_rates`） |
+| 13/16 | **通过**（注意：不报"未收齐"WARN） | 收款 4500 USD ≤ 合同 30000 USD；`total_received==0` 才报"未收款"WARN，4500≠0 不触发（`check_receipts_vs_contract`） |
+| 14/16 | **通过** | TR20260729001 出库3/物料1 = 入库3/物料1（`check_transfer_pairs`） |
+| 15/16 | **通过** | 报价 QT001 total_amount=1167.60 = Σ明细 711.68+455.92；QT002 formal 的 parent=1 指向 brief（`check_quotations`，详见场景 F） |
+| 16/16 | **通过** | packing coefficient 公斤价反算容差内（`check_packing_coefficient`） |
 
-**最终退出码**：`0`（`report.ok == True`，虽然第 5 步有 WARN 但 WARN 不影响 ok 判定，见 `ValidationReport.ok:449-451`）
+**最终退出码**：`0`（`report.ok == True`，虽然第 5 步有 WARN 但 WARN 不影响 ok 判定，见 `ValidationReport.ok`）
 
 ### A.5 验证命令
 
@@ -130,22 +132,22 @@ demo 数据已内置这条调拨（无需改动）：
 
 ```bash
 bash scripts/run_local_validation.sh --demo
-# 关注末尾第 13 步输出
+# 关注末尾第 15 步输出
 ```
 
 ### B.4 预期结果
 
 | 步骤 | 预期 | 依据 |
 | --- | --- | --- |
-| 13/13 | **通过**（无 ERROR 也无 WARN） | 按 `(transfer_ref, product_id)` 聚合：出库总量 3 = 入库总量 3，`out_qty == in_qty` 不进 `if out_qty != in_qty` 分支（`check_transfer_pairs:1080-1088`）；也不是 orphan 单边（`check_transfer_pairs:1091-1100`） |
-| 6/13 | **通过** | 调拨发出端 WH-01：物料1 累计入 10（采购），累计出 5（销售）+3（调拨）=8 ≤ 10，未透支；接收端 WH-02：累计入 3，累计出 0，正常（`check_stock_out_vs_inventory`） |
-| 7/13 | **通过** | 流水重建时 `out_type='transfer'` 和 `in_type='transfer'` 都被纳入（`rebuild_stock_logs:709-748` 不区分类型），WH-01 物料1 = 10-5-3 = 2，WH-02 物料1 = 3，跟 `inventory.csv` 一致 |
+| 14/16 | **通过**（无 ERROR 也无 WARN） | 按 `(transfer_ref, product_id)` 聚合：出库总量 3 = 入库总量 3，`out_qty == in_qty` 不进 `if out_qty != in_qty` 分支（`check_transfer_pairs:1080-1088`）；也不是 orphan 单边（`check_transfer_pairs:1091-1100`） |
+| 6/16 | **通过** | 调拨发出端 WH-01：物料1 累计入 10（采购），累计出 5（销售）+3（调拨）=8 ≤ 10，未透支；接收端 WH-02：累计入 3，累计出 0，正常（`check_stock_out_vs_inventory`） |
+| 7/16 | **通过** | 流水重建时 `out_type='transfer'` 和 `in_type='transfer'` 都被纳入（`rebuild_stock_logs:709-748` 不区分类型），WH-01 物料1 = 10-5-3 = 2，WH-02 物料1 = 3，跟 `inventory.csv` 一致 |
 
 **最终退出码**：`0`
 
 ### B.5 异常分支（可选验证）
 
-如果想看第 13 步报 ERROR，把 `data/csv/demo_runtime/stock_in_items.csv` 第 3 行的 `quantity` 从 `3` 改成 `2`，重跑：
+如果想看第 14 步报 ERROR，把 `data/csv/demo_runtime/stock_in_items.csv` 第 3 行的 `quantity` 从 `3` 改成 `2`，重跑：
 
 ```
 [ERROR] 调拨 TR20260729001 / 物料 DEMO-M-001: 出库 3 ≠ 入库 2（差额 1，调拨在途或漏录）
@@ -169,13 +171,13 @@ bash scripts/run_local_validation.sh --demo
 
 ### C.1 业务背景
 
-合同 2026-07 签（汇率 7.15），客户拖到 2026-08 才 T/T 付款。按 `BUSINESS_RULES.md R2`，**收款用 `paid_date` 所在月汇率，不是合同月**。8 月如果没有 USD 汇率，第 11 步直接报 ERROR。
+合同 2026-07 签（汇率 7.15），客户拖到 2026-08 才 T/T 付款。按 `BUSINESS_RULES.md R2`，**收款用 `paid_date` 所在月汇率，不是合同月**。8 月如果没有 USD 汇率，第 12 步直接报 ERROR。
 
 > **类比**：汇率像每月一换的"换汇牌价"。7 月签合同时是 7.15，8 月去银行换汇可能变成 7.18，差额就是汇兑损益——不能强行用 7 月的牌价算 8 月的交易。
 
 ### C.2 前置条件
 
-demo 默认数据里收款 `paid_date=2026-07-26`，汇率 7.15 → 第 11 步是通过的。本场景要**故意把收款拖到 8 月**且**不补 8 月汇率**来触发 ERROR。
+demo 默认数据里收款 `paid_date=2026-07-26`，汇率 7.15 → 第 12 步是通过的。本场景要**故意把收款拖到 8 月**且**不补 8 月汇率**来触发 ERROR。
 
 ### C.3 操作步骤
 
@@ -190,17 +192,17 @@ demo 默认数据里收款 `paid_date=2026-07-26`，汇率 7.15 → 第 11 步�
    bash scripts/run_local_validation.sh --demo
    ```
 
-> ⚠️ 注意：本场景受 `datetime.now()` 影响——`check_exchange_rates:959-960` 用"今天"算 `this_month_start`。如果今天是 2026-07，`this_month_start=2026-07-01`，那 MAX(effective_date)=2026-07-01 仍 ≥ 本月1号，第 11 步**不会报 ERROR**。要稳定复现，请把系统时间调到 2026-08 任意一天再跑（或在 `exchange_rates.csv` 把 7 月那条 `effective_date` 改成更早，比如 2026-06-01）。
+> ⚠️ 注意：本场景受 `datetime.now()` 影响——`check_exchange_rates:959-960` 用"今天"算 `this_month_start`。如果今天是 2026-07，`this_month_start=2026-07-01`，那 MAX(effective_date)=2026-07-01 仍 ≥ 本月1号，第 12 步**不会报 ERROR**。要稳定复现，请把系统时间调到 2026-08 任意一天再跑（或在 `exchange_rates.csv` 把 7 月那条 `effective_date` 改成更早，比如 2026-06-01）。
 
 ### C.4 预期结果（以"今天=2026-08"为前提）
 
 | 步骤 | 预期 | 依据 |
 | --- | --- | --- |
-| 11/13 | **ERROR**：「币种 USD: 最近一条汇率是 2026-07-01, 早于本月1号(2026-08-01), 本月业务没法折算 CNY, 请补录当月汇率」 | `last_str='2026-07-01' < this_month_str='2026-08-01'`（`check_exchange_rates:981-987`） |
-| 12/13 | **通过**（金额侧） | 收款 4500 USD ≤ 合同 30000 USD；币种一致（`check_receipts_vs_contract`） |
+| 12/16 | **ERROR**：「币种 USD: 最近一条汇率是 2026-07-01, 早于本月1号(2026-08-01), 本月业务没法折算 CNY, 请补录当月汇率」 | `last_str='2026-07-01' < this_month_str='2026-08-01'`（`check_exchange_rates:981-987`） |
+| 13/16 | **通过**（金额侧） | 收款 4500 USD ≤ 合同 30000 USD；币种一致（`check_receipts_vs_contract`） |
 | 其他步 | 同场景 A | 改的只是 paid_date，不影响别的步 |
 
-**最终退出码**：`1`（第 11 步 ERROR）
+**最终退出码**：`1`（第 12 步 ERROR）
 
 ### C.5 修复路径（让场景变绿）
 
@@ -210,7 +212,7 @@ demo 默认数据里收款 `paid_date=2026-07-26`，汇率 7.15 → 第 11 步�
 3,USD,7.18,2026-08-01,manual,2026年8月美元固定汇率
 ```
 
-重跑后第 11 步通过。此时 `receipts.amount_cny` 应是 4500×7.18=32310 CNY（跟合同 4500×7.15=32175 差 135 CNY，这就是**汇兑损益**，本阶段只记录不结转，见 `BUSINESS_FLOW.md §4.2`）。
+重跑后第 12 步通过。此时 `receipts.amount_cny` 应是 4500×7.18=32310 CNY（跟合同 4500×7.15=32175 差 135 CNY，这就是**汇兑损益**，本阶段只记录不结转，见 `BUSINESS_FLOW.md §4.2`）。
 
 ### C.6 验证命令
 
@@ -230,7 +232,7 @@ bash scripts/run_local_validation.sh --demo
 
 ### D.2 前置条件
 
-demo 默认报关 actual_qty = planned_qty（满发），第 9 步不触发。本场景要**故意把 actual_qty 改少**触发 ERROR，再补 credit_note 走闭环。
+demo 默认报关 actual_qty = planned_qty（满发），第 10 步不触发。本场景要**故意把 actual_qty 改少**触发 ERROR，再补 credit_note 走闭环。
 
 ### D.3 操作步骤
 
@@ -253,14 +255,14 @@ demo 默认报关 actual_qty = planned_qty（满发），第 9 步不触发。�
 
 | 步骤 | 预期 | 依据 |
 | --- | --- | --- |
-| 9/13 | **ERROR**：「报关单 SH20260726001 / 物料 DEMO-M-001: 实际 4 vs 计划 5, 偏差 20.0% > 5% (违反 UCP600 容差)」 | `ratio = |4-5|/5 = 0.2 > SHORT_SHIPMENT_TOLERANCE=0.05`（`check_shipping_vs_delivery:870-879`） |
-| 10/13 | **通过**（如果补了 credit_note 且 created_at 是今天） | 新挂的 credit_note `created_at` 默认今天，`age_days=0`，不进 >30 天 WARN 分支（`check_credit_notes_balance:917-926`） |
-| 10/13（变体） | **WARN** 「pending 已 N 天 > 30 天」 | 如果把 credit_note 的 `created_at` 改成 35 天前（修改 demo 让 created_at 早于今天 35 天） |
-| 10/13（变体） | **ERROR** 「pending 已 N 天 > 90 天」 | 同上，改成 95 天前 |
+| 10/16 | **ERROR**：「报关单 SH20260726001 / 物料 DEMO-M-001: 实际 4 vs 计划 5, 偏差 20.0% > 5% (违反 UCP600 容差)」 | `ratio = |4-5|/5 = 0.2 > SHORT_SHIPMENT_TOLERANCE=0.05`（`check_shipping_vs_delivery:870-879`） |
+| 11/16 | **通过**（如果补了 credit_note 且 created_at 是今天） | 新挂的 credit_note `created_at` 默认今天，`age_days=0`，不进 >30 天 WARN 分支（`check_credit_notes_balance:917-926`） |
+| 11/16（变体） | **WARN** 「pending 已 N 天 > 30 天」 | 如果把 credit_note 的 `created_at` 改成 35 天前（修改 demo 让 created_at 早于今天 35 天） |
+| 11/16（变体） | **ERROR** 「pending 已 N 天 > 90 天」 | 同上，改成 95 天前 |
 
-**最终退出码**：`1`（第 9 步 ERROR 是硬错，补 credit_note 不能消除——credit_note 只是记录差异，UCP600 容差违规本身仍报 ERROR，提示业务注意）
+**最终退出码**：`1`（第 10 步 ERROR 是硬错，补 credit_note 不能消除——credit_note 只是记录差异，UCP600 容差违规本身仍报 ERROR，提示业务注意）
 
-> 说明：第 9 步 ERROR 和第 10 步闭环是**两个独立维度**——9 步告诉你"这次装柜违规了"，10 步告诉你"挂的差异单有没有及时处理"。补 credit_note 让 10 步绿，但 9 步的 ERROR 还在（业务需复盘为什么超 5%）。
+> 说明：第 10 步 ERROR 和第 11 步闭环是**两个独立维度**——10 步告诉你"这次装柜违规了"，11 步告诉你"挂的差异单有没有及时处理"。补 credit_note 让 10 步绿，但 10 步的 ERROR 还在（业务需复盘为什么超 5%）。
 
 ### D.5 容差边界（≤5% 走 WARN）
 
@@ -306,8 +308,8 @@ demo 默认数据第 6 步是通过的（物料2 仓库1 入出恰好平衡）�
 
 | 步骤 | 预期 | 依据 |
 | --- | --- | --- |
-| 6/13 | **WARN**：「出库单 OUT20260726001 / 物料 DEMO-M-002: 累计出库 15 > 累计入库 10（仓库 1 当前库存为负 -5，请补货）」 | 物料2 仓库1：累计入 10，累计出 10+5=15 > 10（`check_stock_out_vs_inventory:689-694`，`total_out > total_in` 进 WARN 分支） |
-| 7/13 | **ERROR**（对账不平） | 流水累加 = 10-15 = -5，但 `inventory.csv` 物料2 仓库1 填的是 0 → 对账不平报 ERROR（`check_reconciliation:776-785`） |
+| 6/16 | **WARN**：「出库单 OUT20260726001 / 物料 DEMO-M-002: 累计出库 15 > 累计入库 10（仓库 1 当前库存为负 -5，请补货）」 | 物料2 仓库1：累计入 10，累计出 10+5=15 > 10（`check_stock_out_vs_inventory:689-694`，`total_out > total_in` 进 WARN 分支） |
+| 7/16 | **ERROR**（对账不平） | 流水累加 = 10-15 = -5，但 `inventory.csv` 物料2 仓库1 填的是 0 → 对账不平报 ERROR（`check_reconciliation:776-785`） |
 
 **最终退出码**：`1`
 
@@ -331,11 +333,11 @@ bash scripts/run_local_validation.sh --demo
 
 ---
 
-## 场景 F：简要报价 → 正式 QT → PI 转换（check_quotations 第 14 步）
+## 场景 F：简要报价 → 正式 QT → PI 转换（check_quotations 第 15 步）
 
 ### F.1 业务背景
 
-签合同前的报价环节：业务员先给客户一份**简要报价（brief）**，确认后派生**正式 QT（formal）**，客户最终确认后转成**销售合同（PI）**。定价走 KG × 系数（R10），不走绝对价。`check_quotations`（步骤 14/14）一次性校验：主表金额 = 明细之和、formal 的 parent 指向 brief、converted 的合同 ID 存在、明细 subtotal 公式正确（`BUSINESS_RULES.md R10`、`BUSINESS_FLOW.md` 节点 1 询盘报价）。
+签合同前的报价环节：业务员先给客户一份**简要报价（brief）**，确认后派生**正式 QT（formal）**，客户最终确认后转成**销售合同（PI）**。定价走 KG × 系数（R10），不走绝对价。`check_quotations`（步骤 15/16）一次性校验：主表金额 = 明细之和、formal 的 parent 指向 brief、converted 的合同 ID 存在、明细 subtotal 公式正确（`BUSINESS_RULES.md R10`、`BUSINESS_FLOW.md` 节点 1 询盘报价）。
 
 > **类比**：这像买房的"意向金 → 正式报价单 → 购房合同"三步走。每一步都是上一步的细化，靠编号串起来追溯，任何一步算错了（比如总价跟分项加起来对不上）都要立刻发现。
 
@@ -354,14 +356,14 @@ demo 数据已内置完整报价链（无需改动）：
 
 ```bash
 bash scripts/run_local_validation.sh --demo
-# 关注末尾第 14 步输出
+# 关注末尾第 15 步输出
 ```
 
 （无任何数据改动，直接跑全套 demo）
 
-### F.4 预期结果（第 14 步对照）
+### F.4 预期结果（第 15 步对照）
 
-第 14 步 `check_quotations`（`tools/local_validator.py:1174-1220`）跑 4 个子校验：
+第 15 步 `check_quotations`（`tools/local_validator.py:1174-1220`）跑 4 个子校验：
 
 | 子校验 | 预期 | 依据 |
 | --- | --- | --- |
@@ -389,7 +391,7 @@ bash scripts/run_local_validation.sh --demo
   total_amount_cny = 1167.60 × 7.25  = 8465.10  (DERIVED_RULES 派生 ✓)
 ```
 
-**最终退出码**：`0`（第 14 步全过，前 13 步同场景 A）
+**最终退出码**：`0`（第 15 步全过，前 14 步同场景 A）
 
 ### F.5 异常分支（可选验证）
 
@@ -417,14 +419,14 @@ bash scripts/run_local_validation.sh --demo
 
 ## 附录 A：场景 × 步骤覆盖矩阵
 
-| 场景 \ 步骤 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| A 端到端 | ✓ | ✓ | ✓ | ✓ | **W** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| B 调拨配对 | ✓ | ✓ | ✓ | ✓ | W | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | **✓**（重点） | ✓ |
-| C 跨月汇率 | ✓ | ✓ | ✓ | ✓ | W | ✓ | ✓ | ✓ | ✓ | ✓ | **E** | ✓ | ✓ | ✓ |
-| D 短装超装 | ✓ | ✓ | ✓ | ✓ | W | ✓ | ✓ | ✓ | **E** | ✓/W | ✓ | ✓ | ✓ | ✓ |
-| E 负库存容忍 | ✓ | ✓ | ✓ | ✓ | W | **W** | **E** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| F 报价派生 | ✓ | ✓ | ✓ | ✓ | W | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | **✓**（重点） |
+| 场景 \ 步骤 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| A 端到端 | ✓ | ✓ | ✓ | ✓ | **W** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| B 调拨配对 | ✓ | ✓ | ✓ | ✓ | W | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | **✓**（重点） | ✓ | ✓ |
+| C 跨月汇率 | ✓ | ✓ | ✓ | ✓ | W | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | **E** | ✓ | ✓ | ✓ | ✓ |
+| D 短装超装 | ✓ | ✓ | ✓ | ✓ | W | ✓ | ✓ | ✓ | ✓ | **E** | ✓/W | ✓ | ✓ | ✓ | ✓ | ✓ |
+| E 负库存容忍 | ✓ | ✓ | ✓ | ✓ | W | **W** | **E** | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| F 报价派生 | ✓ | ✓ | ✓ | ✓ | W | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | **✓**（重点） | ✓ |
 
 > 图例：✓=通过 / **W**=WARN / **E**=ERROR / 加粗=本场景重点验证的步骤。
 >
@@ -437,7 +439,7 @@ bash scripts/run_local_validation.sh --demo
 - **加新场景**：必须基于 `tools/make_demo_data.py` 的真实数据起步，"操作步骤"里改动的字段值要明确写出（"把 X 从 A 改成 B"），不依赖任何真实客户数据（`BUSINESS_RULES.md R8`）
 - **改 demo 数据**：如果改了 `make_demo_data.py`，同步回头检查所有场景的"前置条件"和"预期结果"是否仍然成立
 - **ERROR/WARN 判定**：必须引用 `tools/local_validator.py` 的真实代码行号 + 真实分支条件，不能凭业务感觉臆测。改了 validator 代码要回头校准本文件
-- **14 步步骤号**：以 `docs/VALIDATION_GUIDE.md §3` 为准，跟 `local_validator.py::run_validation` 的调用顺序一致
+- **16 步步骤号**：以 `docs/VALIDATION_GUIDE.md §3` 为准，跟 `local_validator.py::run_validation` 的调用顺序一致
 
 ---
 
@@ -445,11 +447,11 @@ bash scripts/run_local_validation.sh --demo
 
 | 文档 | 作用 |
 | --- | --- |
-| `docs/VALIDATION_GUIDE.md` | 14 步校验流程 + 错误排查（本文件的"教科书"） |
+| `docs/VALIDATION_GUIDE.md` | 16 步校验流程 + 错误排查（本文件的"教科书"） |
 | `docs/TASKS.md` | 任务分解清单（场景驱动的待办） |
 | `docs/SPECS.md` | 功能需求规格（验收标准的源头） |
 | `docs/BUSINESS_FLOW.md` | 9 节点业务流程（场景的业务依据） |
-| `docs/BUSINESS_RULES.md` | R1~R10 业务规则（场景的规则依据，R10 报价） |
+| `docs/BUSINESS_RULES.md` | R1~R11 业务规则（场景的规则依据，R10 报价/R11 packing） |
 | `tools/make_demo_data.py` | demo 数据生成器（所有场景的数据源） |
 | `tools/local_validator.py` | 14 步校验引擎（所有预期结果的判定依据） |
 

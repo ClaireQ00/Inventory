@@ -31,7 +31,7 @@
 | --- | --- | --- | --- |
 | [0001](0001-derived-fields-in-application-layer.md) | 派生字段走应用层(Python),不使用数据库生成列 | 已接受 | 派生字段分层 |
 | [0002](0002-transfer-soft-link-no-dedicated-table.md) | 仓库调拨复用 stock_in/stock_out + transfer_ref 软关联,不建独立 transfer 表 | 已接受 | 调拨建模 |
-| [0003](0003-quotation-derive-from-brief.md) | 报价 brief 与 formal 共用 quotations 表 + parent_quote_id 软关联派生 + subtotal 直接公式 | 已接受 | 报价派生建模 |
+| [0003](0003-quotation-derive-from-brief.md) | 报价 brief 与 formal 共用 quotations 表 + parent_quote_no 软关联派生 + subtotal 直接公式 | 已接受 | 报价派生建模 |
 | [0004](0004-foreign-keys-use-business-codes-not-ids.md) | 外键改业务编号引用,弃用 AUTO_INCREMENT id 做关联 | 已接受 | 外键建模 |
 
 ---
@@ -88,7 +88,7 @@
 
 | 文档 | 回答什么 | 跟 ADR 的关系 |
 | --- | --- | --- |
-| `BUSINESS_RULES.md` | 硬性业务规则(R1~R9) | ADR 引用规则号,不重复规则内容 |
+| `BUSINESS_RULES.md` | 硬性业务规则(R1~R11) | ADR 引用规则号,不重复规则内容 |
 | `DESIGN.md` | 每个设计决策的"为什么 + 代码证据" | ADR 是 DESIGN.md 关键决策的**单页摘要 + 长期追溯**;ADR 引用 DESIGN.md 章节,不复制 |
 | `DATA_MODEL.md` | 表结构、字段、ER 图 | ADR 引用表名/字段名做证据 |
 | `SPECS.md` | 功能需求 | ADR 不涉及功能清单 |

@@ -22,9 +22,9 @@
 **复用 `stock_in` / `stock_out` 表,加 `transfer_ref` 软关联字段 + `in_type='transfer'` / `out_type='transfer'` 标识,不建独立 `transfers` 表。**
 
 - 调拨 = 一对配对的出入库单,两边填同一个 `transfer_ref` 号(如 `TR20260729001`)。
-- `stock_in.in_type` ENUM 已含 `'transfer'`(sql/01_schema.sql:327);`stock_out.out_type` ENUM 已含 `'transfer'`(sql/01_schema.sql:377)。
-- 两边都有 `transfer_ref VARCHAR(32)`(sql/01_schema.sql:335 / 385),各建索引 `idx_si_transfer` / `idx_so_transfer`(sql/01_schema.sql:348 / 398)加速按号聚合。
-- 配对校验:`tools/local_validator.py::check_transfer_pairs`(步骤 13/13)。
+- `stock_in.in_type` ENUM 已含 `'transfer'`(sql/01_schema.sql:358);`stock_out.out_type` ENUM 已含 `'transfer'`(sql/01_schema.sql:408)。
+- 两边都有 `transfer_ref VARCHAR(32)`(sql/01_schema.sql:366 / 416),各建索引 `idx_si_transfer` / `idx_so_transfer`(sql/01_schema.sql:379 / 429)加速按号聚合。
+- 配对校验:`tools/local_validator.py::check_transfer_pairs`(步骤 14/16)。
 
 ## 理由 (Rationale)
 
@@ -34,10 +34,10 @@
 证据:`in_type` / `out_type` 的 ENUM 从建模之初就**包含 `'transfer'`**(`stock_in.in_type` ENUM: `purchase`/`production`/`transfer`/`return`;`stock_out.out_type` ENUM: `sale`/`production`/`transfer`/`scrap`)。这说明调拨被设计成出入库的**子类型**,而不是平行的新单据。建独立表等于把一个子类型硬拔成主类型,跟现有模型冲突。
 
 **2. 复用现有流水和对账,零额外代码。**
-`rebuild_stock_logs`(local_validator.py:697-751)重建流水时**不区分** `in_type`/`out_type`,所有 `confirmed` 状态的出入库都进流水。`check_reconciliation`(步骤 7/13)按 `(product_id, warehouse_id)` 聚合流水对比库存表,**自动覆盖调拨**——源仓减、目标仓加,天然平衡。如果建独立 `transfers` 表,这套流水/对账逻辑要单独维护一份,且调拨数据不进主流水会出现"库存对不上"。
+`rebuild_stock_logs`(local_validator.py:839-895)重建流水时**不区分** `in_type`/`out_type`,所有 `confirmed` 状态的出入库都进流水。`check_reconciliation`(步骤 7/16)按 `(product_id, warehouse_id)` 聚合流水对比库存表,**自动覆盖调拨**——源仓减、目标仓加,天然平衡。如果建独立 `transfers` 表,这套流水/对账逻辑要单独维护一份,且调拨数据不进主流水会出现"库存对不上"。
 
 **3. 配对完整性靠应用层兜底,够用。**
-`check_transfer_pairs`(local_validator.py:1039-1100)按 `(transfer_ref, product_id)` 聚合两边数量:
+`check_transfer_pairs`(local_validator.py:1208-1270)按 `(transfer_ref, product_id)` 聚合两边数量:
 - 出库总量 ≠ 入库总量 → **ERROR**(差额、漏录或在途异常)
 - 只有一边(只出库没入库,或反之)→ **WARN**(在途或方向录错)
 
@@ -62,7 +62,7 @@
 
 ### 配套决策:负库存校验为何从 ERROR 降为 WARN
 
-本次决策还连带调整了 `check_stock_out_vs_inventory`(步骤 6/13,local_validator.py:647):累计出库 > 累计入库从 ERROR 降级为 **WARN**。
+本次决策还连带调整了 `check_stock_out_vs_inventory`(步骤 6/16,local_validator.py:790):累计出库 > 累计入库从 ERROR 降级为 **WARN**。
 
 理由:外贸调拨常"先做后补"——源仓先出库(此时源仓透支)、目标仓后入库(货物还在路上)。如果硬拦 ERROR,这种正常的在途业务跑不通。降级 WARN 提醒"请补货",但不阻断流程。
 
@@ -95,14 +95,14 @@
   - `docs/DATA_MODEL.md §6`(调拨建模详述,含 §6.4 对比表)
   - `docs/BUSINESS_RULES.md R3.5`(多仓库调拨配对铁律,2026-07-29 新增)
 - **关联代码**:
-  - `sql/01_schema.sql:327`(`stock_in.in_type` ENUM 含 `'transfer'`)
-  - `sql/01_schema.sql:335`(`stock_in.transfer_ref` 字段)
-  - `sql/01_schema.sql:348`(`idx_si_transfer` 索引)
-  - `sql/01_schema.sql:377`(`stock_out.out_type` ENUM 含 `'transfer'`)
-  - `sql/01_schema.sql:385`(`stock_out.transfer_ref` 字段)
-  - `sql/01_schema.sql:398`(`idx_so_transfer` 索引)
-  - `tools/local_validator.py:647`(`check_stock_out_vs_inventory`,负库存降 WARN)
-  - `tools/local_validator.py:1039-1100`(`check_transfer_pairs`,配对校验)
-  - `tools/local_validator.py:697-751`(`rebuild_stock_logs`,流水重建,不区分 in/out_type)
+  - `sql/01_schema.sql:358`(`stock_in.in_type` ENUM 含 `'transfer'`)
+  - `sql/01_schema.sql:366`(`stock_in.transfer_ref` 字段)
+  - `sql/01_schema.sql:379`(`idx_si_transfer` 索引)
+  - `sql/01_schema.sql:408`(`stock_out.out_type` ENUM 含 `'transfer'`)
+  - `sql/01_schema.sql:416`(`stock_out.transfer_ref` 字段)
+  - `sql/01_schema.sql:429`(`idx_so_transfer` 索引)
+  - `tools/local_validator.py:790`(`check_stock_out_vs_inventory`,负库存降 WARN)
+  - `tools/local_validator.py:1208-1270`(`check_transfer_pairs`,配对校验)
+  - `tools/local_validator.py:839-895`(`rebuild_stock_logs`,流水重建,不区分 in/out_type)
 
 DONE

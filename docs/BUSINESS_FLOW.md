@@ -1,6 +1,6 @@
 # 外贸订单业务流程全景图
 
-> 一句话：一笔外贸订单从**客户询盘**到**收款入账**，要走过 **9 个节点**，涉及 **3 个角色**，填 **20 张表里的 16 张**，过 **13 步业务校验**。
+> 一句话：一笔外贸订单从**客户询盘**到**收款入账**，要走过 **9 个节点**，涉及 **3 个角色**，填 **25 张表**，过 **16 步业务校验**。
 >
 > 这份文档是给**新人接手 / Claude 接力**用的——比 `AGENT_GUIDE.md` 更重要，因为这里讲的是**业务怎么走**，不是工具怎么调。
 
@@ -32,16 +32,16 @@
        │
        ▼
    [节点1a] 简要报价 brief ────── 业务经理 ────────── quotations(quote_type='brief') + quotation_items
-       │                                            过 check 14 (报价金额=明细之和, subtotal 公式)
+       │                                            过 check 15 (报价金额=明细之和, subtotal 公式)
        │                                            brief 不带贸易/付款/包装条款
        ▼
-   [节点1b] 正式报价 formal(PI)── 业务经理 ────────── quotations(quote_type='formal', parent_quote_id 指向 brief)
+   [节点1b] 正式报价 formal(PI)── 业务经理 ────────── quotations(quote_type='formal', parent_quote_no 指向 brief)
        │                                            带 5 个贸易条款: trade_terms/port_loading/port_discharge/payment_term/packing
-       │                                            过 check 14 (formal.parent_quote_id 必须指向 brief)
+       │                                            过 check 15 (formal.parent_quote_no 必须指向 brief)
        ▼
    [节点2] 接单签 SC ─────────── 业务经理 ────────── sales_contracts + sales_contract_items (从 formal 转单拷贝条款)
        │                                            过 check 4 (合同金额=明细之和)
-       │                                            过 check 11 (合同币种当月有汇率)
+       │                                            过 check 12 (合同币种当月有汇率)
        ▼
    [节点3] 下采购单 PO ────────── 业务经理 ────────── purchase_orders + purchase_order_items
        │                                            过 check 2 (采购金额=明细之和)
@@ -63,15 +63,15 @@
        │  short_qty = quantity - actual_quantity (派生)
        ▼
    [节点7] 报关出口 ───────────── 仓库/报关行 ────── shipping_records + shipping_record_items
-       │                                            过 check 9 (UCP600 ±5% 容差)
-       │                                            过 check 11 (报关月汇率)
+       │                                            过 check 10 (UCP600 ±5% 容差)
+       │                                            过 check 12 (报关月汇率)
        ▼
    [节点8] 客户付款 ───────────── 财务经理 ────────── receipts
-       │                                            过 check 12 (累计收款 ≤ 合同金额)
-       │                                            过 check 11 (付款月汇率)
+       │                                            过 check 13 (累计收款 ≤ 合同金额)
+       │                                            过 check 12 (付款月汇率)
        ▼
    [节点9] 差异处理 ───────────── 业务+财务 ──────── credit_notes (如有短装/超装)
-                                                    过 check 10 (pending ≤ 30天)
+                                                    过 check 11 (pending ≤ 30天)
 ```
 
 ---
@@ -95,9 +95,9 @@
 | **角色** | 业务经理 |
 | **触发** | 询盘后快速回应客户 |
 | **填什么表** | `quotations`(`quote_type='brief'`) + `quotation_items` |
-| **关键字段** | `quote_no`、`customer_id`、`quote_date`、`valid_until`、金额四件套(`total_amount`+`currency`+`exchange_rate`+`total_amount_cny`)、`status` |
-| **报价明细** | 每行 `product_id`(带出 `weight`/`volume`) + `weight_per_unit` + `price_coefficient`(USD/KG) + `quantity`,派生 `total_weight`/`unit_price`/`subtotal`/`total_volume` |
-| **过哪个校验** | **check 14**(主表 `total_amount = Σ quotation_items.subtotal`、subtotal = weight × coef × qty) |
+| **关键字段** | `quote_no`、`customer_code`、`quote_date`、`valid_until`、金额四件套(`total_amount`+`currency`+`exchange_rate`+`total_amount_cny`)、`status` |
+| **报价明细** | 每行 `material_id`(带出 `weight`/`volume`) + `weight_per_unit` + `price_coefficient`(USD/KG) + `quantity`,派生 `total_weight`/`unit_price`/`subtotal`/`total_volume` |
+| **过哪个校验** | **check 15**(主表 `total_amount = Σ quotation_items.subtotal`、subtotal = weight × coef × qty) |
 | **状态机** | `draft` → `sent` → `confirmed` → `converted` / `cancelled` |
 | **不带条款** | brief **不带** `trade_terms`/`port_loading`/`port_discharge`/`payment_term`/`packing`(这 5 字段留空,等 formal 阶段补) |
 | **下一步** | 客户口头确认意向 → 节点 1b 出正式报价 |
@@ -108,11 +108,11 @@
 | --- | --- |
 | **角色** | 业务经理 |
 | **触发** | brief 得到客户确认意向,出含完整条款的正式报价 |
-| **填什么表** | `quotations`(`quote_type='formal'`,`parent_quote_id` 指向 brief 的 `id`) + `quotation_items`(formal 自己的明细,因 `uk_qi_quote_product` 不能共用 brief 明细) |
+| **填什么表** | `quotations`(`quote_type='formal'`,`parent_quote_no` 指向 brief 的 `quote_no`) + `quotation_items`(formal 自己的明细,因 `uk_qi_quote_itemno` + `uk_qi_quote_material` 不能共用 brief 明细) |
 | **关键字段** | 同 brief + 5 个贸易条款:`trade_terms`(FOB/CIF/CFR/EXW)、`port_loading`、`port_discharge`、`payment_term`(自由文本)、`packing`(自由文本) |
 | **业务单据** | PROFORMA INVOICE(PI),承诺性质,作为客户付定金/开证的依据 |
 | **卖方信息来源** | 合同模板通过 `WHERE suppliers.is_self=1` 调取本公司的 `company_profiles`/`billing_profiles` |
-| **过哪个校验** | **check 14**(formal 的 `parent_quote_id` 必须指向存在的 brief) |
+| **过哪个校验** | **check 15**(formal 的 `parent_quote_no` 必须指向存在的 brief) |
 | **状态机** | 同 brief(`draft`/`sent`/`confirmed`/`converted`/`cancelled`) |
 | **下一步** | 客户签字确认 → 节点 2(转 SC 时拷贝 5 个贸易条款) |
 
@@ -122,10 +122,10 @@
 | --- | --- |
 | **角色** | 业务经理 |
 | **填什么表** | `sales_contracts`（合同主表） + `sales_contract_items`（明细） |
-| **关键字段** | `contract_no`、`customer_id`、`currency`（默认 USD）、`exchange_rate`（当期月汇率）、`total_amount`、`trade_terms`（FOB/CIF/CFR/EXW）、`port_loading`、`port_discharge`、`payment_term`（自由文本）、`packing`（自由文本） |
+| **关键字段** | `contract_no`、`customer_code`、`currency`（默认 USD）、`exchange_rate`（当期月汇率）、`total_amount`、`trade_terms`（FOB/CIF/CFR/EXW）、`port_loading`、`port_discharge`、`payment_term`（自由文本）、`packing`（自由文本） |
 | **条款来源** | 从 formal 报价转单时拷贝过来(`trade_terms`/`port_loading`/`port_discharge`/`payment_term`/`packing`) |
 | **金额四件套** | `total_amount` + `currency` + `exchange_rate` + `total_amount_cny`（派生） |
-| **过哪个校验** | **check 4**（合同金额 = Σ 明细小计）、**check 11**（合同币种当月有汇率） |
+| **过哪个校验** | **check 4**（合同金额 = Σ 明细小计）、**check 12**（合同币种当月有汇率） |
 | **状态机** | `draft` → `confirmed` → `delivering` → `completed` / `cancelled` |
 | **派生字段** | `sales_contract_items.subtotal` = 数量 × 单价（csv_to_sql 自动算） |
 | **下一步** | 触发节点 3（采购） |
@@ -136,7 +136,7 @@
 | --- | --- |
 | **角色** | 业务经理（给供应商下单） |
 | **填什么表** | `purchase_orders` + `purchase_order_items` |
-| **关键字段** | `po_no`、`supplier_id`、`expected_date`、`total_amount` |
+| **关键字段** | `po_no`、`supplier_code`、`expected_date`、`total_amount` |
 | **过哪个校验** | **check 2**（采购总额 = Σ 明细小计） |
 | **状态机** | `draft` → `confirmed` → `partial_received` → `completed` / `cancelled` |
 | **下一步** | 供应商备货 → 节点 4（到货） |
@@ -147,8 +147,8 @@
 | --- | --- |
 | **角色** | 仓库保管员 |
 | **填什么表** | `stock_in` + `stock_in_items` |
-| **关键字段** | `in_no`、`in_type`（`purchase`=采购到货 / `transfer`=调拨接收，默认 `purchase`）、`warehouse_id`、`po_id`（采购到货时填）、`in_date`、`status='confirmed'`、`transfer_ref`（仅调拨接收时填，跟配对的 stock_out 同一个号） |
-| **过哪个校验** | **check 3**（入库数 ≤ 采购数，仅 `purchase` 类型）、**check 6**（累计出库 vs 累计入库，**负库存允许但报警**）、**check 7**（库存对账：`inventory.quantity` = Σ stock_logs）、**check 13**（调拨配对，仅 `transfer` 类型） |
+| **关键字段** | `in_no`、`in_type`（`purchase`=采购到货 / `transfer`=调拨接收，默认 `purchase`）、`warehouse_code`、`po_no`（采购到货时填）、`in_date`、`status='confirmed'`、`transfer_ref`（仅调拨接收时填，跟配对的 stock_out 同一个号） |
+| **过哪个校验** | **check 3**（入库数 ≤ 采购数，仅 `purchase` 类型）、**check 6**（累计出库 vs 累计入库，**负库存允许但报警**）、**check 7**（库存对账：`inventory.quantity` = Σ stock_logs）、**check 14**（调拨配对，仅 `transfer` 类型） |
 | **状态机** | `draft` → `confirmed` / `cancelled` |
 | **库存影响** | 入库确认后，`inventory.quantity` 增加 |
 | **下一步** | 等客户要货 → 节点 5；或接到调拨单 → 异常分支 4.4 |
@@ -159,7 +159,7 @@
 | --- | --- |
 | **角色** | 业务经理 |
 | **填什么表** | `delivery_orders` + `delivery_order_items` |
-| **关键字段** | `delivery_no`、`customer_id`、`delivery_date`、`contract_item_id`（关联合同明细）、`quantity`（计划数）、`actual_quantity`（装柜后回填） |
+| **关键字段** | `delivery_no`、`customer_code`、`delivery_date`、`contract_no` + `contract_item_no`（关联合同明细）、`quantity`（计划数）、`actual_quantity`（装柜后回填） |
 | **过哪个校验** | **check 5**（发货 ≤ 合同，优先用 `actual_quantity`，没装柜回退 `quantity`）、**check 8**（体积小计） |
 | **状态机** | `draft` → `confirmed` → `shipped` → `delivered` / `cancelled` |
 | **派生字段** | `delivery_order_items.short_qty` = `quantity - actual_quantity`（默认 0） |
@@ -171,8 +171,8 @@
 | --- | --- |
 | **角色** | 仓库保管员 |
 | **填什么表** | `stock_out` + `stock_out_items`（出库）+ 回填 `delivery_order_items.actual_quantity`（销售装柜实发数） |
-| **关键字段** | `out_no`、`out_type`（`sale`=销售出库 / `transfer`=调拨发出，默认 `sale`）、`warehouse_id`、`delivery_id`（销售时填）、`out_date`、`status='confirmed'`、`transfer_ref`（仅调拨发出时填，跟配对的 stock_in 同一个号） |
-| **过哪个校验** | **check 6**（累计出库 vs 累计入库，**允许负库存但报警**，类比银行卡透支）、**check 7**（库存对账）、**check 13**（调拨配对，仅 `transfer` 类型） |
+| **关键字段** | `out_no`、`out_type`（`sale`=销售出库 / `transfer`=调拨发出，默认 `sale`）、`warehouse_code`、`delivery_no`（销售时填）、`out_date`、`status='confirmed'`、`transfer_ref`（仅调拨发出时填，跟配对的 stock_in 同一个号） |
+| **过哪个校验** | **check 6**（累计出库 vs 累计入库，**允许负库存但报警**，类比银行卡透支）、**check 7**（库存对账）、**check 14**（调拨配对，仅 `transfer` 类型） |
 | **状态机** | `draft` → `confirmed` / `cancelled` |
 | **库存影响** | 出库确认后，`inventory.quantity` 减少 |
 | **关键动作** | 装柜后**必须**回填 `actual_quantity`，否则 `short_qty` 永远是 0，节点 7 会报错（调拨出库无此动作） |
@@ -184,10 +184,10 @@
 | --- | --- |
 | **角色** | 仓库保管员 / 报关行 |
 | **填什么表** | `shipping_records`（报关主表）+ `shipping_record_items`（明细） |
-| **关键字段** | `shipping_no`、`delivery_id`、`shipping_date`、`container_no`、`total_pkgs`、`total_cbm`、`total_amount`（外币）、`currency`、`exchange_rate`、`total_amount_cny` |
+| **关键字段** | `shipping_no`、`delivery_no`、`shipping_date`、`container_no`、`total_pkgs`、`total_cbm`、`total_amount`（外币）、`currency`、`exchange_rate`、`total_amount_cny` |
 | **明细必备** | `shipping_mark`（唛头）、`gross_weight_per`（毛重）、`net_weight_per`（净重）、`actual_qty`、`unit_volume` |
 | **金额四件套** | `total_amount` + `currency` + `exchange_rate` + `total_amount_cny`（派生） |
-| **过哪个校验** | **check 9**（UCP600 ±5% 容差：报关实际数 vs 发货计划数）、**check 11**（报关月汇率） |
+| **过哪个校验** | **check 10**（UCP600 ±5% 容差：报关实际数 vs 发货计划数）、**check 12**（报关月汇率） |
 | **状态机** | `draft` → `customs_cleared` → `closed` / `cancelled` |
 | **派生字段** | `shipping_record_items.subtotal_usd` = `actual_qty × unit_price_usd` |
 | **下一步** | 客户付款 → 节点 8；如果短装/超装 → 节点 9 |
@@ -198,11 +198,11 @@
 | --- | --- |
 | **角色** | 财务经理 |
 | **填什么表** | `receipts` |
-| **关键字段** | `receipt_no`、`customer_id`、`contract_id`、`amount`（外币）、`currency`、`exchange_rate`（按 `paid_date` 所在月查汇率表）、`amount_cny`、`paid_date`、`pay_method`（T/T 默认）、`bank_ref`（水单号）、`status='confirmed'` |
+| **关键字段** | `receipt_no`、`customer_code`、`contract_no`、`amount`（外币）、`currency`、`exchange_rate`（按 `paid_date` 所在月查汇率表）、`amount_cny`、`paid_date`、`pay_method`（T/T 默认）、`bank_ref`（水单号）、`status='confirmed'` |
 | **金额四件套** | `amount` + `currency` + `exchange_rate` + `amount_cny`（派生） |
-| **过哪个校验** | **check 12**（累计收款 ≤ 合同金额，币种必须一致）、**check 11**（付款月有汇率） |
+| **过哪个校验** | **check 13**（累计收款 ≤ 合同金额，币种必须一致）、**check 12**（付款月有汇率） |
 | **状态机** | `draft` → `confirmed` / `cancelled` |
-| **前置条件** | 每月 1 日财务先录 `exchange_rates`（月固定汇率），否则 check 11 直接报 ERROR |
+| **前置条件** | 每月 1 日财务先录 `exchange_rates`（月固定汇率），否则 check 12 直接报 ERROR |
 | **下一步** | 收款跟报关对齐 → 订单闭环；如有差异 → 节点 9 |
 
 ### 节点 9：差异处理（Credit Note，可选）
@@ -212,9 +212,9 @@
 | **角色** | 业务经理 + 财务经理 |
 | **触发** | 节点 7 报关数 ≠ 节点 5 发货数（短装 / 超装） |
 | **填什么表** | `credit_notes` |
-| **关键字段** | `cn_no`、`shipping_id`、`contract_item_id`、`product_id`、`diff_qty`（正=短装 负=超装）、`diff_amount`、`currency`、`exchange_rate`、`diff_amount_cny`、`resolution`、`resolved_at` |
+| **关键字段** | `cn_no`、`shipping_no`、`contract_no` + `contract_item_no`、`material_id`、`diff_qty`（正=短装 负=超装）、`diff_amount`、`currency`、`exchange_rate`、`diff_amount_cny`、`resolution`、`resolved_at` |
 | **金额四件套** | `diff_amount` + `currency` + `exchange_rate` + `diff_amount_cny`（派生） |
-| **过哪个校验** | **check 10**（`pending` 状态不能挂账超 30 天，>30 WARN，>90 ERROR） |
+| **过哪个校验** | **check 11**（`pending` 状态不能挂账超 30 天，>30 WARN，>90 ERROR） |
 | **resolution 四种** | `pending`（待定）/ `replenish`（下次补发）/ `refund`（退款）/ `writeoff`（注销） |
 | **闭环** | 必须 把 `pending` 推进到另外 3 种之一，否则超期报警 |
 
@@ -230,7 +230,7 @@
     ▼
 节点 7 报关: actual_qty = 95
     │
-    ├─ check 9 判定: |95-100|/100 = 5% ≤ 5% → WARN (允许, 但要记录)
+    ├─ check 10 判定: |95-100|/100 = 5% ≤ 5% → WARN (允许, 但要记录)
     │              或 |95-100|/100 > 5%      → ERROR (必须挂 credit_note)
     │
     ▼
@@ -240,8 +240,8 @@
     ├─ 决定退款    → resolution = 'refund'     + resolved_at = 日期
     └─ 决定注销    → resolution = 'writeoff'   + resolved_at = 日期
 
-    如果挂 30 天没处理 → check 10 WARN
-    如果挂 90 天没处理 → check 10 ERROR
+    如果挂 30 天没处理 → check 11 WARN
+    如果挂 90 天没处理 → check 11 ERROR
 ```
 
 ### 4.2 跨月交易（汇率变动）
@@ -263,7 +263,7 @@
 
 ### 4.3 多合同合并付款
 
-当前阶段：一个 receipt 只关联一个 `contract_id`，不支持合并。
+当前阶段：一个 receipt 只关联一个 `contract_no`，不支持合并。
 第 2 阶段规划：加 `receipt_allocations` 子表（见 `payment-receivable/SKILL.md` 第 7 节）。
 
 ### 4.4 仓库间调拨（平行于主线，可随时发生）
@@ -275,7 +275,7 @@
                                                                         ↓ 同一个号串起来
 仓库 B（目标仓）: stock_in   in_type='transfer',   transfer_ref='TR20260729001'
                                                                         ↓
-                              check 13 聚合两边数量对比
+                              check 14 聚合两边数量对比
                               出库总量 ≠ 入库总量 → ERROR
                               只有一边              → WARN (在途或漏录)
 ```
@@ -299,7 +299,7 @@
 | 接单→采购 | 销售合同内部同步 | 业务经理 → 自己 | 合同数量 / 物料号 |
 | 采购→到货 | 采购单 | 业务经理 → 供应商 + 仓库 | `expected_date` |
 | 到货→入库 | 送货单 | 供应商 → 仓库 | 实收数量 |
-| 要货→发货 | DO 发货单 | 业务经理 → 仓库 | `quantity` / `contract_item_id` |
+| 要货→发货 | DO 发货单 | 业务经理 → 仓库 | `quantity` / `contract_no` + `contract_item_no` |
 | 装柜→报关 | 装柜清单 | 仓库 → 报关行 | `actual_qty` / 毛净重 / 唛头 |
 | 报关→收款 | CI + 报关单 | 仓库 → 财务 + 客户 | `total_amount` / 币种 |
 | 收款→对账 | 水单 | 客户 → 财务 → 业务经理 | 到账金额 / 币种 / 日期 |
@@ -315,7 +315,7 @@
 2. **确认基础资料**：`data/csv/products.csv` / `warehouses.csv` / `suppliers.csv` / `customers.csv` 齐全
 3. **录合同**：业务经理填 `sales_contracts.csv` + `sales_contract_items.csv`（金额四件套别漏）
 4. **录采购**：业务经理填 `purchase_orders.csv` + `purchase_order_items.csv`
-5. **跑一次校验**：`bash scripts/run_local_validation.sh`（应该 1-4 步过，5-13 步因为没数据跳过）
+5. **跑一次校验**：`bash scripts/run_local_validation.sh`（应该 1-4 步过，5-16 步因为没数据跳过）
 6. **后续按节点 4→9 顺序补数据，每补一个节点跑一次校验**
 
 **第一次跑必看**：`docs/VALIDATION_GUIDE.md`（生动版校验流程说明）。
@@ -327,7 +327,7 @@
 | 想了解 | 看哪份文档 |
 | --- | --- |
 | 系统整体架构 | `docs/README.md` |
-| 13 步校验细节 | `docs/VALIDATION_GUIDE.md` |
+| 16 步校验细节 | `docs/VALIDATION_GUIDE.md` |
 | Skill / Agent / Hook 体系 | `docs/AGENT_GUIDE.md` |
 | 字段派生规则（外径 / 体积 / 金额） | `.claude/skills/derived-fields/SKILL.md` |
 | 产品参数（密度 / 厚度反推） | `.claude/skills/product-params/SKILL.md` |

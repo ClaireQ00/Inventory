@@ -1,4 +1,4 @@
-# 0003. 报价 brief 与 formal 共用 quotations 表 + parent_quote_id 软关联派生 + subtotal 直接公式
+# 0003. 报价 brief 与 formal 共用 quotations 表 + parent_quote_no 软关联派生 + subtotal 直接公式
 
 ## 状态 (Status)
 
@@ -19,8 +19,8 @@
    - 候选 B:`subtotal = weight_per_unit × price_coefficient × quantity`(直接展开原始字段)。
 
 3. **正式 QT 从哪个简要报价派生,怎么记录这层关系?**
-   - 候选 A:建独立 `quotation_relations` 关系表(quote_id, parent_quote_id)。
-   - 候选 B:在 `quotations` 表加自引用 `parent_quote_id` 软关联字段。
+   - 候选 A:建独立 `quotation_relations` 关系表(quote_id, parent_quote_no)。
+   - 候选 B:在 `quotations` 表加自引用 `parent_quote_no` 软关联字段。
 
 这个决策影响:表数量、派生引擎的实现复杂度、报价版本追溯能力。详细分析见 `docs/DESIGN.md §9`、`docs/DATA_MODEL.md §4.9`、`docs/BUSINESS_RULES.md R10`。
 
@@ -28,12 +28,12 @@
 
 ## 决策 (Decision)
 
-**三个问题都选 B:共用 `quotations` 表 + `parent_quote_id` 自引用软关联 + subtotal 直接公式。**
+**三个问题都选 B:共用 `quotations` 表 + `parent_quote_no` 自引用软关联 + subtotal 直接公式。**
 
-- 简要报价和正式 QT 都进 `quotations` 表,靠 `quote_type` ENUM('brief','formal') 区分(sql/01_schema.sql:750)。
-- 正式 QT 填 `parent_quote_id` 指向派生源简要报价,自引用外键 `fk_quo_parent` ON DELETE **SET NULL**(sql/01_schema.sql:769)——跟 ADR-0002 的 `transfer_ref` 同款软关联思路。
-- 明细 `quotation_items.subtotal` 用**直接公式** `weight_per_unit × price_coefficient × quantity`,不依赖派生出来的 `unit_price`(csv_to_sql.py:373-384)。
-- 派生校验:`tools/local_validator.py::check_quotations`(步骤 14/14,local_validator.py:1174-1220)。
+- 简要报价和正式 QT 都进 `quotations` 表,靠 `quote_type` ENUM('brief','formal') 区分(sql/01_schema.sql:797)。
+- 正式 QT 填 `parent_quote_no` 指向派生源简要报价,自引用外键 `fk_quo_parent` ON DELETE **SET NULL**(sql/01_schema.sql:823)——跟 ADR-0002 的 `transfer_ref` 同款软关联思路。
+- 明细 `quotation_items.subtotal` 用**直接公式** `weight_per_unit × price_coefficient × quantity`,不依赖派生出来的 `unit_price`(csv_to_sql.py:362-375)。
+- 派生校验:`tools/local_validator.py::check_quotations`(步骤 15/16,local_validator.py:1271-1331)。
 
 ## 理由 (Rationale)
 
@@ -60,7 +60,7 @@
 - 但 `unit_price` 也是个派生字段(在 `subtotal` 之前定义,字典顺序 `unit_price` < `subtotal`),**字典顺序上 `unit_price` 确实先算**……但万一未来字段重排、或同一表加新派生字段打破顺序,`subtotal` 就会读到还没加算的 `unit_price`(可能是 0 或 None),算出错误的 `subtotal`。
 - 引擎**不做第二轮**——它不会发现 `unit_price` 后来变了再回头重算 `subtotal`。
 
-代码注释原文(csv_to_sql.py:343-346):
+代码注释原文(csv_to_sql.py:334-337):
 ```
 # 注意: subtotal 不依赖派生的 unit_price, 而是直接展开成原始字段
 #       乘积 (weight_per_unit × price_coefficient × quantity)。
@@ -70,17 +70,17 @@
 
 **直接公式的好处**:`subtotal` 的 `depends_on` 写成 `["weight_per_unit", "price_coefficient", "quantity"]`——这三个都是**原始字段(CSV 录入的)**,不是派生字段,单轮遍历第一遍就能拿到,结果稳定可预测,不依赖字段顺序。
 
-代价:`subtotal` 和 `unit_price` 公式有部分重叠(`weight_per_unit × price_coefficient`),改一处要记得改两处。靠 `check_quotations` 校验4(local_validator.py:1214-1220)做兜底——它会重算 subtotal,跟明细里的值对不上就 ERROR。
+代价:`subtotal` 和 `unit_price` 公式有部分重叠(`weight_per_unit × price_coefficient`),改一处要记得改两处。靠 `check_quotations` 校验4(local_validator.py:1324-1330)做兜底——它会重算 subtotal,跟明细里的值对不上就 ERROR。
 
-### 问题3:为什么用 parent_quote_id 自引用软关联,不建关系表
+### 问题3:为什么用 parent_quote_no 自引用软关联,不建关系表
 
 **这跟 ADR-0002 的 `transfer_ref` 是同款决策。**
 
 - 正式 QT 派生自哪个简要报价,是**一对一**关系(一条正式 QT 只能从一个简要报价派生),不是多对多。
-- 一对一关系用自引用外键 `parent_quote_id` 就够了(sql/01_schema.sql:751),不需要建 `quotation_relations(quote_id, parent_quote_id)` 这种中间表——中间表是为多对多关系设计的。
+- 一对一关系用自引用外键 `parent_quote_no` 就够了(sql/01_schema.sql:798),不需要建 `quotation_relations(quote_id, parent_quote_no)` 这种中间表——中间表是为多对多关系设计的。
 - `ON DELETE SET NULL` 而不是 `CASCADE`:简要报价被删,派生出来的正式 QT **不跟着删**(它可能已经发给客户了),只是断了派生源指向。
 
-校验靠 `check_quotations` 校验2(local_validator.py:1192 附近):`formal` 类型的报价 `parent_quote_id` 必须指向一条存在的 `brief` 报价,否则 ERROR。
+校验靠 `check_quotations` 校验2(local_validator.py:1300 附近):`formal` 类型的报价 `parent_quote_no` 必须指向一条存在的 `brief` 报价,否则 ERROR。
 
 ### 备选方案对比(真实讨论)
 
@@ -91,7 +91,7 @@
 | 版本追溯 | 关系表可记多对多(同一 brief 派生多个 formal) | 自引用只记一对一(够用,业务上正式 QT 一对一派生) |
 | 字段同步 | 两张表加字段要双改 | 共用表加字段一次到位 |
 | 跟既有模式 | 跟 `stock_in`/`stock_out` 的 ENUM 子型模式不一致 | 完全沿用 ENUM 子型 + 自引用软关联(ADR-0002)模式 |
-| 简要报价被删 | 关系表行被删,formal 还在但失去派生记录 | `ON DELETE SET NULL`,formal 还在,`parent_quote_id` 变 NULL |
+| 简要报价被删 | 关系表行被删,formal 还在但失去派生记录 | `ON DELETE SET NULL`,formal 还在,`parent_quote_no` 变 NULL |
 
 **结论**:候选 A 的"多对多关系表"优势,在本业务里用不上——正式 QT 是一对一派生的。为了用不上的多对多能力多背 4 张表 + 双改字段 + 多轮派生引擎,不划算。选 B。
 
@@ -101,18 +101,18 @@
 
 - **表数量少**:报价模块共 3 张表,跟"采购""销售"模块同量级。
 - **派生稳定**:subtotal 直接公式,不依赖字段顺序,单轮遍历第一遍就对。
-- **风格统一**:`quote_type` ENUM 子型 + `parent_quote_id` 自引用软关联,完全沿用 `stock_in`/`stock_out` 的 `in_type` ENUM + `transfer_ref` 模式(ADR-0002),学习成本低。
+- **风格统一**:`quote_type` ENUM 子型 + `parent_quote_no` 自引用软关联,完全沿用 `stock_in`/`stock_out` 的 `in_type` ENUM + `transfer_ref` 模式(ADR-0002),学习成本低。
 - **追溯可断**:`ON DELETE SET NULL` 让简要报价可删而不影响已发出的正式 QT。
 
 ### 负面后果 / 取舍
 
 | 代价 | 说明 | 缓解措施 |
 | --- | --- | --- |
-| **subtotal 公式重叠** | `subtotal` 和 `unit_price` 都含 `weight_per_unit × price_coefficient`,改公式要改两处 | `check_quotations` 校验4 重算 subtotal 兜底;两处公式写相邻(csv_to_sql.py:361-384)便于同步 |
-| **parent_quote_id 无强约束** | 自引用软关联,formal 可以不填 parent 或填错(指向另一条 formal) | `check_quotations` 校验2:formal 必须指向存在的 brief,否则 ERROR |
-| **brief/formal 字段语义混** | 同一张表里两种类型的行,部分字段对 brief 无意义(如 formal 的 `parent_quote_id`) | 字段都允许 NULL,靠 `quote_type` + 校验区分;查询时加 `WHERE quote_type=...` 过滤 |
+| **subtotal 公式重叠** | `subtotal` 和 `unit_price` 都含 `weight_per_unit × price_coefficient`,改公式要改两处 | `check_quotations` 校验4 重算 subtotal 兜底;两处公式写相邻(csv_to_sql.py:351-375)便于同步 |
+| **parent_quote_no 无强约束** | 自引用软关联,formal 可以不填 parent 或填错(指向另一条 formal) | `check_quotations` 校验2:formal 必须指向存在的 brief,否则 ERROR |
+| **brief/formal 字段语义混** | 同一张表里两种类型的行,部分字段对 brief 无意义(如 formal 的 `parent_quote_no`) | 字段都允许 NULL,靠 `quote_type` + 校验区分;查询时加 `WHERE quote_type=...` 过滤 |
 | **不支持多对多派生** | 一条 formal 只能从一个 brief 派生,不能"合并多个 brief" | 业务上一对一够用;若未来要合并,再加关系表(本阶段不做) |
-| **converted_contract_id 同款软关联** | 报价转合同后回填的 `converted_contract_id` 也是软关联,无外键到 `sales_contracts` | `check_quotations` 校验3:回填值必须存在于 `sales_contracts`,否则 ERROR |
+| **converted_contract_no 同款软关联** | 报价转合同后回填的 `converted_contract_no` 也是软关联,无外键到 `sales_contracts` | `check_quotations` 校验3:回填值必须存在于 `sales_contracts`,否则 ERROR |
 
 **核心权衡**(引自 `docs/DESIGN.md §9.2`):"subtotal 直接公式是单轮派生引擎的硬约束逼出来的——引擎不做多轮,公式就不能依赖另一个派生字段。"
 
@@ -128,15 +128,15 @@
 - **关联 ADR**:
   - `docs/adr/0002-transfer-soft-link-no-dedicated-table.md`(同款"ENUM 子型 + 软关联"模式,本 ADR 沿用)
 - **关联代码**:
-  - `sql/01_schema.sql:750`(`quotations.quote_type` ENUM('brief','formal'))
-  - `sql/01_schema.sql:751`(`quotations.parent_quote_id` 自引用字段)
-  - `sql/01_schema.sql:762`(`quotations.converted_contract_id` 转合同回填)
-  - `sql/01_schema.sql:769`(`fk_quo_parent` 外键 ON DELETE SET NULL)
-  - `sql/01_schema.sql:786`(`quotation_items.group_code` 分组码)
-  - `sql/01_schema.sql:787`(`quotation_items.price_coefficient` 报价系数)
-  - `sql/01_schema.sql:792`(`quotation_items.unit_price` 派生字段)
-  - `tools/csv_to_sql.py:343-346`(subtotal 单轮遍历注释,直接公式理由)
-  - `tools/csv_to_sql.py:373-384`(subtotal DERIVED_RULES,直接公式实现)
-  - `tools/local_validator.py:1174-1220`(`check_quotations`,4 项子校验)
+  - `sql/01_schema.sql:797`(`quotations.quote_type` ENUM('brief','formal'))
+  - `sql/01_schema.sql:798`(`quotations.parent_quote_no` 自引用字段)
+  - `sql/01_schema.sql:810`(`quotations.converted_contract_no` 转合同回填)
+  - `sql/01_schema.sql:823`(`fk_quo_parent` 外键 ON DELETE SET NULL)
+  - `sql/01_schema.sql:845`(`quotation_items.group_code` 分组码)
+  - `sql/01_schema.sql:846`(`quotation_items.price_coefficient` 报价系数)
+  - `sql/01_schema.sql:851`(`quotation_items.unit_price` 派生字段)
+  - `tools/csv_to_sql.py:334-337`(subtotal 单轮遍历注释,直接公式理由)
+  - `tools/csv_to_sql.py:362-375`(subtotal DERIVED_RULES,直接公式实现)
+  - `tools/local_validator.py:1271-1331`(`check_quotations`,4 项子校验)
 
 DONE

@@ -7,7 +7,7 @@
 | 要找什么 | 看哪个文档 |
 | --- | --- |
 | 术语定义 | `docs/GLOSSARY.md` |
-| 业务规则（铁律） | `docs/BUSINESS_RULES.md` (R1~R9) |
+| 业务规则（铁律） | `docs/BUSINESS_RULES.md` (R1~R11) |
 | 数据表/字段/ER/派生 | `docs/DATA_MODEL.md` |
 | 功能需求+验收标准 | `docs/SPECS.md` |
 | 技术设计+决策理由 | `docs/DESIGN.md` + `docs/adr/` |
