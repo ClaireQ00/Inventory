@@ -112,7 +112,7 @@
 
 ### 第六组：前端工作台（2026-08-01 阶段一落地，并行 agent 交付 + 主 agent 实测验收）
 
-> 背景：老板决定取消零依赖原则（一切以项目为核心），前端参考项目（标准化外贸工作流）协作 agent 交付阶段一 Streamlit 快速原型。长期路线见 `docs/FRONTEND_PLAN.md`（三阶段：Streamlit → FastAPI+React → Blueprint Widget 监控层），交接细节见 `docs/HANDOFF_FRONTEND_PHASE1.md`。**边界：前端只做查询/报表，数据录入仍走 CSV → 校验 → 导入流程；核心业务逻辑（`tools/` 校验/派生/转换）保持纯标准库，第三方依赖只进前端/API 包装层。**
+> 背景：老板决定取消零依赖原则（一切以项目为核心），前端参考项目（标准化外贸工作流）协作 agent 交付阶段一 Streamlit 快速原型。长期路线见 `docs/FRONTEND_PLAN.md`（三阶段：Streamlit → FastAPI+React → Blueprint Widget 监控层），交接细节见 `docs/HANDOFF_FRONTEND_PHASE1.md`。**边界（2026-08-01 老板拍板放开写入）：前端从只读升级为读写——录入/导入/点击触发进前端，但所有写入必须经 `tools/db_writer.py` 规则层（字段校验 → DERIVED_RULES 派生 → 预览 → 入库 → 写后子校验 → audit_logs 留痕），不得裸写 SQL；核心业务逻辑（`tools/` 校验/派生/转换）保持纯标准库，第三方依赖只进前端/API 包装层。** 开发分支：`feature/frontend-rw`。
 
 - [x] F1.1 [P0] `tools/streamlit_app.py` 6 模块只读工作台（仪表盘/库存/合同/基础资料/报表/校验日志），729 行
 - [x] F1.2 [P0] `docker-compose.yml` 新增 streamlit 服务（端口 8501）+ `.env.example` 加 `STREAMLIT_PORT`（db/adminer 未动）
@@ -120,6 +120,12 @@
 - [x] F1.4 [P1] `.env.example` 重复 `NOCODB_PORT` 行清除（验收时发现）
 - [ ] F1.5 [P1] 团队试用：发给外贸业务经理和财务经理，收集"还需要什么查询/报表"反馈（老板发起）
 - [ ] F1.6 [P2] 浏览器端逐页面人工核对（冒烟只验证了数据层，页面渲染需肉眼过一遍）
+- [ ] FA.1 [P0] **A 期**：`tools/db_writer.py` 写入规则层（校验+派生+入库+写后子校验+audit_logs 留痕）
+- [ ] FA.2 [P0] **A 期**：⚡ 操作中心页（跑 16 步校验 / 克隆建物料按钮 / 回写 delivered_qty，危险动作打勾确认）
+- [ ] FA.3 [P0] **A 期**：📝 录入中心页首批 3 单据——汇率、收款、物料（主数据下拉带默认值 + 派生实时预览）
+- [ ] FB.1 [P1] **B 期**：📥 导入中心页（上传 CSV → 跑校验 → 绿了才亮「导入 MySQL」→ 导入报告）
+- [ ] FC.1 [P1] **C 期**：报价/合同/发货录入（明细行编辑 + 快照重量规则：weight_per_unit 自动从 products.weight 带出，偏离按 ADR-0005 分阶段提醒）
+- [ ] F3.1 [P2] **打印导出**：报价单/合同/发货单/出库单/对账单/报关资料的模板导出——**等老板提供模板**（格式要求：每种单据 ① 空白 Excel 底稿 .xlsx 1 份 + ② 真实已签发样张脱敏版 1 份，PDF 或 Excel 均可；参考「标准化外贸工作流」的 QT/SC 底稿模式，程序往固定单元格填数）
 - [ ] F2.1 [P2] 阶段二设计：FastAPI REST 接口规范（请求/响应 JSON）——**等 F1.5 试用反馈定优先级**，预计 3-6 个月，见 FRONTEND_PLAN §3 阶段二
 - [ ] F2.2 [P2] 阶段二骨架：`frontend/`（React+Vite+Tailwind）+ `api/`（FastAPI+PyMySQL）
 
