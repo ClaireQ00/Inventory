@@ -84,9 +84,11 @@ INSERT IGNORE INTO warehouses (code, name) VALUES ('AUX', '辅料仓');
 -- ------------------------------------------------------------
 -- 种子: 现有 3 个标签纸品种 (来自 products.label_paper 真实引用, 历史不动)
 -- R 开头 = 长方形标签/纸卡 (Q4 默认: LP-前缀+原编号)
+-- 注意: 引用计数直接在 products 上 GROUP BY, 不能先 DISTINCT 再 COUNT (会错算成 1)
 -- ------------------------------------------------------------
 INSERT IGNORE INTO aux_materials (aux_code, aux_type, name, shape, unit, remark)
 SELECT CONCAT('LP-', lp), 'label_paper', CONCAT('长方形标签 ', lp), 'R', '张',
-       CONCAT('种子迁移自 products.label_paper (', COUNT(*), ' 条产品引用)')
-FROM (SELECT DISTINCT label_paper AS lp FROM products WHERE label_paper IS NOT NULL AND label_paper != '') t
-GROUP BY lp;
+       CONCAT('种子迁移自 products.label_paper (', cnt, ' 条产品引用)')
+FROM (SELECT label_paper AS lp, COUNT(*) AS cnt FROM products
+      WHERE label_paper IS NOT NULL AND label_paper != ''
+      GROUP BY label_paper) t;

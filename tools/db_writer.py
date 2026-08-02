@@ -692,24 +692,18 @@ def aux_create_material(data: dict, operator: str = "frontend-react") -> dict:
 
 def aux_inventory_list(low_only: bool = False) -> list[dict]:
     """辅料库存查询 (低库存=有安全库存且存量低于它)"""
-    having = "HAVING low_stock=1" if low_only else ""
-    return list_options(
-        f"""SELECT i.aux_code, m.name, m.unit, m.min_stock, i.warehouse_code, w.name AS warehouse_name,
-                   i.quantity, i.updated_at,
-                   (m.min_stock IS NOT NULL AND i.quantity < m.min_stock) AS low_stock
-            FROM aux_inventory i
-            JOIN aux_materials m ON m.aux_code = i.aux_code
-            JOIN warehouses w ON w.code = i.warehouse_code
-            ORDER BY i.aux_code, i.warehouse_code"""
-    ) if not low_only else list_options(
-        """SELECT i.aux_code, m.name, m.unit, m.min_stock, i.warehouse_code, w.name AS warehouse_name,
-                  i.quantity, i.updated_at, 1 AS low_stock
-           FROM aux_inventory i
-           JOIN aux_materials m ON m.aux_code = i.aux_code
-           JOIN warehouses w ON w.code = i.warehouse_code
-           WHERE m.min_stock IS NOT NULL AND i.quantity < m.min_stock
-           ORDER BY i.aux_code"""
-    )
+    base = """SELECT i.aux_code, m.name, m.unit, m.min_stock, i.warehouse_code, w.name AS warehouse_name,
+                     i.quantity, i.updated_at,
+                     (m.min_stock IS NOT NULL AND i.quantity < m.min_stock) AS low_stock
+              FROM aux_inventory i
+              JOIN aux_materials m ON m.aux_code = i.aux_code
+              JOIN warehouses w ON w.code = i.warehouse_code"""
+    if low_only:
+        return list_options(
+            base + " WHERE m.min_stock IS NOT NULL AND i.quantity < m.min_stock"
+                   " ORDER BY i.aux_code"
+        )
+    return list_options(base + " ORDER BY i.aux_code, i.warehouse_code")
 
 
 def aux_stock_move(aux_code: str, warehouse_code: str, direction: str, qty: int,
