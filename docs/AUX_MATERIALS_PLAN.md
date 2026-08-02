@@ -19,6 +19,7 @@
 | 5 | 增加查询和计数 | 辅料库存查询页 + 流水账 + 用量统计 |
 | 6 | 新合同推送生产时提示标签纸数量 | 标签需求计算接口 + 合同页/生产推送处提示（库存够不够） |
 | 7 | 作为生产辅料的一种引入 | `aux_type` 枚举预留扩展（label_paper 先行） |
+| 8 | 物料类型/用料/打线/米标做同样处理（2026-08-01 追加） | 纳入辅料/档案库范围：`aux_type` 扩展 + `track_stock` 标志区分"实体物料（要收发存）"和"工艺档案（只要档案+附件）"；录入页 5 字段（喷码/物料类型/用料/打线/米标）按客户历史值下拉+可手填——**已先行落地**（等库建好后再切库源） |
 
 **现状盘点**：`products.label_paper` 已有引用约定（R 开头=长方形/纸卡，C 开头=圆环），
 真实数据 12 条引用、3 个品种（R02502/R02505/R02506）——迁移量极小，直接种子化。
@@ -38,8 +39,9 @@
 CREATE TABLE aux_materials (
     id              INT AUTO_INCREMENT PRIMARY KEY,
     aux_code        VARCHAR(32)  NOT NULL UNIQUE    COMMENT '辅料编码, 如 LP-R02502 (标签纸沿用原R/C编号)',
-    aux_type        ENUM('label_paper','packaging','other')
-                                 NOT NULL DEFAULT 'label_paper' COMMENT '辅料类型: 标签纸/包装/其他(预留扩展)',
+    aux_type        ENUM('label_paper','material_used','wire_pattern','meter_mark','material_type','packaging','other')
+                                 NOT NULL DEFAULT 'label_paper' COMMENT '辅料类型: 标签纸/用料(PVC原料)/打线(增强线)/米标(印刷版)/物料类型/包装/其他',
+    track_stock     TINYINT(1)   NOT NULL DEFAULT 1  COMMENT '是否管收发存: 1=实体物料(标签纸/用料/打线), 0=工艺档案(米标版/物料类型, 只档案+附件)',
     name            VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '名称, 如 长方形标签 25×40',
     shape           VARCHAR(8)   NOT NULL DEFAULT '' COMMENT '形状: R=长方形/纸卡, C=圆环形 (沿用 products.label_paper 约定)',
     width_mm        DECIMAL(8,2) DEFAULT NULL        COMMENT '宽度(mm)',
@@ -218,6 +220,7 @@ M1+M2 是本次主体；M3a 顺手做（只读查询）；M3b 等合同录入页
 | Q4 | 辅料编码规则：沿用原 R/C 编号（LP-R02502）还是另起？ | LP-前缀+原编号，历史引用不断 |
 | Q5 | 近期还有别的辅料要管吗（PE 膜/打包带/纸箱）？ | aux_type 预留 packaging/other |
 | Q6 | 合同推送生产时只提示，还是直接预留扣减？ | 只提示不扣减，领用出库才扣 |
+| Q7 | 追加的 4 字段各自归类：**用料（PVC 原料）/打线（增强线）默认按实体物料管收发存**；**米标/物料类型默认按工艺档案管**（只档案+附件，不管库存）——对吗？米标在你厂里是指"印刷版/标贴纸"这种实体，还是纯工艺参数？ | 用料/打线=实体收发存；米标/物料类型=档案 |
 
 ---
 

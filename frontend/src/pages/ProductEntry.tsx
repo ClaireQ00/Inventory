@@ -82,6 +82,10 @@ export default function ProductEntry() {
   const [inch, setInch] = useState('')
   const inchDirty = useRef(false)
   const [inchOptions, setInchOptions] = useState<string[]>([])
+  // 按客户历史值下拉 (喷码/物料类型/用料/打线/米标, 与品牌同款: 下拉+可手填)
+  const [fieldOpts, setFieldOpts] = useState<Record<string, string[]>>({})
+  // 印花循环次数: 默认跟随标称米数, 手改后不再跟随
+  const mmCountDirty = useRef(false)
   const [previewOpen, setPreviewOpen] = useState(false)
   const [previewData, setPreviewData] = useState<Record<string, unknown> | null>(null)
   const [previewErrors, setPreviewErrors] = useState<string[]>([])
@@ -104,10 +108,18 @@ export default function ProductEntry() {
       .catch(() => {})
   }, [])
 
+  // 需要按客户历史值下拉的字段 (与后端 DROPDOWN_FIELDS 白名单一致)
+  const HISTORY_FIELDS = ['spray_code', 'material_type', 'material_used', 'wire_pattern', 'meter_mark']
+
   const onCustomerChange = (code: string) => {
     set('customer_code', code)
     suggestId(code)
     api.brands(code).then(setBrands).catch(() => setBrands([]))
+    HISTORY_FIELDS.forEach((f) => {
+      api.fieldValues(code, f)
+        .then((vals) => setFieldOpts((m) => ({ ...m, [f]: vals })))
+        .catch(() => {})
+    })
   }
 
   // ── 实时派生 (防抖 300ms) ──
@@ -137,6 +149,11 @@ export default function ProductEntry() {
           // 规格描述/标称英寸: 用户没手改过就跟随引擎推算值
           if (!specDirty.current) setSpec((r.row.spec as string) || '')
           if (!inchDirty.current) setInch((r.row.inner_diameter_inch as string) || '')
+          // 印花循环次数: 默认 = 标称米数 (手填优先, 否则引擎推算), 手改后不再跟随
+          const effMeter = num(form.spec_meter) ?? (r.row.spec_meter ? Number(r.row.spec_meter) : null)
+          if (!mmCountDirty.current && effMeter != null && form.meter_mark_count !== effMeter) {
+            set('meter_mark_count', effMeter)
+          }
         })
         .catch(() => {})
     }, 300)
@@ -212,6 +229,7 @@ export default function ProductEntry() {
         specDirty.current = false
         setInch('')
         inchDirty.current = false
+        mmCountDirty.current = false
         if (form.customer_code) suggestId(form.customer_code)
       } else {
         Modal.error({ title: '写入被拒绝（数据库未改动）', content: r.errors.join('\n') })
@@ -257,14 +275,24 @@ export default function ProductEntry() {
   )
 
   const strField = (
-    key: keyof FormState, label: string, placeholder = '', span = 4,
+    key: keyof FormState, label: string, placeholder = '', span = 4, opts?: string[],
   ) => (
     <Col span={span}>
       <Text type="secondary">{label}</Text>
-      <Input
-        value={form[key] as string} placeholder={placeholder}
-        onChange={(e) => set(key, e.target.value as never)}
-      />
+      {opts ? (
+        <AutoComplete
+          style={{ width: '100%' }}
+          value={form[key] as string} placeholder={placeholder}
+          onChange={(v) => set(key, v as never)}
+          options={opts.map((o) => ({ value: o }))}
+          filterOption={(input, option) => (option?.value as string)?.includes(input)}
+        />
+      ) : (
+        <Input
+          value={form[key] as string} placeholder={placeholder}
+          onChange={(e) => set(key, e.target.value as never)}
+        />
+      )}
     </Col>
   )
 
@@ -314,8 +342,14 @@ export default function ProductEntry() {
             />
           </Col>
           <Col span={8}>
-            <Text type="secondary">物料类型</Text>
-            <Input value={form.material_type} onChange={(e) => set('material_type', e.target.value)} placeholder="如 出口线管" />
+            <Text type="secondary">物料类型（该客户用过的，可手填）</Text>
+            <AutoComplete
+              style={{ width: '100%' }}
+              value={form.material_type} placeholder="如 出口线管"
+              onChange={(v) => set('material_type', v)}
+              options={(fieldOpts.material_type || []).map((o) => ({ value: o }))}
+              filterOption={(input, option) => (option?.value as string)?.includes(input)}
+            />
           </Col>
           <Col span={4}>
             <Text type="secondary">内径 (mm) *</Text>
@@ -409,13 +443,20 @@ export default function ProductEntry() {
             children: (
               <>
                 <Row gutter={16}>
-                  {strField('spray_code', '喷码', '喷在产品上的标识文字', 12)}
-                  {strField('meter_mark', '米标', '如 每1.02米一个循环米', 8)}
-                  {numField('meter_mark_count', '印花循环次数', 1)}
+                  {strField('spray_code', '喷码（该客户用过的，可手填）', '喷在产品上的标识文字', 12, fieldOpts.spray_code)}
+                  {strField('meter_mark', '米标（该客户用过的，可手填）', '如 每1.02米一个循环米', 8, fieldOpts.meter_mark)}
+                  <Col span={4}>
+                    <Text type="secondary">印花循环次数（默认=标称米数，可改）</Text>
+                    <InputNumber
+                      style={{ width: '100%' }} min={0} step={1}
+                      value={form.meter_mark_count}
+                      onChange={(v) => { mmCountDirty.current = true; set('meter_mark_count', v) }}
+                    />
+                  </Col>
                 </Row>
                 <Row gutter={16} style={{ marginTop: 12 }}>
-                  {strField('material_used', '用料', '如 A25橙', 8)}
-                  {strField('wire_pattern', '打线', '如 红蓝双线', 8)}
+                  {strField('material_used', '用料（该客户用过的，可手填）', '如 A25橙', 8, fieldOpts.material_used)}
+                  {strField('wire_pattern', '打线（该客户用过的，可手填）', '如 红蓝双线', 8, fieldOpts.wire_pattern)}
                   {numField('pressure', '压力 (Bar)', 1, 4)}
                 </Row>
               </>

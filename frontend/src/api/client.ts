@@ -58,6 +58,8 @@ export const api = {
   brands: (customerCode: string) =>
     req<string[]>(`/options/brands?customer_code=${encodeURIComponent(customerCode)}`),
   nominalInches: () => req<string[]>('/options/nominal-inches'),
+  fieldValues: (customerCode: string, field: string) =>
+    req<string[]>(`/options/field-values?customer_code=${encodeURIComponent(customerCode)}&field=${encodeURIComponent(field)}`),
   derive: (data: Record<string, unknown>) =>
     post<DeriveResp>('/derive', { table: 'products', data }),
   preview: (table: string, data: Record<string, unknown>) =>

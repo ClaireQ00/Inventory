@@ -104,6 +104,15 @@ def opt_brands(customer_code: str):
     return db_writer.distinct_brands(customer_code)
 
 
+@app.get("/api/options/field-values")
+def opt_field_values(customer_code: str, field: str):
+    """该客户某字段的历史值下拉 (白名单字段: 品牌/喷码/物料类型/用料/打线/米标)"""
+    try:
+        return db_writer.distinct_field_values(customer_code, field)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
 @app.get("/api/options/nominal-inches")
 def opt_nominal_inches():
     """标准管型标称英寸序列 (录入页 inch 字段下拉; 建议值=向上取, 可手改)"""

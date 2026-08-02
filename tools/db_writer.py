@@ -501,13 +501,25 @@ def nominal_inch_options() -> list[str]:
 
 def distinct_brands(customer_code: str) -> list[str]:
     """该客户已有物料用过的品牌清单 (按使用频次倒序), 供品牌字段下拉; 仍可手填新品牌"""
+    return distinct_field_values(customer_code, "brand")
+
+
+# 录入页"按客户历史值下拉 + 可手填"模式的字段白名单 (2026-08-01 老板:
+# 喷码跟品牌一样; 物料类型/用料/打线/米标同等待遇 —— 后续这些进辅料/档案库, 下拉先行)
+DROPDOWN_FIELDS = ("brand", "spray_code", "material_type", "material_used", "wire_pattern", "meter_mark")
+
+
+def distinct_field_values(customer_code: str, field: str, limit: int = 20) -> list[str]:
+    """该客户已有物料里某字段的历史值 (按使用频次倒序), 供下拉; 字段名走白名单防注入"""
+    if field not in DROPDOWN_FIELDS:
+        raise ValueError(f"不允许下拉的字段: {field} (白名单: {DROPDOWN_FIELDS})")
     rows = list_options(
-        "SELECT brand, COUNT(*) AS cnt FROM products "
-        "WHERE customer_code=%s AND brand IS NOT NULL AND brand!='' "
-        "GROUP BY brand ORDER BY cnt DESC",
-        (customer_code,),
+        f"SELECT {field} AS v, COUNT(*) AS cnt FROM products "
+        f"WHERE customer_code=%s AND {field} IS NOT NULL AND {field}!='' "
+        f"GROUP BY {field} ORDER BY cnt DESC LIMIT %s",
+        (customer_code, limit),
     )
-    return [r["brand"] for r in rows]
+    return [r["v"] for r in rows]
 
 
 def live_derive_products(data: dict) -> tuple[dict, set, list, float | None, str | None]:
