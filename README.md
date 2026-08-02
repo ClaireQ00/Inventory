@@ -49,6 +49,12 @@ bash scripts/load-csv-to-db.sh --demo    # 演示数据
 # 4. 浏览器打开 http://localhost:8080 即可查询数据
 ```
 
+> 🔒 **防泄露守门钩子（数据安全）**：仓库带 pre-commit/pre-push 双闸门，
+> 拦截 `data/`、`.env`、大文件误提交/误推送。主人的 Mac 已配全局 git 模板，
+> **在这台电脑上克隆自动生效，不用管**；其他电脑克隆后跑一次
+> `bash tools/install_hooks.sh` 即可（就这一条指令）。钩子靠根目录
+> `.inventory-guard` 文件认主，只在本项目生效，不影响其他仓库。
+
 > 👥 **远程团队（非技术同事）**：请看 [docs/TEAM_SETUP.md](docs/TEAM_SETUP.md)，傻瓜式图文步骤。
 
 ### 方式二：本地直接校验（适合开发者）
