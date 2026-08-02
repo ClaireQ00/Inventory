@@ -37,12 +37,28 @@ export default function Home() {
       </Row>
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={8}>
+          <Link to="/entry/stock-in">
+            <Card hoverable title="📥 入库单录入" size="small">
+              <Text type="secondary">生产完工/采购/退货入库，落库即增库存，采购入库联动采购单状态</Text>
+            </Card>
+          </Link>
+        </Col>
+        <Col span={8}>
+          <Link to="/entry/stock-out">
+            <Card hoverable title="📤 出库单录入" size="small">
+              <Text type="secondary">销售/生产领用/报废出库，落库即扣库存，负库存显著提示</Text>
+            </Card>
+          </Link>
+        </Col>
+        <Col span={8}>
           <Link to="/entry/customer">
             <Card hoverable title="👤 客户录入" size="small">
               <Text type="secondary">新客户建档：编号按序列自动建议，品牌/开票资料一次建齐</Text>
             </Card>
           </Link>
         </Col>
+      </Row>
+      <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={8}>
           <Link to="/entry/product">
             <Card hoverable title="🧱 物料录入" size="small">

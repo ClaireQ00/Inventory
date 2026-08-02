@@ -115,6 +115,18 @@ docker exec inventory-db mysql -uroot -p你的强密码A inventory_db \
 在你电脑浏览器打开：`http://NAS内网IP:8080`
 能出现 Adminer 登录页 = 容器层 OK，继续下一步。
 
+**Adminer (8080) 登录信息**（账号密码都在项目根目录 `.env` 文件里，永远不会"丢"）：
+
+| 字段 | 填什么 |
+|---|---|
+| 系统 | `MySQL` |
+| 服务器 | `db`（容器名，不是 localhost） |
+| 用户名 | `.env` 里 `MYSQL_USER` 的值 |
+| 密码 | `.env` 里 `MYSQL_PASSWORD` 的值 |
+| 数据库 | `.env` 里 `MYSQL_DATABASE` 的值 |
+
+> 忘记密码怎么办：① 打开项目根目录 `.env` 直接看（该文件被 .gitignore 排除，不会上传 git，只存在你自己机器上）；② 想换密码：改 `.env` 里的值后 `docker compose up -d db` 重建数据库容器（**会清空数据**，换密码前先备份）；③ root 密码是 `MYSQL_ROOT_PASSWORD`，平时用不上，只有运维级操作才需要。
+
 ### 3.7 React 录入端（阶段二主力界面，2026-08-02 起）
 `docker compose up -d` 会一并拉起 `inventory-frontend` 容器（Nginx 托管 + 反代 /api）。
 同事日常用的是这个界面，不是 Adminer：

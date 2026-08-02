@@ -423,6 +423,28 @@ def doc_create_delivery(req: DocReq):
     return db_writer.create_delivery(req.header, req.items, req.operator)
 
 
+@app.post("/api/docs/stock-in")
+def doc_create_stock_in(req: DocReq):
+    """成品入库单 (生产完工/采购/退货): 头+明细+库存+流水 单事务, 直接 confirmed"""
+    return db_writer.create_stock_in(req.header, req.items, req.operator)
+
+
+@app.post("/api/docs/stock-out")
+def doc_create_stock_out(req: DocReq):
+    """成品出库单 (销售/生产领用/报废): 负库存不拦截但 warnings 提示 (先做后补约定)"""
+    return db_writer.create_stock_out(req.header, req.items, req.operator)
+
+
+@app.get("/api/options/deliveries")
+def opt_deliveries():
+    return db_writer.list_deliveries()
+
+
+@app.get("/api/options/purchase-orders")
+def opt_purchase_orders():
+    return db_writer.list_purchase_orders()
+
+
 if __name__ == "__main__":
     import uvicorn
 

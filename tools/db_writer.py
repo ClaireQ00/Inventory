@@ -1191,6 +1191,8 @@ DOC_KINDS = {
     "quotation": ("quotations", "quote_no", "QT"),
     "contract": ("sales_contracts", "contract_no", "SC"),
     "delivery": ("delivery_orders", "delivery_no", "DN"),
+    "stock_in": ("stock_in", "in_no", "IN"),
+    "stock_out": ("stock_out", "out_no", "OUT"),
 }
 
 TRADE_TERMS = ("FOB", "CIF", "CFR", "EXW")
@@ -1705,5 +1707,243 @@ def create_delivery(header: dict, items: list[dict], operator: str = "frontend-r
     except Exception as e:  # noqa: BLE001
         conn.rollback()
         return {"ok": False, "errors": [f"发货单落库失败: {e}"], "doc_no": None}
+    finally:
+        conn.close()
+
+
+# ──────────────────────────────────────────────────────────────
+# 成品出入库 (2026-08-02 老板: "要先有入库才有发货")
+# 约定 (与 16 步校验口径一致):
+#   - 录入=实际发生, 状态直接 confirmed (校验只数 confirmed)
+#   - 入库类型: purchase(采购, 需关联PO)/production(生产完工)/return(退货); 调拨走 CSV 暂不进 UI
+#   - 出库类型: sale(销售, 需关联发货单)/production(生产领用)/scrap(报废)
+#   - 库存结果表 inventory 与流水 stock_logs 同步维护, 单事务
+#   - 负库存: 按项目约定允许"先做后补", 不拦截, 但 warnings 显著提示 (校验第6步同款 WARN)
+# ──────────────────────────────────────────────────────────────
+
+STOCK_IN_TYPES = ("purchase", "production", "return")
+STOCK_OUT_TYPES = ("sale", "production", "scrap")
+
+
+def list_deliveries() -> list[dict]:
+    """发货单下拉 (销售出库关联用)"""
+    return list_options(
+        "SELECT delivery_no, customer_code, delivery_date, status FROM delivery_orders "
+        "WHERE status != 'cancelled' ORDER BY delivery_date DESC, delivery_no DESC")
+
+
+def list_purchase_orders() -> list[dict]:
+    """采购单下拉 (采购入库关联用)"""
+    return list_options(
+        "SELECT po_no, supplier_code, order_date, status FROM purchase_orders "
+        "WHERE status != 'cancelled' ORDER BY order_date DESC, po_no DESC")
+
+
+def _validate_stock_items(cur, items: list[dict]) -> tuple[list[dict], list[str]]:
+    """出入库明细公共校验: 物料存在且启用 + 数量正整数 + 同单物料查重"""
+    errors: list[str] = []
+    rows: list[dict] = []
+    seen: set[str] = set()
+    for i, it in enumerate(items, 1):
+        mid = (it.get("material_id") or "").strip()
+        p = _fetch_product(cur, mid) if mid else None
+        if not p:
+            errors.append(f"第{i}行: 物料不存在或已停用「{mid}」")
+            continue
+        qty = _pos(it.get("quantity"), 0)
+        if qty is None:
+            errors.append(f"第{i}行({mid}): 数量必须为正整数")
+            continue
+        if mid in seen:
+            errors.append(f"同单物料重复: {mid} (请合并成一行)")
+        seen.add(mid)
+        rows.append({"material_id": mid, "quantity": int(qty),
+                     "remark": (it.get("remark") or "").strip()})
+    return rows, errors
+
+
+def _apply_inventory(cur, warehouse: str, rows: list[dict], sign: int,
+                     source_type: str, source_id: int, source_no: str) -> list[str]:
+    """库存结果表 ±qty + 写流水 (逐行算 after_qty 运行结余)。返回负库存警告清单"""
+    warnings: list[str] = []
+    balance: dict[str, int] = {}
+    for r in rows:
+        mid = r["material_id"]
+        if mid not in balance:
+            cur.execute(
+                "SELECT quantity FROM inventory WHERE material_id=%s AND warehouse_code=%s FOR UPDATE",
+                (mid, warehouse),
+            )
+            row = cur.fetchone()
+            balance[mid] = int(row["quantity"]) if row else 0
+        after = balance[mid] + sign * r["quantity"]
+        cur.execute(
+            """INSERT INTO inventory (material_id, warehouse_code, quantity) VALUES (%s,%s,%s)
+               ON DUPLICATE KEY UPDATE quantity=%s""",
+            (mid, warehouse, after, after),
+        )
+        cur.execute(
+            """INSERT INTO stock_logs (material_id, warehouse_code, change_qty, after_qty,
+                                       source_type, source_id, source_no, remark)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
+            (mid, warehouse, sign * r["quantity"], after, source_type, source_id, source_no, r["remark"]),
+        )
+        if after < 0:
+            warnings.append(f"{mid} 在 {warehouse} 仓出库后库存为 {after} (允许先做后补, 请尽快补入库)")
+        balance[mid] = after
+    return warnings
+
+
+def create_stock_in(header: dict, items: list[dict], operator: str = "frontend-react") -> dict:
+    """入库单落库: 头+明细+库存增加+流水, 单事务, 状态直接 confirmed"""
+    errors: list[str] = []
+    in_no = (header.get("in_no") or "").strip()
+    in_type = (header.get("in_type") or "production").strip()
+    warehouse = (header.get("warehouse_code") or "").strip()
+    in_date = (header.get("in_date") or "").strip()
+    po_no = (header.get("po_no") or "").strip()
+    if not in_no:
+        errors.append("缺少入库单号 in_no")
+    if in_type not in STOCK_IN_TYPES:
+        errors.append(f"入库类型必须是 {STOCK_IN_TYPES}, 收到: {in_type}")
+    if in_type == "purchase" and not po_no:
+        errors.append("采购入库必须关联采购单号 po_no")
+    if in_type != "purchase":
+        po_no = ""
+    if not warehouse:
+        errors.append("缺少仓库 warehouse_code")
+    if not _is_date(in_date):
+        errors.append(f"入库日期无效: {in_date}")
+    if not items:
+        errors.append("至少需要一行明细")
+    if errors:
+        return {"ok": False, "errors": errors, "doc_no": None}
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM warehouses WHERE code=%s", (warehouse,))
+            if not cur.fetchone():
+                errors.append(f"仓库不存在: {warehouse}")
+            cur.execute("SELECT 1 FROM stock_in WHERE in_no=%s", (in_no,))
+            if cur.fetchone():
+                errors.append(f"入库单号已存在: {in_no}")
+            if po_no:
+                cur.execute("SELECT status FROM purchase_orders WHERE po_no=%s", (po_no,))
+                po = cur.fetchone()
+                if not po:
+                    errors.append(f"采购单不存在: {po_no}")
+                elif po["status"] == "cancelled":
+                    errors.append(f"采购单 {po_no} 已取消")
+            rows, item_errors = _validate_stock_items(cur, items)
+            errors.extend(item_errors)
+            if errors:
+                conn.rollback()
+                return {"ok": False, "errors": errors, "doc_no": None}
+
+            head_id = _doc_insert(cur, "stock_in", {
+                "in_no": in_no, "in_type": in_type, "warehouse_code": warehouse,
+                "po_no": po_no or None, "operator": operator, "in_date": in_date,
+                "status": "confirmed", "remark": (header.get("remark") or "").strip(),
+            })
+            for r in rows:
+                _doc_insert(cur, "stock_in_items",
+                            {"in_no": in_no, "material_id": r["material_id"],
+                             "quantity": r["quantity"], "remark": r["remark"]})
+            warnings = _apply_inventory(cur, warehouse, rows, +1, "stock_in", head_id, in_no)
+            # 采购入库联动: 到货量够则推进采购单状态 (部分到货/已全部到货)
+            if po_no:
+                cur.execute(
+                    """UPDATE purchase_orders SET status='received'
+                       WHERE po_no=%s AND status IN ('confirmed','partial_received')
+                         AND (SELECT COALESCE(SUM(sii.quantity),0) FROM stock_in_items sii
+                              JOIN stock_in si ON si.in_no=sii.in_no
+                              WHERE si.po_no=%s AND si.status='confirmed')
+                           >= (SELECT COALESCE(SUM(quantity),0) FROM purchase_order_items WHERE po_no=%s)""",
+                    (po_no, po_no, po_no),
+                )
+                cur.execute(
+                    """UPDATE purchase_orders SET status='partial_received'
+                       WHERE po_no=%s AND status='confirmed'""",
+                    (po_no,),
+                )
+        write_audit(conn, "stock_in", head_id, "INSERT", None,
+                    {"in_no": in_no, "in_type": in_type, "warehouse": warehouse,
+                     "items": len(rows), "po_no": po_no}, operator)
+        conn.commit()
+        return {"ok": True, "errors": [], "doc_no": in_no, "warnings": warnings}
+    except Exception as e:  # noqa: BLE001
+        conn.rollback()
+        return {"ok": False, "errors": [f"入库单落库失败: {e}"], "doc_no": None}
+    finally:
+        conn.close()
+
+
+def create_stock_out(header: dict, items: list[dict], operator: str = "frontend-react") -> dict:
+    """出库单落库: 头+明细+库存扣减+流水, 单事务, 状态直接 confirmed。
+    负库存不拦截 (项目约定: 允许先做后补), 但 warnings 显著提示"""
+    errors: list[str] = []
+    out_no = (header.get("out_no") or "").strip()
+    out_type = (header.get("out_type") or "sale").strip()
+    warehouse = (header.get("warehouse_code") or "").strip()
+    out_date = (header.get("out_date") or "").strip()
+    delivery_no = (header.get("delivery_no") or "").strip()
+    if not out_no:
+        errors.append("缺少出库单号 out_no")
+    if out_type not in STOCK_OUT_TYPES:
+        errors.append(f"出库类型必须是 {STOCK_OUT_TYPES}, 收到: {out_type}")
+    if out_type == "sale" and not delivery_no:
+        errors.append("销售出库必须关联发货单号 delivery_no")
+    if out_type != "sale":
+        delivery_no = ""
+    if not warehouse:
+        errors.append("缺少仓库 warehouse_code")
+    if not _is_date(out_date):
+        errors.append(f"出库日期无效: {out_date}")
+    if not items:
+        errors.append("至少需要一行明细")
+    if errors:
+        return {"ok": False, "errors": errors, "doc_no": None}
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM warehouses WHERE code=%s", (warehouse,))
+            if not cur.fetchone():
+                errors.append(f"仓库不存在: {warehouse}")
+            cur.execute("SELECT 1 FROM stock_out WHERE out_no=%s", (out_no,))
+            if cur.fetchone():
+                errors.append(f"出库单号已存在: {out_no}")
+            if delivery_no:
+                cur.execute("SELECT status FROM delivery_orders WHERE delivery_no=%s", (delivery_no,))
+                d = cur.fetchone()
+                if not d:
+                    errors.append(f"发货单不存在: {delivery_no}")
+                elif d["status"] == "cancelled":
+                    errors.append(f"发货单 {delivery_no} 已取消")
+            rows, item_errors = _validate_stock_items(cur, items)
+            errors.extend(item_errors)
+            if errors:
+                conn.rollback()
+                return {"ok": False, "errors": errors, "doc_no": None}
+
+            head_id = _doc_insert(cur, "stock_out", {
+                "out_no": out_no, "out_type": out_type, "warehouse_code": warehouse,
+                "delivery_no": delivery_no or None, "operator": operator, "out_date": out_date,
+                "status": "confirmed", "remark": (header.get("remark") or "").strip(),
+            })
+            for r in rows:
+                _doc_insert(cur, "stock_out_items",
+                            {"out_no": out_no, "material_id": r["material_id"],
+                             "quantity": r["quantity"], "remark": r["remark"]})
+            warnings = _apply_inventory(cur, warehouse, rows, -1, "stock_out", head_id, out_no)
+        write_audit(conn, "stock_out", head_id, "INSERT", None,
+                    {"out_no": out_no, "out_type": out_type, "warehouse": warehouse,
+                     "items": len(rows), "delivery_no": delivery_no}, operator)
+        conn.commit()
+        return {"ok": True, "errors": [], "doc_no": out_no, "warnings": warnings}
+    except Exception as e:  # noqa: BLE001
+        conn.rollback()
+        return {"ok": False, "errors": [f"出库单落库失败: {e}"], "doc_no": None}
     finally:
         conn.close()

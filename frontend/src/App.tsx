@@ -6,6 +6,8 @@ import { FormOutlined, HomeOutlined, InboxOutlined } from '@ant-design/icons'
 import { Link, Route, Routes, useLocation } from 'react-router'
 import Home from './pages/Home'
 import CustomerEntry from './pages/CustomerEntry'
+import StockInEntry from './pages/StockInEntry'
+import StockOutEntry from './pages/StockOutEntry'
 import ProductEntry from './pages/ProductEntry'
 import ReceiptEntry from './pages/ReceiptEntry'
 import RateEntry from './pages/RateEntry'
@@ -64,6 +66,8 @@ export default function App() {
               <Routes>
                 <Route path="/" element={<Home />} />
                 <Route path="/entry/customer" element={<CustomerEntry />} />
+                <Route path="/entry/stock-in" element={<StockInEntry />} />
+                <Route path="/entry/stock-out" element={<StockOutEntry />} />
                 <Route path="/entry/product" element={<ProductEntry />} />
                 <Route path="/entry/quotation" element={<QuotationEntry />} />
                 <Route path="/entry/contract" element={<ContractEntry />} />
