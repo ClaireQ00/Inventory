@@ -61,6 +61,12 @@ export const api = {
   fieldValues: (customerCode: string, field: string) =>
     req<string[]>(`/options/field-values?customer_code=${encodeURIComponent(customerCode)}&field=${encodeURIComponent(field)}`),
   warehouses: () => req<{ code: string; name: string }[]>('/options/warehouses'),
+  contracts: (customerCode?: string) =>
+    req<Record<string, unknown>[]>(`/options/contracts${customerCode ? `?customer_code=${encodeURIComponent(customerCode)}` : ''}`),
+  contractReceiptSummary: (contractNo: string) =>
+    req<{ contract_no: string; customer_name: string; total_amount: number; currency: string; received: number; remaining: number; fully_received: boolean }>(
+      `/options/contract-receipt-summary?contract_no=${encodeURIComponent(contractNo)}`),
+  exchangeRates: () => req<Record<string, unknown>[]>('/options/exchange-rates'),
   materialTypeProfiles: () =>
     req<{ type_code: string; name: string; guide_cost_price: number | null }[]>('/aux/material-types'),
   // ── 生产辅料 (标签纸等) ──

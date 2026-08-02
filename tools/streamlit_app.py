@@ -136,8 +136,6 @@ with st.sidebar:
         "选择模块",
         [
             "🏠 首页",
-            "📝 录入中心",
-            "📥 导入中心",
             "⚡ 操作中心",
             "📦 库存查询",
             "📋 合同执行",
@@ -1077,8 +1075,8 @@ def page_operations():
 # ──────────────────────────────────────────────────────────────
 PAGES = {
     "🏠 首页": page_dashboard,
-    "📝 录入中心": page_entry,
-    "📥 导入中心": page_import,
+    # F2.4: 录入中心/导入中心已下线 —— 录入迁移至 React 录入端，导入中心待 FB.1 重做。
+    # page_entry / page_import 函数本体保留(不挂载)，避免影响其他页的复用函数。
     "⚡ 操作中心": page_operations,
     "📦 库存查询": page_inventory,
     "📋 合同执行": page_contracts,

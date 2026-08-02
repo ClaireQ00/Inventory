@@ -6,6 +6,8 @@ import { FormOutlined, HomeOutlined, InboxOutlined } from '@ant-design/icons'
 import { Link, Route, Routes, useLocation } from 'react-router'
 import Home from './pages/Home'
 import ProductEntry from './pages/ProductEntry'
+import ReceiptEntry from './pages/ReceiptEntry'
+import RateEntry from './pages/RateEntry'
 import AuxMaterials from './pages/AuxMaterials'
 import AuxStock from './pages/AuxStock'
 
@@ -37,8 +39,8 @@ export default function App() {
                     key: 'entry', icon: <FormOutlined />, label: '录入中心',
                     children: [
                       { key: '/entry/product', label: <Link to="/entry/product">🧱 物料</Link> },
-                      { key: '/entry/receipt', label: '💰 收款（下一阶段）', disabled: true },
-                      { key: '/entry/rate', label: '💱 汇率（下一阶段）', disabled: true },
+                      { key: '/entry/receipt', label: <Link to="/entry/receipt">💰 收款</Link> },
+                      { key: '/entry/rate', label: <Link to="/entry/rate">💱 汇率</Link> },
                     ],
                   },
                   {
@@ -55,6 +57,8 @@ export default function App() {
               <Routes>
                 <Route path="/" element={<Home />} />
                 <Route path="/entry/product" element={<ProductEntry />} />
+                <Route path="/entry/receipt" element={<ReceiptEntry />} />
+                <Route path="/entry/rate" element={<RateEntry />} />
                 <Route path="/aux/materials" element={<AuxMaterials />} />
                 <Route path="/aux/stock" element={<AuxStock />} />
               </Routes>

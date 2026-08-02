@@ -612,6 +612,30 @@ def _validate_with_rules(rules: dict, data: dict, conn) -> list[str]:
     return errors
 
 
+def contract_receipt_summary(contract_no: str) -> dict | None:
+    """合同收款进度 (收款录入页参照 + 第13步校验同口径): 总额/已收/未收"""
+    rows = list_options(
+        """SELECT sc.total_amount, sc.currency, c.name AS customer_name,
+                  COALESCE(SUM(r.amount), 0) AS received
+           FROM sales_contracts sc
+           JOIN customers c ON c.code = sc.customer_code
+           LEFT JOIN receipts r ON r.contract_no = sc.contract_no
+                                AND r.status != 'cancelled'
+           WHERE sc.contract_no = %s
+           GROUP BY sc.contract_no, sc.total_amount, sc.currency, c.name""",
+        (contract_no,),
+    )
+    if not rows:
+        return None
+    r = rows[0]
+    total = float(r["total_amount"])
+    received = float(r["received"])
+    return {"contract_no": contract_no, "customer_name": r["customer_name"],
+            "total_amount": total, "currency": r["currency"],
+            "received": received, "remaining": total - received,
+            "fully_received": received >= total}
+
+
 def list_material_type_profiles() -> list[dict]:
     """物料类型档案 (录入页下拉源; 成本指导价预留)"""
     return list_options(

@@ -136,8 +136,8 @@
 - [x] M3a [P1] **标签需求提示·Streamlit 侧**：/api/aux/label-demand（合同明细→products.label_paper→需求卷数→比对库存，实测 SC20260730001 算出 3 款标签需求 300/200/11 张）+ Streamlit 合同执行页需求区块（缺料红/够用绿/未建档黄，只提示不扣减）
 - [ ] M3b [P2] **标签需求提示·React 合同页**：随 F2.6 合同录入页接入（保存合同时自动调用，缺料 WARN 不阻止）
 - [ ] M4 [P2] **辅料校验报表**：local_validator 加辅料库存=流水合计一致性检查 + 低库存预警 + aux_type 扩展评估
-- [ ] F2.3 [P1] 收款/汇率录入页迁移 React（复用现有 /api/preview+/api/insert 接口，db_writer 规则已就绪）
-- [ ] F2.4 [P1] Streamlit 录入中心下线（F2.3 完成后撤掉录入 tab，Streamlit 回归纯查询/报表/校验日志）
+- [x] F2.3 [P1] **收款/汇率录入页迁移 React**：db_writer 新增 contract_receipt_summary（合同收款进度，第13步同口径）+ /api/options/contract-receipt-summary；RateEntry（币种/汇率4位小数/生效日期默认当月1号+最近10条汇率表）、ReceiptEntry（客户→合同下拉含"预收款"、选合同显示收款进度、单号默认 RC+日期、预览显示汇率带出+折CNY+rate_note）两个新页面，菜单/Home 接线。实测：预览 100 USD 带出 2026-08-01 汇率 6.7→折 670 CNY ✓；预收款落库 ✓；向已收满的 SC20260730001(7854.3) 再收 1 USD 被闸门拦截"累计收款 7855.30 已超合同总额"自动回滚 ✓（测试数据已清理，receipts/audit 恢复基线）
+- [x] F2.4 [P1] **Streamlit 录入中心下线**：导航撤掉"录入中心/导入中心"（函数本体保留不挂载，防引用断裂），操作中心（跑校验+克隆建物料）保留；Streamlit 回归纯查询/报表/校验日志。py_compile ✓、8501 HTTP 200 ✓、React dev 冒烟 /entry/receipt、/entry/rate 200 ✓（dev server 已关闭无残留）
 - [ ] F2.5 [P1] frontend 生产容器（Nginx 托管 dist/ + 反代 /api → api:8000），NAS 一键部署
 - [ ] F2.6 [P2] 报价/合同/发货录入（明细行可编辑表格 + 快照重量规则 ADR-0005）——React 可编辑表格是主战场
 

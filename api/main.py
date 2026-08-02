@@ -87,6 +87,15 @@ def opt_contracts(customer_code: str | None = None):
     return db_writer.list_contracts(customer_code or None)
 
 
+@app.get("/api/options/contract-receipt-summary")
+def opt_contract_receipt_summary(contract_no: str):
+    """合同收款进度: 总额/已收/未收 (收款录入页参照, 第13步校验同口径)"""
+    summary = db_writer.contract_receipt_summary(contract_no)
+    if summary is None:
+        raise HTTPException(404, f"合同不存在: {contract_no}")
+    return summary
+
+
 @app.get("/api/options/categories")
 def opt_categories():
     """产品原始类别 (真实数据, 按使用频次倒序)"""
