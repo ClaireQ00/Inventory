@@ -128,8 +128,12 @@
 - [ ] FB.1 [P1] **B 期**：📥 导入中心页（上传 CSV → 跑校验 → 绿了才亮「导入 MySQL」→ 导入报告）
 - [ ] FC.1 [P1] **C 期**：报价/合同/发货录入（明细行编辑 + 快照重量规则：weight_per_unit 自动从 products.weight 带出，偏离按 ADR-0005 分阶段提醒）
 - [ ] F3.1 [P2] **打印导出**：报价单/合同/发货单/出库单/对账单/报关资料的模板导出——**等老板提供模板**（格式要求：每种单据 ① 空白 Excel 底稿 .xlsx 1 份 + ② 真实已签发样张脱敏版 1 份，PDF 或 Excel 均可；参考「标准化外贸工作流」的 QT/SC 底稿模式，程序往固定单元格填数）
-- [ ] F2.1 [P2] 阶段二设计：FastAPI REST 接口规范（请求/响应 JSON）——**等 F1.5 试用反馈定优先级**，预计 3-6 个月，见 FRONTEND_PLAN §3 阶段二
-- [ ] F2.2 [P2] 阶段二骨架：`frontend/`（React+Vite+Tailwind）+ `api/`（FastAPI+PyMySQL）
+- [x] F2.1 [P0] **阶段二提前启动**（2026-08-01 老板拍板：Streamlit 只做查询/报表/校验日志，录入全部迁 React）：`api/` FastAPI 包装层落地——业务逻辑零重写，全部复用 tools/（db_writer 两段式提交+写后校验+审计、csv_to_sql 派生引擎、local_validator 16 步校验）。接口：health / options(customers·contracts·categories·suggest-material-id·exchange-rates) / derive / preview / insert / validate。容器 inventory-api 绑 127.0.0.1:8000 仅内网
+- [x] F2.2 [P0] **阶段二骨架**：`frontend/`（React19+Vite+Tailwind+Ant Design v6）落地，首页面**物料录入页**——边填边调 /api/derive（300ms 防抖）局部刷新不重载页面；真实类别 AutoComplete（69 种可输新类别）、编码按客户自动建议+刷新按钮、规格自动推算（手改后不再跟随）、两段式预览 Modal 提交。端到端实测：预览/落库/查重闸门全过（测试数据已清理，库面 14,350 不变）
+- [ ] F2.3 [P1] 收款/汇率录入页迁移 React（复用现有 /api/preview+/api/insert 接口，db_writer 规则已就绪）
+- [ ] F2.4 [P1] Streamlit 录入中心下线（F2.3 完成后撤掉录入 tab，Streamlit 回归纯查询/报表/校验日志）
+- [ ] F2.5 [P1] frontend 生产容器（Nginx 托管 dist/ + 反代 /api → api:8000），NAS 一键部署
+- [ ] F2.6 [P2] 报价/合同/发货录入（明细行可编辑表格 + 快照重量规则 ADR-0005）——React 可编辑表格是主战场
 
 ---
 

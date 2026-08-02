@@ -123,3 +123,35 @@ services:
     depends_on:
       db:
         condition: service_healthy
+
+  # ────────────────────────────────────────────────────────────
+  # api : 阶段二 FastAPI 包装层 (2026-08-01 提前启动)
+  #   定位: React 录入端 (frontend/) 的 HTTP 接口, 业务逻辑全部
+  #         复用 tools/ (db_writer / csv_to_sql / local_validator), 零重写
+  #   安全: 绑 127.0.0.1 仅本机访问; React 开发服 (vite proxy) 和未来
+  #         Nginx 前端容器都在本机/本编排内反代, 不直接对外暴露
+  # ────────────────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    container_name: inventory-api
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    environment:
+      DB_HOST: db
+      DB_PORT: "3306"
+      DB_USER: ${MYSQL_USER:-inventory}
+      DB_PASSWORD: ${MYSQL_PASSWORD}
+      DB_NAME: ${MYSQL_DATABASE:-inventory_db}
+      CSV_DIR: /app/data/csv
+    volumes:
+      # tools 以 ro 挂载 (与 streamlit 容器同款): 改 db_writer/派生引擎即时生效, 不用重建镜像
+      - ./tools:/app/tools:ro
+      # 16 步校验接口只读 CSV
+      - ./data/csv:/app/data/csv:ro
+      - ./data/logs:/app/data/logs:ro
+    depends_on:
+      db:
+        condition: service_healthy

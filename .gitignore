@@ -28,3 +28,7 @@ tests/fixtures/
 
 # Claude Code 个人本地配置（团队共享规则进 .claude/settings.json，本地偏好不进仓库）
 .claude/settings.local.json
+
+# 阶段二前端 (F2.x)
+frontend/node_modules/
+frontend/dist/
