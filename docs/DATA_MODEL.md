@@ -230,8 +230,8 @@ erDiagram
 
 #### `stock_in_items` — 入库明细
 - **职责**:入库单的商品行。
-- **关键字段**:`in_no`、`material_id`、`quantity`
-- **外键**:`in_no → stock_in(in_no) ON DELETE CASCADE`、`material_id → products(material_id)`
+- **关键字段**:`in_no`、`material_id`、`contract_no`(**关联合同号**,2026-08-02 加;生产入库时由录入页单头所选合同盖到每行,闸门=物料必须在该合同明细里;采购/退货入库留 NULL)、`quantity`
+- **外键**:`in_no → stock_in(in_no) ON DELETE CASCADE`、`material_id → products(material_id)`、`contract_no → sales_contracts(contract_no)`
 - **派生字段**:无
 
 #### `stock_out` — 出库单主表
@@ -244,9 +244,11 @@ erDiagram
 
 #### `stock_out_items` — 出库明细
 - **职责**:出库单的商品行。
-- **关键字段**:`out_no`、`material_id`、`quantity`
-- **外键**:`out_no → stock_out(out_no) ON DELETE CASCADE`、`material_id → products(material_id)`
+- **关键字段**:`out_no`、`material_id`、`contract_no`(**关联合同号**,2026-08-02 加;销售出库时后端按 (delivery_no, material_id) 从发货明细**自动反解**盖到行上,用户无感;闸门=物料必须在该发货单明细里;生产领用/报废留 NULL)、`quantity`
+- **外键**:`out_no → stock_out(out_no) ON DELETE CASCADE`、`material_id → products(material_id)`、`contract_no → sales_contracts(contract_no)`
 - **派生字段**:无
+
+> **合同 ↔ 库存 关联设计**(2026-08-02 老板拍板):"入库单的主物料应该关联合同,跟发货单一样,还有出库单"。链条:合同 → 生产入库(挂合同) → 库存 → 发货单(早已挂合同) → 销售出库(自动反解合同)。**`inventory` 库存表刻意不挂合同**——库存是物理结果,同一物料可能服务多个合同,挂合同会割裂库存;合同维度用流水聚合查询(`db_writer.contract_stock_progress`,Streamlit 合同执行页"合同库存进度"视图:合同量/已生产入库/已发货/已销售出库/当前库存)。
 
 #### `stock_logs` — 出入库流水
 - **职责**:统一的流水账本。所有入库/出库操作自动写一条,用于对账和追溯。`inventory` 是"结果",`stock_logs` 是"原因"。

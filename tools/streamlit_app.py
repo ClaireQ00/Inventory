@@ -544,6 +544,40 @@ def page_contracts():
         except Exception as e:  # noqa: BLE001
             st.caption(f"标签需求测算暂不可用: {e}")
 
+        # ── 合同库存进度 (2026-08-02: 出入库明细挂合同后的四方对账视图)
+        # 合同量 / 生产入库 / 已发货 / 销售出库 / 当前库存 一行看齐
+        st.subheader("📊 合同库存进度（生产→入库→发货→出库）")
+        try:
+            prog = db_writer.contract_stock_progress(sel_contract)
+            if prog["found"] and prog["lines"]:
+                st.dataframe(
+                    [
+                        {
+                            "行号": ln["item_no"],
+                            "物料号": ln["material_id"],
+                            "规格": ln["spec"],
+                            "合同量": ln["contracted"],
+                            "已生产入库": ln["produced_in"],
+                            "已发货": ln["delivered"],
+                            "已销售出库": ln["stocked_out"],
+                            "当前库存(全仓)": ln["in_stock"],
+                        }
+                        for ln in prog["lines"]
+                    ],
+                    use_container_width=True,
+                    hide_index=True,
+                )
+                st.caption(
+                    "口径：已生产入库=生产入库单(挂本合同)累计；已发货=发货单回写；"
+                    "已销售出库=销售出库单(按发货单自动反解本合同)累计；"
+                    "当前库存=该物料全部仓库合计（库存不挂合同，刻意设计）。"
+                    "出入库单只数 confirmed。"
+                )
+            else:
+                st.info("未取到该合同的进度数据")
+        except Exception as e:  # noqa: BLE001
+            st.caption(f"库存进度暂不可用: {e}")
+
 
 # ──────────────────────────────────────────────────────────────
 # 基础资料

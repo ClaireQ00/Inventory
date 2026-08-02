@@ -1810,6 +1810,12 @@ def create_stock_in(header: dict, items: list[dict], operator: str = "frontend-r
         errors.append("采购入库必须关联采购单号 po_no")
     if in_type != "purchase":
         po_no = ""
+    # 2026-08-02 老板: 生产入库挂合同 (按单生产); 采购/退货与合同无关
+    contract_no = (header.get("contract_no") or "").strip()
+    if in_type == "production" and not contract_no:
+        errors.append("生产入库必须关联合同号 contract_no")
+    if in_type != "production":
+        contract_no = ""
     if not warehouse:
         errors.append("缺少仓库 warehouse_code")
     if not _is_date(in_date):
@@ -1835,8 +1841,25 @@ def create_stock_in(header: dict, items: list[dict], operator: str = "frontend-r
                     errors.append(f"采购单不存在: {po_no}")
                 elif po["status"] == "cancelled":
                     errors.append(f"采购单 {po_no} 已取消")
+            if contract_no:
+                cur.execute("SELECT status FROM sales_contracts WHERE contract_no=%s", (contract_no,))
+                sc = cur.fetchone()
+                if not sc:
+                    errors.append(f"合同不存在: {contract_no}")
+                elif sc["status"] == "cancelled":
+                    errors.append(f"合同 {contract_no} 已取消")
+                else:
+                    cur.execute(
+                        "SELECT material_id FROM sales_contract_items WHERE contract_no=%s",
+                        (contract_no,),
+                    )
+                    contract_materials = {r["material_id"] for r in cur.fetchall()}
             rows, item_errors = _validate_stock_items(cur, items)
             errors.extend(item_errors)
+            if contract_no and not errors:
+                for r in rows:
+                    if r["material_id"] not in contract_materials:
+                        errors.append(f"物料 {r['material_id']} 不在合同 {contract_no} 的明细里, 不能挂这个合同")
             if errors:
                 conn.rollback()
                 return {"ok": False, "errors": errors, "doc_no": None}
@@ -1849,6 +1872,7 @@ def create_stock_in(header: dict, items: list[dict], operator: str = "frontend-r
             for r in rows:
                 _doc_insert(cur, "stock_in_items",
                             {"in_no": in_no, "material_id": r["material_id"],
+                             "contract_no": contract_no or None,
                              "quantity": r["quantity"], "remark": r["remark"]})
             warnings = _apply_inventory(cur, warehouse, rows, +1, "stock_in", head_id, in_no)
             # 采购入库联动: 到货量够则推进采购单状态 (部分到货/已全部到货)
@@ -1921,8 +1945,26 @@ def create_stock_out(header: dict, items: list[dict], operator: str = "frontend-
                     errors.append(f"发货单不存在: {delivery_no}")
                 elif d["status"] == "cancelled":
                     errors.append(f"发货单 {delivery_no} 已取消")
+                else:
+                    # 2026-08-02 老板: 销售出库挂合同 —— 用户只选发货单,
+                    # 后端按 (发货单, 物料) 从发货明细自动反解合同号, 防挂错
+                    cur.execute(
+                        "SELECT material_id, contract_no FROM delivery_order_items WHERE delivery_no=%s",
+                        (delivery_no,),
+                    )
+                    delivery_contract = {}
+                    for r in cur.fetchall():
+                        delivery_contract.setdefault(r["material_id"], r["contract_no"])
             rows, item_errors = _validate_stock_items(cur, items)
             errors.extend(item_errors)
+            resolved_contracts: dict[str, str] = {}
+            if delivery_no and not errors:
+                for r in rows:
+                    cno = delivery_contract.get(r["material_id"])
+                    if not cno:
+                        errors.append(f"物料 {r['material_id']} 不在发货单 {delivery_no} 的明细里")
+                    else:
+                        resolved_contracts[r["material_id"]] = cno
             if errors:
                 conn.rollback()
                 return {"ok": False, "errors": errors, "doc_no": None}
@@ -1935,6 +1977,7 @@ def create_stock_out(header: dict, items: list[dict], operator: str = "frontend-
             for r in rows:
                 _doc_insert(cur, "stock_out_items",
                             {"out_no": out_no, "material_id": r["material_id"],
+                             "contract_no": resolved_contracts.get(r["material_id"]),
                              "quantity": r["quantity"], "remark": r["remark"]})
             warnings = _apply_inventory(cur, warehouse, rows, -1, "stock_out", head_id, out_no)
         write_audit(conn, "stock_out", head_id, "INSERT", None,
@@ -1947,3 +1990,63 @@ def create_stock_out(header: dict, items: list[dict], operator: str = "frontend-
         return {"ok": False, "errors": [f"出库单落库失败: {e}"], "doc_no": None}
     finally:
         conn.close()
+
+
+# ──────────────────────────────────────────────────────────────
+# 合同 ↔ 库存 关联查询 (2026-08-02 老板: 出入库挂合同, 查询表要看库存关系)
+# ──────────────────────────────────────────────────────────────
+
+def list_contract_materials(contract_no: str) -> list[dict]:
+    """合同明细物料 picker (生产入库选合同后, 物料下拉过滤为该合同的物料)"""
+    return list_options(
+        """SELECT ci.material_id, p.spec, p.brand, ci.quantity AS contract_qty, ci.delivered_qty
+           FROM sales_contract_items ci
+           LEFT JOIN products p ON p.material_id = ci.material_id
+           WHERE ci.contract_no=%s ORDER BY ci.item_no""",
+        (contract_no,),
+    )
+
+
+def list_delivery_materials(delivery_no: str) -> list[dict]:
+    """发货单明细物料 picker (销售出库选发货单后, 物料下拉过滤)"""
+    return list_options(
+        """SELECT di.material_id, p.spec, p.brand, di.contract_no, di.quantity AS delivery_qty
+           FROM delivery_order_items di
+           LEFT JOIN products p ON p.material_id = di.material_id
+           WHERE di.delivery_no=%s ORDER BY di.contract_item_no""",
+        (delivery_no,),
+    )
+
+
+def contract_stock_progress(contract_no: str) -> dict:
+    """合同库存进度: 以合同明细为轴, 聚合 生产入库/已发货/销售出库/当前库存。
+    生产入库与销售出库按明细行 contract_no 聚合 (2026-08-02 加的关联列);
+    库存是该物料全部仓库合计 (库存不挂合同, 刻意设计)"""
+    head = list_options(
+        """SELECT sc.contract_no, c.name AS customer_name, sc.sign_date, sc.status,
+                  sc.total_amount, sc.currency
+           FROM sales_contracts sc JOIN customers c ON c.code = sc.customer_code
+           WHERE sc.contract_no=%s""",
+        (contract_no,),
+    )
+    if not head:
+        return {"found": False, "contract_no": contract_no, "lines": []}
+    lines = list_options(
+        """SELECT ci.item_no, ci.material_id, p.spec, p.brand,
+                  ci.quantity AS contracted, ci.delivered_qty AS delivered,
+                  (SELECT COALESCE(SUM(sii.quantity),0)
+                     FROM stock_in_items sii JOIN stock_in si ON si.in_no=sii.in_no
+                    WHERE sii.contract_no=ci.contract_no AND sii.material_id=ci.material_id
+                      AND si.status='confirmed') AS produced_in,
+                  (SELECT COALESCE(SUM(soi.quantity),0)
+                     FROM stock_out_items soi JOIN stock_out so ON so.out_no=soi.out_no
+                    WHERE soi.contract_no=ci.contract_no AND soi.material_id=ci.material_id
+                      AND so.status='confirmed') AS stocked_out,
+                  (SELECT COALESCE(SUM(quantity),0) FROM inventory
+                    WHERE material_id=ci.material_id) AS in_stock
+           FROM sales_contract_items ci
+           LEFT JOIN products p ON p.material_id = ci.material_id
+           WHERE ci.contract_no=%s ORDER BY ci.item_no""",
+        (contract_no,),
+    )
+    return {"found": True, **head[0], "lines": lines}

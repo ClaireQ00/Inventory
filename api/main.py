@@ -445,6 +445,24 @@ def opt_purchase_orders():
     return db_writer.list_purchase_orders()
 
 
+@app.get("/api/options/contract-materials")
+def opt_contract_materials(contract_no: str):
+    """合同明细物料 picker (生产入库选合同后物料下拉过滤)"""
+    return db_writer.list_contract_materials(contract_no)
+
+
+@app.get("/api/options/delivery-materials")
+def opt_delivery_materials(delivery_no: str):
+    """发货单明细物料 picker (销售出库选发货单后物料下拉过滤)"""
+    return db_writer.list_delivery_materials(delivery_no)
+
+
+@app.get("/api/options/contract-stock-progress")
+def opt_contract_stock_progress(contract_no: str):
+    """合同库存进度: 合同量/生产入库/已发货/销售出库/当前库存"""
+    return db_writer.contract_stock_progress(contract_no)
+
+
 if __name__ == "__main__":
     import uvicorn
 

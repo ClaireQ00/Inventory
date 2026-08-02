@@ -17,9 +17,12 @@ export default function StockInEntry() {
   const [products, setProducts] = useState<ProductOption[]>([])
   const [warehouses, setWarehouses] = useState<{ code: string; name: string }[]>([])
   const [pos, setPos] = useState<Record<string, unknown>[]>([])
+  const [contracts, setContracts] = useState<Record<string, unknown>[]>([])
+  const [contractProducts, setContractProducts] = useState<ProductOption[] | null>(null)
   const [header, setHeader] = useState({
     in_no: '', in_type: 'production', warehouse_code: null as string | null,
-    po_no: null as string | null, in_date: dayjs(), remark: '',
+    po_no: null as string | null, contract_no: null as string | null,
+    in_date: dayjs(), remark: '',
   })
   const [items, setItems] = useState<StockItem[]>([newStockItem(1)])
   const [operator, setOperator] = useState('')
@@ -29,8 +32,20 @@ export default function StockInEntry() {
     api.productsPicker().then((l) => setProducts(l as unknown as ProductOption[])).catch((e) => message.error(`物料加载失败: ${e.message}`))
     api.warehouses().then(setWarehouses).catch(() => {})
     api.purchaseOrders().then(setPos).catch(() => {})
+    api.contracts().then(setContracts).catch(() => {})
     suggestNo()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 生产入库选合同 → 物料下拉过滤为该合同明细的物料 (挂错合同在源头就不可能)
+  const onContract = (no: string | null) => {
+    set('contract_no', no)
+    setItems([newStockItem(1)])
+    if (no) {
+      api.contractMaterials(no).then((l) => setContractProducts(l as unknown as ProductOption[])).catch(() => setContractProducts(null))
+    } else {
+      setContractProducts(null)
+    }
+  }
 
   const suggestNo = () => {
     api.suggestDocNo('stock_in').then((r) => setHeader((h) => ({ ...h, in_no: r.doc_no }))).catch(() => {})
@@ -42,12 +57,14 @@ export default function StockInEntry() {
     if (!header.in_no.trim()) return message.warning('请填入库单号')
     if (!header.warehouse_code) return message.warning('请选择仓库')
     if (header.in_type === 'purchase' && !header.po_no) return message.warning('采购入库必须选择采购单')
+    if (header.in_type === 'production' && !header.contract_no) return message.warning('生产入库必须选择关联合同')
     if (validItems.length === 0) return message.warning('至少一行完整明细（物料+数量）')
     setSubmitting(true)
     try {
       const r = await api.createDoc('stock-in', {
         in_no: header.in_no.trim(), in_type: header.in_type,
         warehouse_code: header.warehouse_code, po_no: header.po_no || '',
+        contract_no: header.contract_no || '',
         in_date: header.in_date.format('YYYY-MM-DD'), remark: header.remark,
       }, validItems.map((it) => ({
         material_id: it.material_id, quantity: it.quantity, remark: it.remark,
@@ -82,7 +99,7 @@ export default function StockInEntry() {
             </Space.Compact></Col>
           <Col span={5}><Text type="secondary">入库类型 *</Text>
             <Select style={{ width: '100%' }} value={header.in_type}
-              onChange={(v) => { set('in_type', v); if (v !== 'purchase') set('po_no', null) }}
+              onChange={(v) => { set('in_type', v); if (v !== 'purchase') set('po_no', null); if (v !== 'production') { set('contract_no', null); setContractProducts(null) } }}
               options={[
                 { value: 'production', label: '生产完工入库' },
                 { value: 'purchase', label: '采购入库' },
@@ -108,10 +125,21 @@ export default function StockInEntry() {
                 }))} /></Col>
           </Row>
         )}
+        {header.in_type === 'production' && (
+          <Row gutter={16} style={{ marginTop: 12 }}>
+            <Col span={10}><Text type="secondary">关联合同 *（按单生产，物料下拉随之过滤）</Text>
+              <Select style={{ width: '100%' }} placeholder="选择合同" value={header.contract_no}
+                onChange={onContract} showSearch optionFilterProp="label"
+                options={contracts.map((c) => ({
+                  value: c.contract_no as string,
+                  label: `${c.contract_no} - ${c.customer_code}（${String(c.sign_date).slice(0, 10)}）`,
+                }))} /></Col>
+          </Row>
+        )}
       </Card>
 
       <Card size="small" title="入库明细" style={{ marginBottom: 16 }}>
-        <StockItemsEditor products={products} items={items} onChange={setItems} />
+        <StockItemsEditor products={header.in_type === 'production' && contractProducts ? contractProducts : products} items={items} onChange={setItems} />
       </Card>
 
       <Card size="small" style={{ marginBottom: 24 }}>

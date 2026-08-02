@@ -225,6 +225,7 @@ CREATE TABLE IF NOT EXISTS stock_in_items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     in_no TEXT NOT NULL,
     material_id TEXT NOT NULL,
+    contract_no TEXT,  -- 关联合同号(生产入库时填), 2026-08-02 加 (MySQL 同步)
     quantity INTEGER NOT NULL,
     remark TEXT DEFAULT '',
     FOREIGN KEY (in_no) REFERENCES stock_in(in_no) ON DELETE CASCADE,
@@ -250,6 +251,7 @@ CREATE TABLE IF NOT EXISTS stock_out_items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     out_no TEXT NOT NULL,
     material_id TEXT NOT NULL,
+    contract_no TEXT,  -- 关联合同号(销售出库由发货单自动反解), 2026-08-02 加 (MySQL 同步)
     quantity INTEGER NOT NULL,
     remark TEXT DEFAULT '',
     FOREIGN KEY (out_no) REFERENCES stock_out(out_no) ON DELETE CASCADE,

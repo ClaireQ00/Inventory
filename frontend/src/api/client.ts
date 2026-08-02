@@ -67,6 +67,12 @@ export const api = {
     req<Record<string, unknown>[]>(`/options/contracts${customerCode ? `?customer_code=${encodeURIComponent(customerCode)}` : ''}`),
   deliveries: () => req<Record<string, unknown>[]>('/options/deliveries'),
   purchaseOrders: () => req<Record<string, unknown>[]>('/options/purchase-orders'),
+  contractMaterials: (contractNo: string) =>
+    req<Record<string, unknown>[]>(`/options/contract-materials?contract_no=${encodeURIComponent(contractNo)}`),
+  deliveryMaterials: (deliveryNo: string) =>
+    req<Record<string, unknown>[]>(`/options/delivery-materials?delivery_no=${encodeURIComponent(deliveryNo)}`),
+  contractStockProgress: (contractNo: string) =>
+    req<Record<string, unknown>>(`/options/contract-stock-progress?contract_no=${encodeURIComponent(contractNo)}`),
   contractReceiptSummary: (contractNo: string) =>
     req<{ contract_no: string; customer_name: string; total_amount: number; currency: string; received: number; remaining: number; fully_received: boolean }>(
       `/options/contract-receipt-summary?contract_no=${encodeURIComponent(contractNo)}`),

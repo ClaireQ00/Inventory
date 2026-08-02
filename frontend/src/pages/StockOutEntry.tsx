@@ -17,6 +17,7 @@ export default function StockOutEntry() {
   const [products, setProducts] = useState<ProductOption[]>([])
   const [warehouses, setWarehouses] = useState<{ code: string; name: string }[]>([])
   const [deliveries, setDeliveries] = useState<Record<string, unknown>[]>([])
+  const [deliveryProducts, setDeliveryProducts] = useState<ProductOption[] | null>(null)
   const [header, setHeader] = useState({
     out_no: '', out_type: 'sale', warehouse_code: null as string | null,
     delivery_no: null as string | null, out_date: dayjs(), remark: '',
@@ -31,6 +32,17 @@ export default function StockOutEntry() {
     api.deliveries().then(setDeliveries).catch(() => {})
     suggestNo()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 销售出库选发货单 → 物料下拉过滤为该发货单明细 (合同号由后端按发货明细自动反解)
+  const onDelivery = (no: string | null) => {
+    set('delivery_no', no)
+    setItems([newStockItem(1)])
+    if (no) {
+      api.deliveryMaterials(no).then((l) => setDeliveryProducts(l as unknown as ProductOption[])).catch(() => setDeliveryProducts(null))
+    } else {
+      setDeliveryProducts(null)
+    }
+  }
 
   const suggestNo = () => {
     api.suggestDocNo('stock_out').then((r) => setHeader((h) => ({ ...h, out_no: r.doc_no }))).catch(() => {})
@@ -83,7 +95,7 @@ export default function StockOutEntry() {
             </Space.Compact></Col>
           <Col span={5}><Text type="secondary">出库类型 *</Text>
             <Select style={{ width: '100%' }} value={header.out_type}
-              onChange={(v) => { set('out_type', v); if (v !== 'sale') set('delivery_no', null) }}
+              onChange={(v) => { set('out_type', v); if (v !== 'sale') { set('delivery_no', null); setDeliveryProducts(null) } }}
               options={[
                 { value: 'sale', label: '销售出库' },
                 { value: 'production', label: '生产领用' },
@@ -100,9 +112,9 @@ export default function StockOutEntry() {
         </Row>
         {header.out_type === 'sale' && (
           <Row gutter={16} style={{ marginTop: 12 }}>
-            <Col span={8}><Text type="secondary">关联发货单 *</Text>
+            <Col span={10}><Text type="secondary">关联发货单 *（物料下拉随之过滤，合同号自动反解）</Text>
               <Select style={{ width: '100%' }} placeholder="选择发货单" value={header.delivery_no}
-                onChange={(v) => set('delivery_no', v)}
+                onChange={onDelivery} showSearch optionFilterProp="label"
                 options={deliveries.map((d) => ({
                   value: d.delivery_no as string,
                   label: `${d.delivery_no} - ${d.customer_code}（${String(d.delivery_date).slice(0, 10)}）`,
@@ -112,7 +124,7 @@ export default function StockOutEntry() {
       </Card>
 
       <Card size="small" title="出库明细" style={{ marginBottom: 16 }}>
-        <StockItemsEditor products={products} items={items} onChange={setItems} />
+        <StockItemsEditor products={header.out_type === 'sale' && deliveryProducts ? deliveryProducts : products} items={items} onChange={setItems} />
       </Card>
 
       <Card size="small" style={{ marginBottom: 24 }}>

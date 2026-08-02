@@ -386,14 +386,17 @@ CREATE TABLE stock_in_items (
     id              INT AUTO_INCREMENT PRIMARY KEY COMMENT '明细ID',
     in_no           VARCHAR(32)  NOT NULL           COMMENT '入库单号(关联 stock_in.in_no)',
     material_id     VARCHAR(32)  NOT NULL           COMMENT '物料编号(关联 products.material_id)',
+    contract_no     VARCHAR(32)  DEFAULT NULL       COMMENT '关联合同号(生产入库时填, 2026-08-02 加)',
     quantity        INT          NOT NULL           COMMENT '入库数量(件/卷)',
     remark          VARCHAR(255) DEFAULT ''         COMMENT '备注',
 
     CONSTRAINT fk_sii_si      FOREIGN KEY (in_no)      REFERENCES stock_in(in_no) ON DELETE CASCADE,
-    CONSTRAINT fk_sii_product FOREIGN KEY (material_id) REFERENCES products(material_id)
+    CONSTRAINT fk_sii_product FOREIGN KEY (material_id) REFERENCES products(material_id),
+    CONSTRAINT fk_sii_contract FOREIGN KEY (contract_no) REFERENCES sales_contracts(contract_no)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='入库单明细';
 
 CREATE INDEX idx_sii_si      ON stock_in_items(in_no);
+CREATE INDEX idx_sii_contract ON stock_in_items(contract_no);
 CREATE INDEX idx_sii_product ON stock_in_items(material_id);
 
 -- ------------------------------------------------------------
@@ -436,14 +439,17 @@ CREATE TABLE stock_out_items (
     id              INT AUTO_INCREMENT PRIMARY KEY COMMENT '明细ID',
     out_no          VARCHAR(32)  NOT NULL           COMMENT '出库单号(关联 stock_out.out_no)',
     material_id     VARCHAR(32)  NOT NULL           COMMENT '物料编号(关联 products.material_id)',
+    contract_no     VARCHAR(32)  DEFAULT NULL       COMMENT '关联合同号(销售出库由发货单自动反解, 2026-08-02 加)',
     quantity        INT          NOT NULL           COMMENT '出库数量(件/卷)',
     remark          VARCHAR(255) DEFAULT ''         COMMENT '备注',
 
     CONSTRAINT fk_soi_so      FOREIGN KEY (out_no)      REFERENCES stock_out(out_no) ON DELETE CASCADE,
-    CONSTRAINT fk_soi_product FOREIGN KEY (material_id) REFERENCES products(material_id)
+    CONSTRAINT fk_soi_product FOREIGN KEY (material_id) REFERENCES products(material_id),
+    CONSTRAINT fk_soi_contract FOREIGN KEY (contract_no) REFERENCES sales_contracts(contract_no)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='出库单明细';
 
 CREATE INDEX idx_soi_so      ON stock_out_items(out_no);
+CREATE INDEX idx_soi_contract ON stock_out_items(contract_no);
 CREATE INDEX idx_soi_product ON stock_out_items(material_id);
 
 -- ------------------------------------------------------------
