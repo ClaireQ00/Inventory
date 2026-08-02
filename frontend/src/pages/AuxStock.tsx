@@ -21,6 +21,7 @@ export default function AuxStock() {
   const [inventory, setInventory] = useState<Record<string, unknown>[]>([])
   const [moves, setMoves] = useState<Record<string, unknown>[]>([])
   const [demand, setDemand] = useState<Record<string, unknown> | null>(null)
+  const [prList, setPrList] = useState<Record<string, unknown>[]>([])
 
   const [inForm, setInForm] = useState({ aux_code: null as string | null, warehouse_code: 'AUX', qty: null as number | null, source_type: 'purchase', source_no: '', remark: '', move_date: dayjs() })
   const [outForm, setOutForm] = useState({ aux_code: null as string | null, warehouse_code: 'AUX', qty: null as number | null, source_type: 'production_use', source_no: '', remark: '', move_date: dayjs() })
@@ -28,6 +29,7 @@ export default function AuxStock() {
   const reloadStock = useCallback(() => {
     api.auxInventory().then(setInventory).catch(() => {})
     api.auxMoves().then(setMoves).catch(() => {})
+    api.auxPurchaseRequests().then(setPrList).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -134,6 +136,29 @@ export default function AuxStock() {
         items={[
           { key: 'in', label: '📥 入库', children: moveForm('in') },
           { key: 'out', label: '📤 出库（生产领用）', children: moveForm('out') },
+          {
+            key: 'pr', label: '🛒 采购需求', children: (
+              <Table size="small" rowKey="id" dataSource={prList} pagination={{ pageSize: 20 }}
+                columns={[
+                  { title: '需求单号', dataIndex: 'req_no', width: 160 },
+                  { title: '辅料', dataIndex: 'aux_code', width: 120 },
+                  { title: '名称', dataIndex: 'name' },
+                  { title: '数量', dataIndex: 'quantity', width: 90, render: (v: number, r) => `${v} ${(r.unit as string) || ''}` },
+                  { title: '来源', dataIndex: 'source_type', width: 120, render: (v) => v === 'contract_label' ? <Tag color="blue">合同缺料下推</Tag> : <Tag>手工登记</Tag> },
+                  { title: '关联单号', dataIndex: 'source_no', width: 150, render: (v) => v || '—' },
+                  { title: '状态', dataIndex: 'status', width: 100, render: (v: string) => {
+                    const map: Record<string, { color: string; text: string }> = {
+                      pending: { color: 'orange', text: '待采购' }, ordered: { color: 'blue', text: '已下单' },
+                      received: { color: 'green', text: '已到货' }, cancelled: { color: 'default', text: '已取消' },
+                    }
+                    const s = map[v]
+                    return s ? <Tag color={s.color}>{s.text}</Tag> : v
+                  } },
+                  { title: '登记时间', dataIndex: 'created_at', width: 160, render: (v) => String(v).replace('T', ' ').slice(0, 19) },
+                  { title: '操作人', dataIndex: 'operator', width: 110 },
+                ]} />
+            ),
+          },
           {
             key: 'stock', label: '📊 库存与流水', children: (
               <>

@@ -89,6 +89,13 @@ export const api = {
       contract_no: string; found: boolean; all_sufficient: boolean | null
       lines: { label_paper: string; aux_code: string; name: string; unit: string; required: number; in_stock: number; shortage: number; profile_missing: boolean }[]
     }>(`/aux/label-demand?contract_no=${encodeURIComponent(contractNo)}`),
+  auxCreatePurchaseRequests: (body: Record<string, unknown>) =>
+    post<{ ok: boolean; errors: string[]; req_nos: string[] }>('/aux/purchase-requests', body),
+  auxPurchaseRequests: (status?: string) =>
+    req<Record<string, unknown>[]>(`/aux/purchase-requests${status ? `?status=${encodeURIComponent(status)}` : ''}`),
+  suggestCustomerCode: () => req<{ code: string }>('/options/suggest-customer-code'),
+  createCustomer: (data: Record<string, unknown>, operator: string) =>
+    post<{ ok: boolean; errors: string[]; code: string | null }>('/customers', { data, operator }),
   auxAttachments: (auxCode: string) =>
     req<{ id: number; file_name: string; file_type: string; file_size: number; uploaded_by: string; created_at: string }[]>(
       `/aux/attachments?aux_code=${encodeURIComponent(auxCode)}`),

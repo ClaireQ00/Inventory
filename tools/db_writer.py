@@ -1042,6 +1042,143 @@ def aux_attachments(aux_code: str) -> list[dict]:
 
 
 # ──────────────────────────────────────────────────────────────
+# 辅料采购需求 (2026-08-02 老板): 合同录入缺料提示可"下推采购需求单"
+# 只登记需求, 不联动库存; 采购到货后走辅料入库 (aux_stock_move source_type='purchase')
+# 消化, 状态人工流转 pending→ordered→received (后续模块可自动对账)
+# ──────────────────────────────────────────────────────────────
+
+def aux_create_purchase_requests(lines: list[dict], source_type: str = "manual",
+                                 source_no: str = "", operator: str = "frontend-react") -> dict:
+    """批量下推辅料采购需求: 每行一条记录, req_no=PR+日期+3位流水顺排。任何一行失败整体回滚"""
+    errors: list[str] = []
+    if source_type not in ("contract_label", "manual"):
+        errors.append(f"来源类型无效: {source_type}")
+    if not lines:
+        errors.append("至少需要一行需求")
+    rows = []
+    for i, ln in enumerate(lines, 1):
+        aux_code = (ln.get("aux_code") or "").strip()
+        try:
+            qty = int(ln.get("quantity"))
+            if qty <= 0:
+                raise ValueError
+        except (TypeError, ValueError):
+            errors.append(f"第{i}行({aux_code or '?'}): 需求数量必须为正整数")
+            continue
+        rows.append({"aux_code": aux_code, "quantity": qty,
+                     "remark": (ln.get("remark") or "").strip()})
+    if errors:
+        return {"ok": False, "errors": errors, "req_nos": []}
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            for r in rows:
+                cur.execute("SELECT 1 FROM aux_materials WHERE aux_code=%s AND is_active=1", (r["aux_code"],))
+                if not cur.fetchone():
+                    errors.append(f"辅料不存在或已停用: {r['aux_code']}")
+            if errors:
+                conn.rollback()
+                return {"ok": False, "errors": errors, "req_nos": []}
+            d = date.today().isoformat().replace("-", "")[:8]
+            cur.execute(
+                "SELECT req_no FROM aux_purchase_requests WHERE req_no LIKE %s ORDER BY req_no DESC LIMIT 1",
+                (f"PR{d}%",),
+            )
+            last = cur.fetchone()
+            seq = int(last["req_no"][-3:]) if last else 0
+            req_nos = []
+            for r in rows:
+                seq += 1
+                req_no = f"PR{d}{seq:03d}"
+                cur.execute(
+                    "INSERT INTO aux_purchase_requests (req_no, aux_code, quantity, source_type, source_no, remark, operator) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                    (req_no, r["aux_code"], r["quantity"], source_type, source_no, r["remark"], operator),
+                )
+                req_nos.append(req_no)
+                write_audit(conn, "aux_purchase_requests", cur.lastrowid, "INSERT", None,
+                            {"req_no": req_no, "aux_code": r["aux_code"], "quantity": r["quantity"],
+                             "source": f"{source_type}:{source_no}"}, operator)
+        conn.commit()
+        return {"ok": True, "errors": [], "req_nos": req_nos}
+    except Exception as e:  # noqa: BLE001
+        conn.rollback()
+        return {"ok": False, "errors": [f"采购需求落库失败: {e}"], "req_nos": []}
+    finally:
+        conn.close()
+
+
+def aux_purchase_requests(status: str | None = None) -> list[dict]:
+    """采购需求清单 (带辅料名称/单位); status=pending 看待采购"""
+    sql = """SELECT r.id, r.req_no, r.aux_code, m.name, m.unit, r.quantity,
+                    r.source_type, r.source_no, r.status, r.remark, r.operator, r.created_at
+             FROM aux_purchase_requests r
+             JOIN aux_materials m ON m.aux_code = r.aux_code"""
+    params: tuple = ()
+    if status:
+        sql += " WHERE r.status=%s"
+        params = (status,)
+    return list_options(sql + " ORDER BY r.id DESC", params)
+
+
+# ──────────────────────────────────────────────────────────────
+# 客户建档 (2026-08-02 老板): 编号 Q+3位顺推建议 (Q024/Q025 → Q026), 可手改
+# 品牌/喷码等"按客户历史值下拉"依赖这里的建档, 客户是整条单据链的源头
+# ──────────────────────────────────────────────────────────────
+
+CUSTOMER_FIELDS = ("code", "name", "contact_person", "phone", "address",
+                   "bank_account", "brand_name", "company_profiles", "billing_profiles", "remark")
+
+
+def suggest_customer_code() -> str:
+    """建议下一个客户编号: Q+3位顺推。可手改, 这只是建议值"""
+    rows = list_options("SELECT code FROM customers WHERE code LIKE %s", ("Q%",))
+    max_seq = 0
+    for r in rows:
+        suffix = r["code"][1:]
+        if suffix.isdigit():
+            max_seq = max(max_seq, int(suffix))
+    return f"Q{max_seq + 1:03d}"
+
+
+def create_customer(data: dict, operator: str = "frontend-react") -> dict:
+    """客户建档: 编号唯一 + 名称必填, 写审计"""
+    code = (data.get("code") or "").strip().upper()
+    name = (data.get("name") or "").strip()
+    errors: list[str] = []
+    if not code:
+        errors.append("缺少客户编号 code")
+    if not name:
+        errors.append("缺少客户名称 name")
+    if errors:
+        return {"ok": False, "errors": errors, "code": None}
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM customers WHERE code=%s", (code,))
+            if cur.fetchone():
+                conn.rollback()
+                return {"ok": False, "errors": [f"客户编号已存在: {code}"], "code": None}
+            clean = {k: (data.get(k) or "").strip() if isinstance(data.get(k), str) else data.get(k)
+                     for k in CUSTOMER_FIELDS if data.get(k) not in (None, "")}
+            clean["code"], clean["name"] = code, name
+            cols = ", ".join(clean.keys())
+            phs = ", ".join(["%s"] * len(clean))
+            cur.execute(f"INSERT INTO customers ({cols}) VALUES ({phs})", tuple(clean.values()))
+            record_id = cur.lastrowid
+        write_audit(conn, "customers", record_id, "INSERT", None,
+                    {"code": code, "name": name}, operator)
+        conn.commit()
+        return {"ok": True, "errors": [], "code": code}
+    except Exception as e:  # noqa: BLE001
+        conn.rollback()
+        return {"ok": False, "errors": [f"客户建档失败: {e}"], "code": None}
+    finally:
+        conn.close()
+
+
+# ──────────────────────────────────────────────────────────────
 # 单据录入 (F2.6): 报价 / 合同 / 发货 —— 头+明细单事务落库
 # 原则:
 #   - 派生全部后端算 (total_weight/unit_price/subtotal/汇率带出/总额), 不信前端

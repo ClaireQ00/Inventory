@@ -37,6 +37,7 @@ export default function ContractEntry() {
   const [operator, setOperator] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [demand, setDemand] = useState<(LabelDemand & { contract_no: string }) | null>(null)
+  const [pushingPR, setPushingPR] = useState(false)
 
   useEffect(() => {
     api.customers().then(setCustomers).catch((e) => message.error(`客户加载失败: ${e.message}`))
@@ -203,6 +204,35 @@ export default function ContractEntry() {
               ))}
             </ul>
           }
+          action={demand.lines.some((l) => l.shortage > 0) && (
+            <Button size="small" type="primary" ghost loading={pushingPR} onClick={async () => {
+              const shortageLines = demand.lines.filter((l) => l.shortage > 0)
+              setPushingPR(true)
+              try {
+                const r = await api.auxCreatePurchaseRequests({
+                  lines: shortageLines.map((l) => ({
+                    aux_code: l.aux_code, quantity: l.shortage,
+                    remark: `合同 ${demand.contract_no} 标签缺料下推`,
+                  })),
+                  source_type: 'contract_label',
+                  source_no: demand.contract_no,
+                  operator: operator || 'frontend-react',
+                })
+                if (r.ok) {
+                  Modal.success({
+                    title: '✅ 采购需求已下推',
+                    content: `单号：${r.req_nos.join('、')}。到货后到「辅料收发存」做入库；待采购清单可在该页查看。`,
+                  })
+                } else {
+                  Modal.error({ title: '下推被拒绝（数据库未改动）', content: r.errors.join('\n') })
+                }
+              } catch (e) {
+                message.error(`下推失败: ${(e as Error).message}`)
+              } finally {
+                setPushingPR(false)
+              }
+            }}>下推采购需求单</Button>
+          )}
           closable onClose={() => setDemand(null)}
         />
       )}

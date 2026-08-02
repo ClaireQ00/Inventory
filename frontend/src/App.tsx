@@ -5,6 +5,7 @@ import zhCN from 'antd/locale/zh_CN'
 import { FormOutlined, HomeOutlined, InboxOutlined } from '@ant-design/icons'
 import { Link, Route, Routes, useLocation } from 'react-router'
 import Home from './pages/Home'
+import CustomerEntry from './pages/CustomerEntry'
 import ProductEntry from './pages/ProductEntry'
 import ReceiptEntry from './pages/ReceiptEntry'
 import RateEntry from './pages/RateEntry'
@@ -62,6 +63,7 @@ export default function App() {
             <Content style={{ padding: 24, background: '#f5f5f5' }}>
               <Routes>
                 <Route path="/" element={<Home />} />
+                <Route path="/entry/customer" element={<CustomerEntry />} />
                 <Route path="/entry/product" element={<ProductEntry />} />
                 <Route path="/entry/quotation" element={<QuotationEntry />} />
                 <Route path="/entry/contract" element={<ContractEntry />} />

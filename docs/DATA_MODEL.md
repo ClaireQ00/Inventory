@@ -64,6 +64,7 @@
 | 28 | `aux_stock_moves` | 生产辅料 | 辅料收发流水(单表代替单头+明细,出库带合同号溯源) | — |
 | 29 | `aux_attachments` | 生产辅料 | 辅料附件登记(文件落盘 `data/attachments/`,DB 存路径+sha256) | — |
 | 30 | `material_type_profiles` | 生产辅料 | 物料类型档案(下拉源;成本指导价格预留,后期关联利润核算) | — |
+| 31 | `aux_purchase_requests` | 生产辅料 | 辅料采购需求单(合同缺料下推/手工登记; 只登记不联动库存, 状态 pending→ordered→received) | — |
 
 > **调拨没有独立表**——它复用 `stock_in` + `stock_out`,通过 `transfer_ref` 软关联实现。设计理由见 §6。
 

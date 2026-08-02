@@ -240,6 +240,18 @@ class AuxMoveReq(BaseModel):
     source_type: str           # in: purchase/adjust; out: production_use/scrap/adjust
     source_no: str = ""        # 生产领用时填合同号
     operator: str = "frontend-react"
+
+
+class AuxPurchaseReqBody(BaseModel):
+    lines: list[dict]          # [{aux_code, quantity, remark?}]
+    source_type: str = "manual"  # contract_label=合同缺料下推 / manual=手工
+    source_no: str = ""
+    operator: str = "frontend-react"
+
+
+class CustomerReq(BaseModel):
+    data: dict
+    operator: str = "frontend-react"
     move_date: str | None = None
     remark: str = ""
 
@@ -288,6 +300,30 @@ def aux_moves(aux_code: str | None = None, limit: int = 200):
 def aux_label_demand(contract_no: str):
     """合同标签纸需求测算: 需求/库存/缺口 (只提示不扣减)"""
     return db_writer.aux_label_demand(contract_no)
+
+
+@app.post("/api/aux/purchase-requests")
+def aux_pr_create(req: AuxPurchaseReqBody):
+    """辅料采购需求下推 (合同缺料提示一键生成 / 手工登记), 不联动库存"""
+    return db_writer.aux_create_purchase_requests(req.lines, req.source_type, req.source_no, req.operator)
+
+
+@app.get("/api/aux/purchase-requests")
+def aux_pr_list(status: str | None = None):
+    """采购需求清单; status=pending 看待采购"""
+    return db_writer.aux_purchase_requests(status)
+
+
+@app.get("/api/options/suggest-customer-code")
+def opt_suggest_customer_code():
+    """建议下一个客户编号: Q+3位顺推 (可手改)"""
+    return {"code": db_writer.suggest_customer_code()}
+
+
+@app.post("/api/customers")
+def customer_create(req: CustomerReq):
+    """客户建档: 编号唯一+名称必填, 写审计"""
+    return db_writer.create_customer(req.data, req.operator)
 
 
 @app.post("/api/aux/materials/{aux_code}/attachments")

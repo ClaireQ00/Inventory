@@ -37,6 +37,13 @@ export default function Home() {
       </Row>
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={8}>
+          <Link to="/entry/customer">
+            <Card hoverable title="👤 客户录入" size="small">
+              <Text type="secondary">新客户建档：编号按序列自动建议，品牌/开票资料一次建齐</Text>
+            </Card>
+          </Link>
+        </Col>
+        <Col span={8}>
           <Link to="/entry/product">
             <Card hoverable title="🧱 物料录入" size="small">
               <Text type="secondary">边填边算：厚度↔外径互推、米重/单重/规格实时派生，编码按客户自动建议</Text>
@@ -50,6 +57,8 @@ export default function Home() {
             </Card>
           </Link>
         </Col>
+      </Row>
+      <Row gutter={16}>
         <Col span={8}>
           <Link to="/entry/rate">
             <Card hoverable title="💱 汇率录入" size="small">
@@ -57,8 +66,6 @@ export default function Home() {
             </Card>
           </Link>
         </Col>
-      </Row>
-      <Row gutter={16}>
         <Col span={8}>
           <Link to="/aux/materials">
             <Card hoverable title="🗂️ 辅料档案" size="small">
