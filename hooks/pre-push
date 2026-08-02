@@ -1,0 +1,36 @@
+#!/bin/bash
+# ============================================================
+# Inventory 防泄露守门 · pre-push
+# 作用: 推送前扫描将被推送的整棵文件树, 只要敏感路径曾经进入
+#       版本库(哪怕后来删了, 历史里还在)就拒绝推送
+# 安装: bash tools/install_hooks.sh
+# 绕过: 紧急情况可 git push --no-verify (慎用, 外泄不可逆)
+# ============================================================
+
+BLOCKED_REGEX='^(data/|mysql-data/|nocodb-data/|\.env$|\.env\.|private/)|\.xlsx$'
+
+# pre-push 从 stdin 读: <local ref> <local sha> <remote ref> <remote sha>
+while read -r local_ref local_sha remote_ref remote_sha; do
+    [ "$local_sha" = "0000000000000000000000000000000000000000" ] && continue  # 删分支
+    fail=0
+    while IFS= read -r f; do
+        case "$f" in
+            .env.example) continue ;;
+        esac
+        # sample/ 下的 Excel 模板豁免
+        if echo "$f" | grep -qiE '\.xlsx$' && echo "$f" | grep -q '^sample/'; then
+            continue
+        fi
+        if echo "$f" | grep -qE "$BLOCKED_REGEX"; then
+            echo "❌ 拦截: 推送内容含敏感路径 $f"
+            fail=1
+        fi
+    done < <(git ls-tree -r --name-only "$local_sha")
+    if [ "$fail" -eq 1 ]; then
+        echo ""
+        echo "推送已取消。敏感文件已进入 git 历史, 请联系负责人做历史清洗,"
+        echo "不要 --no-verify 强推。"
+        exit 1
+    fi
+done
+exit 0
