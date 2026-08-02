@@ -4,7 +4,7 @@
 // 提交: 两段式 — 预览 Modal (人确认) → /api/insert (写后校验 ERROR 自动回滚)
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  Alert, App, AutoComplete, Button, Card, Col, Collapse, Input, InputNumber,
+  Alert, App, AutoComplete, Button, Card, Checkbox, Col, Collapse, Input, InputNumber,
   Modal, Row, Select, Space, Statistic, Tag, Typography,
 } from 'antd'
 import { ReloadOutlined, ToolOutlined } from '@ant-design/icons'
@@ -89,6 +89,8 @@ export default function ProductEntry() {
   // 包装/标签纸: 辅料档案库驱动 (aux_materials), 可手填新值 (2026-08-02 老板要求)
   const [pkgOpts, setPkgOpts] = useState<{ value: string; label: string }[]>([])
   const [lpOpts, setLpOpts] = useState<{ value: string; label: string }[]>([])
+  // 开关: 手填的新包装入库成功后自动建档进辅料库 (默认开)
+  const [autoArchive, setAutoArchive] = useState(true)
   // 印花循环次数: 默认跟随标称米数, 手改后不再跟随
   const mmCountDirty = useRef(false)
   const [previewOpen, setPreviewOpen] = useState(false)
@@ -236,10 +238,17 @@ export default function ProductEntry() {
   const onConfirm = async () => {
     setSubmitting(true)
     try {
-      const r = await api.insert('products', buildData(), operator || 'frontend-react')
+      const r = await api.insert('products', buildData(), operator || 'frontend-react',
+        { auto_archive_package: autoArchive })
       if (r.ok) {
         message.success(`✅ 已入库 (记录 #${r.record_id})${r.warnings.length ? `, ${r.warnings.length} 条警告` : ''}`)
         r.warnings.forEach((w) => message.warning(w, 6))
+        // 新包装若已自动建档, 刷新下拉让新值立即可选
+        if (autoArchive && str(form.package)) {
+          api.auxMaterials('packaging')
+            .then((list) => setPkgOpts(list.map((m) => ({ value: String(m.name), label: String(m.name) }))))
+            .catch(() => {})
+        }
         setPreviewOpen(false)
         // 保留客户/类别/品牌, 清空其余, 方便连续录入同类物料
         setForm((f) => ({ ...EMPTY, customer_code: f.customer_code, product_category: f.product_category, brand: f.brand }))
@@ -452,6 +461,11 @@ export default function ProductEntry() {
                   {strField('package', '包装（辅料档案下拉，可手填新包装）', '如 PE膜', 4, pkgOpts)}
                   {strField('label_paper', '标签纸（辅料档案下拉，可手填）', 'R=长方 C=圆环', 4, lpOpts)}
                   {strField('coil_type', '盘型', '如 内径30高7层')}
+                </Row>
+                <Row style={{ marginTop: 8 }}>
+                  <Checkbox checked={autoArchive} onChange={(e) => setAutoArchive(e.target.checked)}>
+                    手填的新包装自动加入辅料档案（下次下拉直接可选）
+                  </Checkbox>
                 </Row>
               </>
             ),

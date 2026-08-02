@@ -59,6 +59,7 @@ class InsertReq(BaseModel):
     table: str
     data: dict
     operator: str = "frontend-react"
+    options: dict | None = None  # 联动开关, 如 {"auto_archive_package": true}
 
 
 # ──────────────────────────────────────────────────────────────
@@ -183,7 +184,7 @@ def preview(req: PreviewReq):
 @app.post("/api/insert")
 def insert(req: InsertReq):
     """①②④⑤⑥: 落库 + 写后子校验 (ERROR 自动回滚) + 审计留痕"""
-    result = db_writer.insert_row(req.table, req.data, operator=req.operator)
+    result = db_writer.insert_row(req.table, req.data, operator=req.operator, options=req.options)
     result["checks"] = [{"level": lv, "msg": m} for lv, m in result.get("checks", [])]
     if not result["ok"]:
         # 校验不过不是服务器错误, 用 200+ok:false 让前端展示错误列表

@@ -331,8 +331,14 @@ def preview_insert(table: str, data: dict) -> dict:
         conn.close()
 
 
-def insert_row(table: str, data: dict, operator: str = "frontend") -> dict:
-    """①②④⑤⑥: 完整写入。返回 {ok, errors, warnings, record_id, checks}"""
+def insert_row(table: str, data: dict, operator: str = "frontend",
+               options: dict | None = None) -> dict:
+    """①②④⑤⑥: 完整写入。返回 {ok, errors, warnings, record_id, checks}
+
+    options 可选开关:
+      - auto_archive_package: products 专用。手填的新包装在物料入库成功后
+        自动建档进 aux_materials(packaging), 下次下拉直接可选 (2026-08-02 老板要求)
+    """
     pv = preview_insert(table, data)
     if not pv["ok"]:
         return {"ok": False, "errors": pv["errors"], "warnings": [], "record_id": None, "checks": []}
@@ -363,6 +369,11 @@ def insert_row(table: str, data: dict, operator: str = "frontend") -> dict:
                     "record_id": None, "checks": checks}
         write_audit(conn, table, record_id, "INSERT", None, clean, operator)
         conn.commit()
+        # 物料入库成功后的联动开关 (独立小事务, 建档失败不影响已入库的物料)
+        if table == "products" and (options or {}).get("auto_archive_package"):
+            archive_msg = _auto_archive_package(clean.get("package"), operator)
+            if archive_msg:
+                warnings.append(archive_msg)
         return {
             "ok": True,
             "errors": [],
@@ -642,6 +653,47 @@ def list_material_type_profiles() -> list[dict]:
         "SELECT type_code, name, guide_cost_price, price_currency FROM material_type_profiles "
         "WHERE is_active=1 ORDER BY type_code"
     )
+
+
+def _auto_archive_package(pkg: str | None, operator: str) -> str | None:
+    """手填新包装自动建档 (insert_row 的 products 联动开关)。
+
+    - 已存在同名 packaging 档案 → None (不提示)
+    - 不存在 → 生成下一个 PK-### 编码建档 + 审计, 返回提示语
+    - 任何失败只返回告警文案, 不抛异常 (物料已入库, 建档可手工补)
+    """
+    if not pkg:
+        return None
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM aux_materials WHERE aux_type='packaging' AND name=%s LIMIT 1",
+                (pkg,),
+            )
+            if cur.fetchone():
+                return None
+            cur.execute(
+                """SELECT MAX(CAST(SUBSTRING(aux_code, 4) AS UNSIGNED)) AS mx
+                   FROM aux_materials WHERE aux_code REGEXP '^PK-[0-9]+$'"""
+            )
+            nxt = int(cur.fetchone()["mx"] or 0) + 1
+            code = f"PK-{nxt:03d}"
+            cur.execute(
+                """INSERT INTO aux_materials (aux_code, aux_type, name, unit, remark)
+                   VALUES (%s, 'packaging', %s, '', %s)""",
+                (code, pkg, f"录入物料时手填新包装自动建档 (操作人 {operator})"),
+            )
+            record_id = cur.lastrowid
+        write_audit(conn, "aux_materials", record_id, "INSERT", None,
+                    {"aux_code": code, "name": pkg, "auto": True}, operator)
+        conn.commit()
+        return f"新包装「{pkg}」已自动建档 {code}（辅料档案页可补全信息）"
+    except Exception as e:  # noqa: BLE001
+        conn.rollback()
+        return f"新包装「{pkg}」自动建档失败: {e}（物料已入库，可到辅料档案页手工补建）"
+    finally:
+        conn.close()
 
 
 def aux_list_materials(aux_type: str | None = None) -> list[dict]:

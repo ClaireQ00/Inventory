@@ -107,6 +107,7 @@ export const api = {
     post<DeriveResp>('/derive', { table: 'products', data }),
   preview: (table: string, data: Record<string, unknown>) =>
     post<PreviewResp>('/preview', { table, data }),
-  insert: (table: string, data: Record<string, unknown>, operator: string) =>
-    post<InsertResp>('/insert', { table, data, operator }),
+  insert: (table: string, data: Record<string, unknown>, operator: string,
+           options?: Record<string, unknown>) =>
+    post<InsertResp>('/insert', { table, data, operator, options }),
 }
