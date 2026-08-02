@@ -107,10 +107,33 @@ def parse_num_or_range(raw, field_label):
     return None, f"{field_label}原值「{s}」无法解析"
 
 
+# 标准管型标称英寸序列 (2026-08-01 老板规则, 与 db_writer.NOMINAL_INCH_SERIES 同步):
+# 1" 以内按 1/16 分数段, 1" 以上按贸易常用管径。取值 = 向上取 (实际 mm 通常比标称 inch 小)。
+NOMINAL_INCH_SERIES = [
+    0.125, 0.1875, 0.25, 0.3125, 0.375, 0.4375, 0.5, 0.5625,
+    0.625, 0.6875, 0.75, 0.8125, 0.875, 0.9375, 1.0,
+    1.25, 1.5, 1.75, 2.0, 2.5, 3.0, 3.5, 4.0, 5.0, 6.0, 8.0, 10.0, 12.0,
+]
+
+
 def mm_to_inch_str(mm):
-    """内径 mm -> 标称英寸字符串, 就近取 1/16 精度 (分母 2/4/8/16)"""
-    sixteenths = max(1, round(mm / 25.4 * 16))
-    frac = Fraction(sixteenths, 16)
+    """内径 mm -> 标称英寸字符串, **向上取**到标准管型序列 (2026-08-01 改: 就近取→向上取)。
+
+    业务依据 (老板): 制作的 mm 尺寸通常比标准 inch 小, 标称向上取。
+    容忍度 0.8mm: 做得比标称略大但仍归本档 (13mm→1/2"、15mm→9/16"、23mm→7/8"、8mm→5/16")。
+    与 tools/db_writer.py:mm_to_inch_str 同算法 (两处同步, 避免漂移)。
+    注意: 历史 products.csv 的 inch 是旧"就近取"产物, 保持不变; 本函数只影响新录入/再生成。"""
+    inches = mm / 25.4
+    target = None
+    for n in NOMINAL_INCH_SERIES:
+        if n * 25.4 >= mm - 0.8:  # 0.8mm 容忍, 与 db_writer 同步
+            target = n
+            break
+    if target is None:
+        sixteenths = max(1, round(inches * 16))
+        frac = Fraction(sixteenths, 16)
+    else:
+        frac = Fraction(target).limit_denominator(16)
     whole = frac.numerator // frac.denominator
     rem = Fraction(frac.numerator % frac.denominator, frac.denominator)
     if rem == 0:

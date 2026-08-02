@@ -98,6 +98,18 @@ def opt_suggest_material_id(customer_code: str):
     return {"material_id": db_writer.suggest_material_id(customer_code)}
 
 
+@app.get("/api/options/brands")
+def opt_brands(customer_code: str):
+    """该客户已有物料用过的品牌 (按频次倒序), 前端仍可手填新品牌"""
+    return db_writer.distinct_brands(customer_code)
+
+
+@app.get("/api/options/nominal-inches")
+def opt_nominal_inches():
+    """标准管型标称英寸序列 (录入页 inch 字段下拉; 建议值=向上取, 可手改)"""
+    return db_writer.nominal_inch_options()
+
+
 @app.get("/api/options/exchange-rates")
 def opt_exchange_rates():
     return db_writer.list_options(

@@ -81,18 +81,36 @@ FIELD_RULES = {
     "products": {
         "material_id": {"required": True, "kind": "str", "max": 32},
         "customer_code": {"required": True, "kind": "str", "fk": ("customers", "code", "客户")},
-        "brand": {"kind": "str", "max": 64},
+        "brand": {"kind": "str", "max": 32},
         "product_category": {"required": True, "kind": "str", "max": 32},
         "material_type": {"kind": "str", "max": 32},
-        "spec": {"kind": "str", "max": 64},
+        "spec": {"kind": "str", "max": 32},
         "inner_diameter": {"required": True, "kind": "posnum"},
+        "inner_diameter_inch": {"kind": "str", "max": 16},
         "outer_diameter": {"kind": "posnum"},
         "thickness": {"kind": "posnum"},
+        "id_x_od": {"kind": "str", "max": 32},
+        "length": {"kind": "posnum"},
+        "spec_meter": {"kind": "posnum"},
+        "virtual_weight": {"kind": "posnum"},
+        "virtual_length": {"kind": "posnum"},
+        "wire_spacing": {"kind": "str", "max": 32},
         "weight_per_meter": {"kind": "posnum"},
         "weight": {"kind": "posnum"},
-        "length": {"kind": "posnum"},
+        "appearance_inner": {"kind": "posnum"},
+        "appearance_outer": {"kind": "posnum"},
+        "appearance_height": {"kind": "posnum"},
         "volume": {"kind": "posnum"},
-        "remark": {"kind": "str", "max": 255},
+        "package": {"kind": "str", "max": 32},
+        "label_paper": {"kind": "str", "max": 32},
+        "material_used": {"kind": "str", "max": 64},
+        "wire_pattern": {"kind": "str", "max": 64},
+        "coil_type": {"kind": "str", "max": 64},
+        "pressure": {"kind": "posnum"},
+        "spray_code": {"kind": "str", "max": 512},
+        "meter_mark": {"kind": "str", "max": 64},
+        "meter_mark_count": {"kind": "posnum"},
+        "remark": {"kind": "str", "max": 512},
     },
 }
 
@@ -423,12 +441,38 @@ def distinct_categories() -> list[str]:
     return [r["product_category"] for r in rows if r["product_category"]]
 
 
+# 标准管型标称英寸序列 (2026-08-01 老板规则): 1" 以内按 1/16 分数段,
+# 1" 以上按贸易常用管径 (1-1/4 / 1-1/2 / 2 / 2-1/2 / 3 / 4 ...)。
+# 取值规则 = **向上取**: 实际 mm 通常比标称 inch 小 (如 31.5mm 的管叫 1-1/4"),
+# 所以选"标称 >= 实际"的最小一级, 而不是就近取。
+NOMINAL_INCH_SERIES = [
+    0.125, 0.1875, 0.25, 0.3125, 0.375, 0.4375, 0.5, 0.5625,
+    0.625, 0.6875, 0.75, 0.8125, 0.875, 0.9375, 1.0,
+    1.25, 1.5, 1.75, 2.0, 2.5, 3.0, 3.5, 4.0, 5.0, 6.0, 8.0, 10.0, 12.0,
+]
+
+
 def mm_to_inch_str(mm: float) -> str:
-    """内径 mm -> 标称英寸字符串, 就近取 1/16 精度。
-    与 tools/gen_products_from_excel.py:mm_to_inch_str 同算法 (来源一致, 避免两处漂移)。"""
+    """内径 mm -> 标称英寸字符串, **向上取**到标准管型序列 (NOMINAL_INCH_SERIES)。
+
+    业务依据 (2026-08-01 老板): 制作的 mm 尺寸通常比标准 inch 小, 标称向上取。
+    容忍度 0.8mm: 真实目录里有些规格做得比标称略大但仍归本档 ——
+    13mm→1/2" (大0.3)、15mm→9/16" (大0.7)、23mm→7/8" (大0.8)、8mm→5/16"。
+    即: 比标称小 → 向上取到第一个 >= 实际的档; 比标称大但超出 ≤0.8mm → 仍归本档。
+    与 14,350 条现有目录全量核对一致。超出序列上限退回 1/16 就近取。
+    与 tools/gen_products_from_excel.py:mm_to_inch_str 同算法 (两处同步, 避免漂移)。"""
     from fractions import Fraction
-    sixteenths = max(1, round(mm / 25.4 * 16))
-    frac = Fraction(sixteenths, 16)
+    inches = mm / 25.4
+    target = None
+    for n in NOMINAL_INCH_SERIES:
+        if n * 25.4 >= mm - 0.8:  # 0.8mm 容忍: 做得略大的归本档, 否则向上取
+            target = n
+            break
+    if target is None:
+        sixteenths = max(1, round(inches * 16))
+        frac = Fraction(sixteenths, 16)
+    else:
+        frac = Fraction(target).limit_denominator(16)
     whole = frac.numerator // frac.denominator
     rem = Fraction(frac.numerator % frac.denominator, frac.denominator)
     if rem == 0:
@@ -436,6 +480,34 @@ def mm_to_inch_str(mm: float) -> str:
     if whole == 0:
         return f'{rem.numerator}/{rem.denominator}"'
     return f'{whole}-{rem.numerator}/{rem.denominator}"'
+
+
+def nominal_inch_options() -> list[str]:
+    """标准管型标称英寸下拉清单 (录入页 inch 字段用, 与 mm_to_inch_str 同一序列)"""
+    from fractions import Fraction
+    labels = []
+    for n in NOMINAL_INCH_SERIES:
+        frac = Fraction(n).limit_denominator(16)
+        whole = frac.numerator // frac.denominator
+        rem = Fraction(frac.numerator % frac.denominator, frac.denominator)
+        if rem == 0:
+            labels.append(f'{whole}"')
+        elif whole == 0:
+            labels.append(f'{rem.numerator}/{rem.denominator}"')
+        else:
+            labels.append(f'{whole}-{rem.numerator}/{rem.denominator}"')
+    return labels
+
+
+def distinct_brands(customer_code: str) -> list[str]:
+    """该客户已有物料用过的品牌清单 (按使用频次倒序), 供品牌字段下拉; 仍可手填新品牌"""
+    rows = list_options(
+        "SELECT brand, COUNT(*) AS cnt FROM products "
+        "WHERE customer_code=%s AND brand IS NOT NULL AND brand!='' "
+        "GROUP BY brand ORDER BY cnt DESC",
+        (customer_code,),
+    )
+    return [r["brand"] for r in rows]
 
 
 def live_derive_products(data: dict) -> tuple[dict, set, list, float | None, str | None]:

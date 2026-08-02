@@ -55,6 +55,9 @@ export const api = {
   categories: () => req<string[]>('/options/categories'),
   suggestMaterialId: (customerCode: string) =>
     req<{ material_id: string }>(`/options/suggest-material-id?customer_code=${encodeURIComponent(customerCode)}`),
+  brands: (customerCode: string) =>
+    req<string[]>(`/options/brands?customer_code=${encodeURIComponent(customerCode)}`),
+  nominalInches: () => req<string[]>('/options/nominal-inches'),
   derive: (data: Record<string, unknown>) =>
     post<DeriveResp>('/derive', { table: 'products', data }),
   preview: (table: string, data: Record<string, unknown>) =>
