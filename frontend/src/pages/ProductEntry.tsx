@@ -89,7 +89,9 @@ export default function ProductEntry() {
   // 包装/标签纸: 辅料档案库驱动 (aux_materials), 可手填新值 (2026-08-02 老板要求)
   const [pkgOpts, setPkgOpts] = useState<{ value: string; label: string }[]>([])
   const [lpOpts, setLpOpts] = useState<{ value: string; label: string }[]>([])
-  // 开关: 手填的新包装入库成功后自动建档进辅料库 (默认开)
+  // 工艺档案: 喷码/米标/用料/打线/盘型 (与客户历史值合并后作下拉)
+  const [craftOpts, setCraftOpts] = useState<Record<string, string[]>>({})
+  // 总开关: 手填的新内容自动加入档案库 (包装/标签纸/喷码/米标/用料/打线/盘型), 默认开
   const [autoArchive, setAutoArchive] = useState(true)
   // 印花循环次数: 默认跟随标称米数, 手改后不再跟随
   const mmCountDirty = useRef(false)
@@ -110,16 +112,30 @@ export default function ProductEntry() {
       .then((list) => setMtArchive(list.map((t) => t.type_code)))
       .catch(() => {})
     // 包装/标签纸下拉: 辅料档案库 (种子含 102 种历史包装 + 3 款标签纸)
-    api.auxMaterials('packaging')
-      .then((list) => setPkgOpts(list.map((m) => ({ value: String(m.name), label: String(m.name) }))))
-      .catch(() => {})
+    refreshPkgOpts()
     api.auxMaterials('label_paper')
       .then((list) => setLpOpts(list.map((m) => {
         const rCode = String(m.aux_code).replace(/^LP-/, '')   // products.label_paper 存原 R/C 编号
         return { value: rCode, label: `${rCode} · ${String(m.name)}` }
       })))
       .catch(() => {})
+    // 工艺档案下拉: 喷码/米标/用料/打线/盘型
+    refreshCraftOpts()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const refreshPkgOpts = () => {
+    api.auxMaterials('packaging')
+      .then((list) => setPkgOpts(list.map((m) => ({ value: String(m.name), label: String(m.name) }))))
+      .catch(() => {})
+  }
+
+  const refreshCraftOpts = () => {
+    ;(['spray_code', 'meter_mark', 'material_used', 'wire_pattern', 'coil_type'] as const).forEach((t) => {
+      api.auxMaterials(t)
+        .then((list) => setCraftOpts((m) => ({ ...m, [t]: list.map((x) => String(x.name)) })))
+        .catch(() => {})
+    })
+  }
 
   // ── 选客户 → 自动建议物料编码 + 拉该客户的品牌清单 ──
   const suggestId = useCallback((code: string) => {
@@ -239,14 +255,19 @@ export default function ProductEntry() {
     setSubmitting(true)
     try {
       const r = await api.insert('products', buildData(), operator || 'frontend-react',
-        { auto_archive_package: autoArchive })
+        { auto_archive: autoArchive })
       if (r.ok) {
         message.success(`✅ 已入库 (记录 #${r.record_id})${r.warnings.length ? `, ${r.warnings.length} 条警告` : ''}`)
         r.warnings.forEach((w) => message.warning(w, 6))
-        // 新包装若已自动建档, 刷新下拉让新值立即可选
-        if (autoArchive && str(form.package)) {
-          api.auxMaterials('packaging')
-            .then((list) => setPkgOpts(list.map((m) => ({ value: String(m.name), label: String(m.name) }))))
+        // 新值若已自动建档, 刷新档案下拉让新值立即可选
+        if (autoArchive) {
+          refreshPkgOpts()
+          refreshCraftOpts()
+          api.auxMaterials('label_paper')
+            .then((list) => setLpOpts(list.map((m) => {
+              const rCode = String(m.aux_code).replace(/^LP-/, '')
+              return { value: rCode, label: `${rCode} · ${String(m.name)}` }
+            })))
             .catch(() => {})
         }
         setPreviewOpen(false)
@@ -458,14 +479,9 @@ export default function ProductEntry() {
                   {numField('appearance_inner', '外观内径 (mm)', 1)}
                   {numField('appearance_outer', '外观外径 (mm)', 1)}
                   {numField('appearance_height', '外观高度 (mm)', 1)}
-                  {strField('package', '包装（辅料档案下拉，可手填新包装）', '如 PE膜', 4, pkgOpts)}
-                  {strField('label_paper', '标签纸（辅料档案下拉，可手填）', 'R=长方 C=圆环', 4, lpOpts)}
-                  {strField('coil_type', '盘型', '如 内径30高7层')}
-                </Row>
-                <Row style={{ marginTop: 8 }}>
-                  <Checkbox checked={autoArchive} onChange={(e) => setAutoArchive(e.target.checked)}>
-                    手填的新包装自动加入辅料档案（下次下拉直接可选）
-                  </Checkbox>
+                  {strField('package', '包装（档案下拉，可手填新包装）', '如 PE膜', 4, pkgOpts)}
+                  {strField('label_paper', '标签纸（档案下拉，可手填）', 'R=长方 C=圆环', 4, lpOpts)}
+                  {strField('coil_type', '盘型（档案下拉，可手填）', '如 内径30高7层', 4, craftOpts.coil_type)}
                 </Row>
               </>
             ),
@@ -476,8 +492,10 @@ export default function ProductEntry() {
             children: (
               <>
                 <Row gutter={16}>
-                  {strField('spray_code', '喷码（该客户用过的，可手填）', '喷在产品上的标识文字', 12, fieldOpts.spray_code)}
-                  {strField('meter_mark', '米标（该客户用过的，可手填）', '如 每1.02米一个循环米', 8, fieldOpts.meter_mark)}
+                  {strField('spray_code', '喷码（档案+该客户历史，可手填）', '喷在产品上的标识文字', 12,
+                    [...new Set([...(craftOpts.spray_code || []), ...(fieldOpts.spray_code || [])])])}
+                  {strField('meter_mark', '米标（档案+该客户历史，可手填）', '如 每1.02米一个循环米', 8,
+                    [...new Set([...(craftOpts.meter_mark || []), ...(fieldOpts.meter_mark || [])])])}
                   <Col span={4}>
                     <Text type="secondary">印花循环次数（默认=标称米数，可改）</Text>
                     <InputNumber
@@ -488,8 +506,10 @@ export default function ProductEntry() {
                   </Col>
                 </Row>
                 <Row gutter={16} style={{ marginTop: 12 }}>
-                  {strField('material_used', '用料（该客户用过的，可手填）', '如 A25橙', 8, fieldOpts.material_used)}
-                  {strField('wire_pattern', '打线（该客户用过的，可手填）', '如 红蓝双线', 8, fieldOpts.wire_pattern)}
+                  {strField('material_used', '用料（档案+该客户历史，可手填）', '如 A25橙', 8,
+                    [...new Set([...(craftOpts.material_used || []), ...(fieldOpts.material_used || [])])])}
+                  {strField('wire_pattern', '打线（档案+该客户历史，可手填）', '如 红蓝双线', 8,
+                    [...new Set([...(craftOpts.wire_pattern || []), ...(fieldOpts.wire_pattern || [])])])}
                   {numField('pressure', '压力 (Bar)', 1, 4)}
                 </Row>
               </>
@@ -512,8 +532,11 @@ export default function ProductEntry() {
         </div>
       </Card>
 
-      <Space style={{ marginBottom: 24 }}>
+      <Space style={{ marginBottom: 24 }} wrap>
         <Input placeholder="操作人（写入审计日志）" style={{ width: 200 }} value={operator} onChange={(e) => setOperator(e.target.value)} />
+        <Checkbox checked={autoArchive} onChange={(e) => setAutoArchive(e.target.checked)}>
+          手填的新内容自动加入档案库（包装/标签纸/喷码/米标/用料/打线/盘型，下次下拉直接可选）
+        </Checkbox>
         <Button type="primary" size="large" onClick={onSubmit}>预览并提交</Button>
       </Space>
 

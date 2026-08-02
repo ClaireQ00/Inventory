@@ -11,7 +11,8 @@ import { api } from '@/api/client'
 const { Text, Title } = Typography
 
 const TYPE_LABEL: Record<string, string> = {
-  label_paper: '标签纸', packaging: '包装', other: '其他',
+  label_paper: '标签纸', packaging: '包装', spray_code: '喷码', meter_mark: '米标',
+  material_used: '用料', wire_pattern: '打线', coil_type: '盘型', other: '其他',
 }
 
 export default function AuxMaterials() {
@@ -19,10 +20,11 @@ export default function AuxMaterials() {
   const [rows, setRows] = useState<Record<string, unknown>[]>([])
   const [operator, setOperator] = useState('')
   const [form, setForm] = useState({
-    aux_code: '', name: '', shape: 'R', width_mm: null as number | null,
+    aux_code: '', aux_type: 'label_paper', name: '', shape: 'R', width_mm: null as number | null,
     height_mm: null as number | null, material_desc: '', unit: '张',
     min_stock: null as number | null, remark: '',
   })
+  const [typeFilter, setTypeFilter] = useState<string>('')
   const [attachments, setAttachments] = useState<Record<string, Record<string, unknown>[]>>({})
 
   const reload = useCallback(() => {
@@ -40,7 +42,7 @@ export default function AuxMaterials() {
   const onCreate = async () => {
     if (!form.aux_code.trim()) return message.warning('请填辅料编码')
     const r = await api.auxCreate({
-      aux_code: form.aux_code.trim(), aux_type: 'label_paper',
+      aux_code: form.aux_code.trim(), aux_type: form.aux_type,
       name: form.name, shape: form.shape,
       width_mm: form.width_mm || null, height_mm: form.height_mm || null,
       material_desc: form.material_desc, unit: form.unit,
@@ -69,23 +71,26 @@ export default function AuxMaterials() {
     <div style={{ maxWidth: 1080, margin: '0 auto' }}>
       <Title level={4}>🗂️ 辅料档案 <Text type="secondary" style={{ fontSize: 14, fontWeight: 'normal' }}>标签纸等生产辅料主档 + 图纸/样张附件</Text></Title>
 
-      <Card size="small" title="新增辅料（标签纸）" style={{ marginBottom: 16 }}>
+      <Card size="small" title="新增辅料档案" style={{ marginBottom: 16 }}>
         <Row gutter={16}>
-          <Col span={5}><Text type="secondary">辅料编码 *</Text>
+          <Col span={4}><Text type="secondary">类型</Text>
+            <Select style={{ width: '100%' }} value={form.aux_type} onChange={(v) => setForm({ ...form, aux_type: v })}
+              options={Object.entries(TYPE_LABEL).map(([value, label]) => ({ value, label }))} /></Col>
+          <Col span={4}><Text type="secondary">辅料编码 *</Text>
             <Input value={form.aux_code} onChange={(e) => setForm({ ...form, aux_code: e.target.value })} placeholder="如 LP-R02507" /></Col>
-          <Col span={5}><Text type="secondary">名称</Text>
+          <Col span={6}><Text type="secondary">名称</Text>
             <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="如 长方形标签 25×40" /></Col>
           <Col span={3}><Text type="secondary">形状</Text>
             <Select style={{ width: '100%' }} value={form.shape} onChange={(v) => setForm({ ...form, shape: v })}
               options={[{ value: 'R', label: 'R 长方形' }, { value: 'C', label: 'C 圆环形' }]} /></Col>
           <Col span={3}><Text type="secondary">宽 (mm)</Text>
             <InputNumber style={{ width: '100%' }} min={0} value={form.width_mm} onChange={(v) => setForm({ ...form, width_mm: v })} /></Col>
-          <Col span={3}><Text type="secondary">高 (mm)</Text>
+          <Col span={4}><Text type="secondary">高 (mm)</Text>
             <InputNumber style={{ width: '100%' }} min={0} value={form.height_mm} onChange={(v) => setForm({ ...form, height_mm: v })} /></Col>
-          <Col span={5}><Text type="secondary">材质描述</Text>
-            <Input value={form.material_desc} onChange={(e) => setForm({ ...form, material_desc: e.target.value })} placeholder="如 铜版纸/不干胶" /></Col>
         </Row>
         <Row gutter={16} style={{ marginTop: 12 }}>
+          <Col span={5}><Text type="secondary">材质描述</Text>
+            <Input value={form.material_desc} onChange={(e) => setForm({ ...form, material_desc: e.target.value })} placeholder="如 铜版纸/不干胶" /></Col>
           <Col span={3}><Text type="secondary">单位</Text>
             <Input value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} /></Col>
           <Col span={4}><Text type="secondary">安全库存(张)</Text>
@@ -100,8 +105,17 @@ export default function AuxMaterials() {
         </Row>
       </Card>
 
+      <Space style={{ marginBottom: 8 }}>
+        <Text type="secondary">类型筛选</Text>
+        <Select
+          style={{ width: 160 }} value={typeFilter} onChange={setTypeFilter}
+          options={[{ value: '', label: '全部' }, ...Object.entries(TYPE_LABEL).map(([value, label]) => ({ value, label }))]}
+        />
+      </Space>
       <Table
-        size="small" rowKey="aux_code" dataSource={rows} pagination={false}
+        size="small" rowKey="aux_code"
+        dataSource={typeFilter ? rows.filter((r) => r.aux_type === typeFilter) : rows}
+        pagination={false}
         columns={[
           { title: '编码', dataIndex: 'aux_code', width: 120 },
           { title: '类型', dataIndex: 'aux_type', width: 80, render: (v: string) => <Tag>{TYPE_LABEL[v] || v}</Tag> },

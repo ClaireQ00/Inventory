@@ -370,10 +370,19 @@ def insert_row(table: str, data: dict, operator: str = "frontend",
         write_audit(conn, table, record_id, "INSERT", None, clean, operator)
         conn.commit()
         # 物料入库成功后的联动开关 (独立小事务, 建档失败不影响已入库的物料)
-        if table == "products" and (options or {}).get("auto_archive_package"):
-            archive_msg = _auto_archive_package(clean.get("package"), operator)
-            if archive_msg:
-                warnings.append(archive_msg)
+        if table == "products":
+            opts = options or {}
+            if opts.get("auto_archive"):
+                # 总开关: AUTO_ARCHIVE_FIELDS 全部字段 (包装/标签纸/喷码/米标/用料/打线/盘型)
+                for f in AUTO_ARCHIVE_FIELDS:
+                    msg = _auto_archive_value(f, clean.get(f), operator)
+                    if msg:
+                        warnings.append(msg)
+            elif opts.get("auto_archive_package"):
+                # 兼容旧调用: 只管包装
+                archive_msg = _auto_archive_value("package", clean.get("package"), operator)
+                if archive_msg:
+                    warnings.append(archive_msg)
         return {
             "ok": True,
             "errors": [],
@@ -572,8 +581,9 @@ def live_derive_products(data: dict) -> tuple[dict, set, list, float | None, str
 # ──────────────────────────────────────────────────────────────
 AUX_MATERIAL_RULES = {
     "aux_code": {"required": True, "kind": "str", "max": 32},
-    "aux_type": {"kind": "enum", "values": ["label_paper", "packaging", "other"]},
-    "name": {"kind": "str", "max": 64},
+    "aux_type": {"kind": "enum", "values": ["label_paper", "packaging", "spray_code", "meter_mark",
+                                             "material_used", "wire_pattern", "coil_type", "other"]},
+    "name": {"kind": "str", "max": 255},
     "shape": {"kind": "str", "max": 8},
     "width_mm": {"kind": "posnum"},
     "height_mm": {"kind": "posnum"},
@@ -655,43 +665,67 @@ def list_material_type_profiles() -> list[dict]:
     )
 
 
-def _auto_archive_package(pkg: str | None, operator: str) -> str | None:
-    """手填新包装自动建档 (insert_row 的 products 联动开关)。
+# 手填值自动建档映射: products 字段 → (档案类型, 编码前缀, 字段中文名)
+# 除 label_paper 外均按 (aux_type, name) 查重、PREFIX-### 顺序编码;
+# label_paper 特殊: 档案编码 = LP-前缀 + 手填的 R/C 编号, 按 aux_code 查重 (2026-08-02 老板要求一个开关管全部)
+AUTO_ARCHIVE_FIELDS = {
+    "package":       ("packaging", "PK", "包装"),
+    "label_paper":   ("label_paper", "LP", "标签纸"),
+    "spray_code":    ("spray_code", "SP", "喷码"),
+    "meter_mark":    ("meter_mark", "MM", "米标"),
+    "material_used": ("material_used", "MU", "用料"),
+    "wire_pattern":  ("wire_pattern", "WP", "打线"),
+    "coil_type":     ("coil_type", "CT", "盘型"),
+}
 
-    - 已存在同名 packaging 档案 → None (不提示)
-    - 不存在 → 生成下一个 PK-### 编码建档 + 审计, 返回提示语
+
+def _auto_archive_value(field: str, value: str | None, operator: str) -> str | None:
+    """手填新值自动建档 (insert_row 的 products 联动开关, AUTO_ARCHIVE_FIELDS 驱动)。
+
+    - 已存在 → None (静默)
+    - 不存在 → 生成编码建档 + 审计, 返回提示语
     - 任何失败只返回告警文案, 不抛异常 (物料已入库, 建档可手工补)
     """
-    if not pkg:
+    if not value or field not in AUTO_ARCHIVE_FIELDS:
         return None
+    aux_type, prefix, label = AUTO_ARCHIVE_FIELDS[field]
     conn = get_connection()
     try:
         with conn.cursor() as cur:
-            cur.execute(
-                "SELECT 1 FROM aux_materials WHERE aux_type='packaging' AND name=%s LIMIT 1",
-                (pkg,),
-            )
-            if cur.fetchone():
+            if field == "label_paper":
+                code = value if value.startswith("LP-") else f"LP-{value}"
+                cur.execute("SELECT 1 FROM aux_materials WHERE aux_code=%s LIMIT 1", (code,))
+                exists = cur.fetchone() is not None
+                name = f"标签 {value}"
+            else:
+                cur.execute(
+                    "SELECT 1 FROM aux_materials WHERE aux_type=%s AND name=%s LIMIT 1",
+                    (aux_type, value),
+                )
+                exists = cur.fetchone() is not None
+                cur.execute(
+                    """SELECT MAX(CAST(SUBSTRING(aux_code, %s) AS UNSIGNED)) AS mx
+                       FROM aux_materials WHERE aux_code REGEXP %s""",
+                    (len(prefix) + 2, f"^{prefix}-[0-9]+$"),
+                )
+                code = f"{prefix}-{int(cur.fetchone()['mx'] or 0) + 1:03d}"
+                name = value
+            if exists:
                 return None
             cur.execute(
-                """SELECT MAX(CAST(SUBSTRING(aux_code, 4) AS UNSIGNED)) AS mx
-                   FROM aux_materials WHERE aux_code REGEXP '^PK-[0-9]+$'"""
-            )
-            nxt = int(cur.fetchone()["mx"] or 0) + 1
-            code = f"PK-{nxt:03d}"
-            cur.execute(
                 """INSERT INTO aux_materials (aux_code, aux_type, name, unit, remark)
-                   VALUES (%s, 'packaging', %s, '', %s)""",
-                (code, pkg, f"录入物料时手填新包装自动建档 (操作人 {operator})"),
+                   VALUES (%s, %s, %s, '', %s)""",
+                (code, aux_type, name, f"录入物料时手填新{label}自动建档 (操作人 {operator})"),
             )
             record_id = cur.lastrowid
         write_audit(conn, "aux_materials", record_id, "INSERT", None,
-                    {"aux_code": code, "name": pkg, "auto": True}, operator)
+                    {"aux_code": code, "aux_type": aux_type, "name": name, "auto": True}, operator)
         conn.commit()
-        return f"新包装「{pkg}」已自动建档 {code}（辅料档案页可补全信息）"
+        short = value if len(value) <= 20 else f"{value[:20]}…"
+        return f"新{label}「{short}」已自动建档 {code}（辅料档案页可补全信息）"
     except Exception as e:  # noqa: BLE001
         conn.rollback()
-        return f"新包装「{pkg}」自动建档失败: {e}（物料已入库，可到辅料档案页手工补建）"
+        return f"新{label}「{value}」自动建档失败: {e}（物料已入库，可到辅料档案页手工补建）"
     finally:
         conn.close()
 
