@@ -240,6 +240,8 @@ class AuxMoveReq(BaseModel):
     source_type: str           # in: purchase/adjust; out: production_use/scrap/adjust
     source_no: str = ""        # 生产领用时填合同号
     operator: str = "frontend-react"
+    move_date: str = ""        # YYYY-MM-DD, 空=今天 (2026-08-02 模拟测试发现的缺字段 bug)
+    remark: str = ""
 
 
 class AuxPurchaseReqBody(BaseModel):
@@ -281,14 +283,14 @@ def aux_inventory(low_only: bool = False):
 def aux_stock_in(req: AuxMoveReq):
     return db_writer.aux_stock_move(req.aux_code, req.warehouse_code, "in", req.qty,
                                     req.source_type, req.source_no, req.operator,
-                                    req.move_date, req.remark)
+                                    req.move_date or None, req.remark)
 
 
 @app.post("/api/aux/stock-out")
 def aux_stock_out(req: AuxMoveReq):
     return db_writer.aux_stock_move(req.aux_code, req.warehouse_code, "out", req.qty,
                                     req.source_type, req.source_no, req.operator,
-                                    req.move_date, req.remark)
+                                    req.move_date or None, req.remark)
 
 
 @app.get("/api/aux/moves")
