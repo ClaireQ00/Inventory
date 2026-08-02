@@ -8,6 +8,9 @@ import Home from './pages/Home'
 import ProductEntry from './pages/ProductEntry'
 import ReceiptEntry from './pages/ReceiptEntry'
 import RateEntry from './pages/RateEntry'
+import QuotationEntry from './pages/QuotationEntry'
+import ContractEntry from './pages/ContractEntry'
+import DeliveryEntry from './pages/DeliveryEntry'
 import AuxMaterials from './pages/AuxMaterials'
 import AuxStock from './pages/AuxStock'
 
@@ -39,6 +42,9 @@ export default function App() {
                     key: 'entry', icon: <FormOutlined />, label: '录入中心',
                     children: [
                       { key: '/entry/product', label: <Link to="/entry/product">🧱 物料</Link> },
+                      { key: '/entry/quotation', label: <Link to="/entry/quotation">📋 报价</Link> },
+                      { key: '/entry/contract', label: <Link to="/entry/contract">📄 合同</Link> },
+                      { key: '/entry/delivery', label: <Link to="/entry/delivery">🚚 发货</Link> },
                       { key: '/entry/receipt', label: <Link to="/entry/receipt">💰 收款</Link> },
                       { key: '/entry/rate', label: <Link to="/entry/rate">💱 汇率</Link> },
                     ],
@@ -57,6 +63,9 @@ export default function App() {
               <Routes>
                 <Route path="/" element={<Home />} />
                 <Route path="/entry/product" element={<ProductEntry />} />
+                <Route path="/entry/quotation" element={<QuotationEntry />} />
+                <Route path="/entry/contract" element={<ContractEntry />} />
+                <Route path="/entry/delivery" element={<DeliveryEntry />} />
                 <Route path="/entry/receipt" element={<ReceiptEntry />} />
                 <Route path="/entry/rate" element={<RateEntry />} />
                 <Route path="/aux/materials" element={<AuxMaterials />} />

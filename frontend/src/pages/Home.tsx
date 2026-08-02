@@ -14,6 +14,29 @@ export default function Home() {
       </Paragraph>
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={8}>
+          <Link to="/entry/quotation">
+            <Card hoverable title="📋 报价录入" size="small">
+              <Text type="secondary">快照单重×报价系数定价，改重量只改行快照不动物料主数据</Text>
+            </Card>
+          </Link>
+        </Col>
+        <Col span={8}>
+          <Link to="/entry/contract">
+            <Card hoverable title="📄 合同录入" size="small">
+              <Text type="secondary">可从报价一键转入，落库自动提示标签纸需求（缺料预警）</Text>
+            </Card>
+          </Link>
+        </Col>
+        <Col span={8}>
+          <Link to="/entry/delivery">
+            <Card hoverable title="🚚 发货录入" size="small">
+              <Text type="secondary">按合同未发量发货，超发自动拦截，已发数自动回写合同</Text>
+            </Card>
+          </Link>
+        </Col>
+      </Row>
+      <Row gutter={16} style={{ marginBottom: 16 }}>
+        <Col span={8}>
           <Link to="/entry/product">
             <Card hoverable title="🧱 物料录入" size="small">
               <Text type="secondary">边填边算：厚度↔外径互推、米重/单重/规格实时派生，编码按客户自动建议</Text>

@@ -110,4 +110,20 @@ export const api = {
   insert: (table: string, data: Record<string, unknown>, operator: string,
            options?: Record<string, unknown>) =>
     post<InsertResp>('/insert', { table, data, operator, options }),
+  // ── 单据录入 (F2.6: 报价/合同/发货) ──
+  suggestDocNo: (kind: string) =>
+    req<{ ok: boolean; doc_no: string }>(`/options/suggest-doc-no?kind=${encodeURIComponent(kind)}`),
+  productsPicker: (customerCode?: string) =>
+    req<Record<string, unknown>[]>(`/options/products-picker${customerCode ? `?customer_code=${encodeURIComponent(customerCode)}` : ''}`),
+  quotationsList: (customerCode?: string) =>
+    req<Record<string, unknown>[]>(`/options/quotations${customerCode ? `?customer_code=${encodeURIComponent(customerCode)}` : ''}`),
+  docQuotation: (quoteNo: string) =>
+    req<{ found: boolean; header: Record<string, unknown> | null; items: Record<string, unknown>[] }>(
+      `/docs/quotation?quote_no=${encodeURIComponent(quoteNo)}`),
+  contractPending: (contractNo: string) =>
+    req<{ found: boolean; header: Record<string, unknown> | null; items: Record<string, unknown>[] }>(
+      `/docs/contract-pending?contract_no=${encodeURIComponent(contractNo)}`),
+  createDoc: (kind: string, header: Record<string, unknown>, items: Record<string, unknown>[], operator: string) =>
+    post<{ ok: boolean; errors: string[]; warnings: string[]; doc_no: string | null; total_amount?: number; total_amount_cny?: number; exchange_rate?: number }>(
+      `/docs/${kind}`, { header, items, operator }),
 }

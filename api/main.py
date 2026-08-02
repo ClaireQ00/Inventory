@@ -326,6 +326,58 @@ def aux_download(attachment_id: int):
     return FileResponse(abs_path, filename=rows[0]["file_name"])
 
 
+# ──────────────────────────────────────────────────────────────
+# 单据录入 (F2.6): 报价/合同/发货 —— 头+明细单事务落库
+# ──────────────────────────────────────────────────────────────
+class DocReq(BaseModel):
+    header: dict
+    items: list[dict]
+    operator: str = "frontend-react"
+
+
+@app.get("/api/options/suggest-doc-no")
+def opt_suggest_doc_no(kind: str, day: str | None = None):
+    r = db_writer.suggest_doc_no(kind, day)
+    if not r["ok"]:
+        raise HTTPException(400, r["error"])
+    return r
+
+
+@app.get("/api/options/products-picker")
+def opt_products_picker(customer_code: str | None = None):
+    return db_writer.list_products_picker(customer_code or None)
+
+
+@app.get("/api/options/quotations")
+def opt_quotations(customer_code: str | None = None):
+    return db_writer.list_quotations(customer_code or None)
+
+
+@app.get("/api/docs/quotation")
+def doc_get_quotation(quote_no: str):
+    return db_writer.get_quotation(quote_no)
+
+
+@app.get("/api/docs/contract-pending")
+def doc_contract_pending(contract_no: str):
+    return db_writer.get_contract_pending(contract_no)
+
+
+@app.post("/api/docs/quotation")
+def doc_create_quotation(req: DocReq):
+    return db_writer.create_quotation(req.header, req.items, req.operator)
+
+
+@app.post("/api/docs/contract")
+def doc_create_contract(req: DocReq):
+    return db_writer.create_contract(req.header, req.items, req.operator)
+
+
+@app.post("/api/docs/delivery")
+def doc_create_delivery(req: DocReq):
+    return db_writer.create_delivery(req.header, req.items, req.operator)
+
+
 if __name__ == "__main__":
     import uvicorn
 

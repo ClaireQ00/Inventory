@@ -996,3 +996,522 @@ def aux_attachments(aux_code: str) -> list[dict]:
         "FROM aux_attachments WHERE aux_code=%s ORDER BY id DESC",
         (aux_code,),
     )
+
+
+# ──────────────────────────────────────────────────────────────
+# 单据录入 (F2.6): 报价 / 合同 / 发货 —— 头+明细单事务落库
+# 原则:
+#   - 派生全部后端算 (total_weight/unit_price/subtotal/汇率带出/总额), 不信前端
+#   - ADR-0005 快照重量: weight_per_unit 从 products.weight 带出存行上,
+#     客户谈价改重量只改行快照, products.weight 永不被单据改动
+#   - 任何一行校验失败 → 整体回滚, 脏数据不进库
+# ──────────────────────────────────────────────────────────────
+
+DOC_KINDS = {
+    "quotation": ("quotations", "quote_no", "QT"),
+    "contract": ("sales_contracts", "contract_no", "SC"),
+    "delivery": ("delivery_orders", "delivery_no", "DN"),
+}
+
+TRADE_TERMS = ("FOB", "CIF", "CFR", "EXW")
+
+
+def suggest_doc_no(kind: str, day: str | None = None) -> dict:
+    """单号建议: 前缀+日期+3位当日流水 (如 QT20260802001)。用户可手改。"""
+    if kind not in DOC_KINDS:
+        return {"ok": False, "doc_no": None, "error": f"未知单据类型: {kind}"}
+    table, col, prefix = DOC_KINDS[kind]
+    d = (day or date.today().isoformat()).replace("-", "")[:8]
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"SELECT {col} FROM {table} WHERE {col} LIKE %s ORDER BY {col} DESC LIMIT 1",
+                (f"{prefix}{d}%",),
+            )
+            row = cur.fetchone()
+        seq = int(row[col][-3:]) + 1 if row else 1
+        return {"ok": True, "doc_no": f"{prefix}{d}{seq:03d}", "error": None}
+    finally:
+        conn.close()
+
+
+def list_products_picker(customer_code: str | None = None) -> list[dict]:
+    """明细行物料选择器: 编码/规格/品牌/快照重量/单件体积/标签纸 一次带齐"""
+    sql = """SELECT material_id, spec, brand, product_category, weight, volume, label_paper
+             FROM products WHERE is_active=1"""
+    params: tuple = ()
+    if customer_code:
+        sql += " AND customer_code=%s"
+        params = (customer_code,)
+    return list_options(sql + " ORDER BY material_id", params)
+
+
+def list_quotations(customer_code: str | None = None) -> list[dict]:
+    """报价单下拉 (转合同源头): 未取消的都列出, 已转合同的标注"""
+    sql = """SELECT quote_no, customer_code, quote_type, quote_date, total_amount, currency, status
+             FROM quotations WHERE status != 'cancelled'"""
+    params: tuple = ()
+    if customer_code:
+        sql += " AND customer_code=%s"
+        params = (customer_code,)
+    return list_options(sql + " ORDER BY quote_date DESC, quote_no DESC", params)
+
+
+def get_quotation(quote_no: str) -> dict:
+    """取报价头+明细 (转合同预填用)"""
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM quotations WHERE quote_no=%s", (quote_no,))
+            header = cur.fetchone()
+            if not header:
+                return {"found": False, "header": None, "items": []}
+            cur.execute(
+                """SELECT qi.*, p.spec, p.volume AS product_volume
+                   FROM quotation_items qi LEFT JOIN products p ON p.material_id = qi.material_id
+                   WHERE qi.quote_no=%s ORDER BY qi.item_no""",
+                (quote_no,),
+            )
+            items = list(cur.fetchall())
+        return {"found": True, "header": header, "items": items}
+    finally:
+        conn.close()
+
+
+def get_contract_pending(contract_no: str) -> dict:
+    """取合同未发明细 (发货录入用): pending = quantity - delivered_qty"""
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT contract_no, customer_code, status, currency FROM sales_contracts WHERE contract_no=%s",
+                (contract_no,),
+            )
+            header = cur.fetchone()
+            if not header:
+                return {"found": False, "header": None, "items": []}
+            cur.execute(
+                """SELECT ci.item_no, ci.material_id, ci.quantity, ci.delivered_qty,
+                          (ci.quantity - ci.delivered_qty) AS pending_qty,
+                          ci.unit_price, p.spec, p.volume
+                   FROM sales_contract_items ci LEFT JOIN products p ON p.material_id = ci.material_id
+                   WHERE ci.contract_no=%s ORDER BY ci.item_no""",
+                (contract_no,),
+            )
+            items = list(cur.fetchall())
+        return {"found": True, "header": header, "items": items}
+    finally:
+        conn.close()
+
+
+def _doc_insert(cur, table: str, row: dict) -> int:
+    """按表实际列过滤后插入 (与 insert_row 同款防御)"""
+    cur.execute(f"SHOW COLUMNS FROM {table}")
+    valid = {c["Field"] for c in cur.fetchall()} - {"id", "created_at", "updated_at"}
+    clean = {k: v for k, v in row.items() if k in valid and v is not None and v != ""}
+    cols = ", ".join(clean.keys())
+    cur.execute(f"INSERT INTO {table} ({cols}) VALUES ({', '.join(['%s'] * len(clean))})",
+                tuple(clean.values()))
+    return cur.lastrowid
+
+
+def _fetch_product(cur, material_id: str) -> dict | None:
+    cur.execute(
+        "SELECT material_id, weight, volume, spec, label_paper FROM products WHERE material_id=%s AND is_active=1",
+        (material_id,),
+    )
+    return cur.fetchone()
+
+
+def _pos(v, digits=4) -> float | None:
+    """正数解析, 失败/非正返回 None"""
+    try:
+        f = float(v)
+        return round(f, digits) if f > 0 else None
+    except (TypeError, ValueError):
+        return None
+
+
+def create_quotation(header: dict, items: list[dict], operator: str = "frontend-react") -> dict:
+    """报价单落库: 头+明细单事务。定价公式 unit_price = 快照单重 × 报价系数 (ADR-0005)"""
+    errors: list[str] = []
+    quote_no = (header.get("quote_no") or "").strip()
+    customer = (header.get("customer_code") or "").strip()
+    quote_date = (header.get("quote_date") or "").strip()
+    currency = (header.get("currency") or "USD").strip().upper()
+    if not quote_no:
+        errors.append("缺少报价号 quote_no")
+    if not customer:
+        errors.append("缺少客户 customer_code")
+    if not _is_date(quote_date):
+        errors.append(f"报价日期无效: {quote_date}")
+    if header.get("trade_terms") and header["trade_terms"] not in TRADE_TERMS:
+        errors.append(f"贸易术语必须是 {TRADE_TERMS}, 收到: {header['trade_terms']}")
+    if not items:
+        errors.append("至少需要一行明细")
+    if errors:
+        return {"ok": False, "errors": errors, "doc_no": None}
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM customers WHERE code=%s", (customer,))
+            if not cur.fetchone():
+                errors.append(f"客户不存在: {customer}")
+            cur.execute("SELECT 1 FROM quotations WHERE quote_no=%s", (quote_no,))
+            if cur.fetchone():
+                errors.append(f"报价号已存在: {quote_no}")
+            if header.get("parent_quote_no"):
+                cur.execute("SELECT 1 FROM quotations WHERE quote_no=%s", (header["parent_quote_no"],))
+                if not cur.fetchone():
+                    errors.append(f"派生源报价不存在: {header['parent_quote_no']}")
+
+            rows = []
+            for i, it in enumerate(items, 1):
+                mid = (it.get("material_id") or "").strip()
+                p = _fetch_product(cur, mid) if mid else None
+                if not p:
+                    errors.append(f"第{i}行: 物料不存在或已停用「{mid}」(可先到物料录入建档)")
+                    continue
+                coeff = _pos(it.get("price_coefficient"))
+                qty = _pos(it.get("quantity"), 0)
+                if coeff is None:
+                    errors.append(f"第{i}行({mid}): 报价系数必须为正数")
+                if qty is None:
+                    errors.append(f"第{i}行({mid}): 数量必须为正整数")
+                if coeff is None or qty is None:
+                    continue
+                # ADR-0005 快照重量: 行上带的手填值优先, 否则 products.weight 快照
+                w = _pos(it.get("weight_per_unit")) or _pos(p.get("weight"))
+                if w is None:
+                    errors.append(f"第{i}行({mid}): 单卷重量为空且主数据无重量, 请手填")
+                    continue
+                vol = _pos(it.get("volume")) or _pos(p.get("volume")) or 0.0
+                unit_price = round(w * coeff, 2)
+                q = int(qty)
+                rows.append({
+                    "quote_no": quote_no,
+                    "item_no": (it.get("item_no") or "").strip() or f"{i:03d}",
+                    "material_id": mid,
+                    "group_code": (it.get("group_code") or "").strip(),
+                    "price_coefficient": coeff,
+                    "weight_per_unit": w,
+                    "quantity": q,
+                    "total_weight": round(w * q, 3),
+                    "unit_price": unit_price,
+                    "subtotal": round(unit_price * q, 2),
+                    "volume": vol,
+                    "total_volume": round(vol * q, 2),
+                    "remark": (it.get("remark") or "").strip(),
+                })
+            # 行号/物料查重 (同单内)
+            seen_no, seen_mid = set(), set()
+            for r in rows:
+                if r["item_no"] in seen_no:
+                    errors.append(f"行号重复: {r['item_no']}")
+                if r["material_id"] in seen_mid:
+                    errors.append(f"同报价单物料重复: {r['material_id']}")
+                seen_no.add(r["item_no"])
+                seen_mid.add(r["material_id"])
+            if errors:
+                conn.rollback()
+                return {"ok": False, "errors": errors, "doc_no": None}
+
+            rate = _pos(header.get("exchange_rate"))
+            if rate is None:
+                rate, _note = lookup_exchange_rate(conn, currency, quote_date)
+            if rate is None:
+                conn.rollback()
+                return {"ok": False, "errors": [f"缺少 {currency} 汇率 (请先到汇率录入补 {quote_date[:7]} 当月汇率)"], "doc_no": None}
+
+            total = round(sum(r["subtotal"] for r in rows), 2)
+            head_row = {
+                "quote_no": quote_no, "customer_code": customer,
+                "quote_type": header.get("quote_type") or "brief",
+                "parent_quote_no": header.get("parent_quote_no") or None,
+                "version": int(header.get("version") or 1),
+                "quote_date": quote_date,
+                "valid_until": header.get("valid_until") or None,
+                "total_amount": total, "currency": currency, "exchange_rate": rate,
+                "total_amount_cny": round(total * rate, 2),
+                "total_volume": round(sum(r["total_volume"] for r in rows), 2),
+                "status": header.get("status") or "draft",
+                "trade_terms": header.get("trade_terms") or "FOB",
+                "port_loading": header.get("port_loading") or "",
+                "port_discharge": header.get("port_discharge") or "",
+                "payment_term": header.get("payment_term") or None,
+                "packing": header.get("packing") or None,
+                "remark": header.get("remark") or "",
+            }
+            _doc_insert(cur, "quotations", head_row)
+            for r in rows:
+                _doc_insert(cur, "quotation_items", r)
+            record_id = cur.lastrowid
+        write_audit(conn, "quotations", record_id, "INSERT", None,
+                    {"quote_no": quote_no, "items": len(rows), "total": total, "currency": currency}, operator)
+        conn.commit()
+        return {"ok": True, "errors": [], "doc_no": quote_no,
+                "total_amount": total, "exchange_rate": rate, "total_amount_cny": head_row["total_amount_cny"],
+                "warnings": []}
+    except Exception as e:  # noqa: BLE001
+        conn.rollback()
+        return {"ok": False, "errors": [f"报价单落库失败: {e}"], "doc_no": None}
+    finally:
+        conn.close()
+
+
+def create_contract(header: dict, items: list[dict], operator: str = "frontend-react") -> dict:
+    """销售合同落库: 头+明细单事务。source_quote_no 传入时同事务把报价标记已转合同"""
+    errors: list[str] = []
+    contract_no = (header.get("contract_no") or "").strip()
+    customer = (header.get("customer_code") or "").strip()
+    sign_date = (header.get("sign_date") or "").strip()
+    currency = (header.get("currency") or "USD").strip().upper()
+    source_quote = (header.get("source_quote_no") or "").strip()
+    if not contract_no:
+        errors.append("缺少合同号 contract_no")
+    if not customer:
+        errors.append("缺少客户 customer_code")
+    if not _is_date(sign_date):
+        errors.append(f"签订日期无效: {sign_date}")
+    if header.get("trade_terms") and header["trade_terms"] not in TRADE_TERMS:
+        errors.append(f"贸易术语必须是 {TRADE_TERMS}, 收到: {header['trade_terms']}")
+    if not items:
+        errors.append("至少需要一行明细")
+    if errors:
+        return {"ok": False, "errors": errors, "doc_no": None}
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM customers WHERE code=%s", (customer,))
+            if not cur.fetchone():
+                errors.append(f"客户不存在: {customer}")
+            cur.execute("SELECT 1 FROM sales_contracts WHERE contract_no=%s", (contract_no,))
+            if cur.fetchone():
+                errors.append(f"合同号已存在: {contract_no}")
+            if source_quote:
+                cur.execute(
+                    "SELECT status, customer_code FROM quotations WHERE quote_no=%s", (source_quote,))
+                q = cur.fetchone()
+                if not q:
+                    errors.append(f"源报价不存在: {source_quote}")
+                elif q["customer_code"] != customer:
+                    errors.append(f"源报价 {source_quote} 属于客户 {q['customer_code']}, 与合同客户不一致")
+                elif q["status"] == "converted":
+                    errors.append(f"源报价 {source_quote} 已转过合同")
+                elif q["status"] == "cancelled":
+                    errors.append(f"源报价 {source_quote} 已取消")
+
+            rows = []
+            for i, it in enumerate(items, 1):
+                mid = (it.get("material_id") or "").strip()
+                p = _fetch_product(cur, mid) if mid else None
+                if not p:
+                    errors.append(f"第{i}行: 物料不存在或已停用「{mid}」(可先克隆建物料或到物料录入建档)")
+                    continue
+                qty = _pos(it.get("quantity"), 0)
+                price = _pos(it.get("unit_price"))
+                if qty is None:
+                    errors.append(f"第{i}行({mid}): 数量必须为正整数")
+                if price is None:
+                    errors.append(f"第{i}行({mid}): 单价必须为正数")
+                if qty is None or price is None:
+                    continue
+                q = int(qty)
+                rows.append({
+                    "contract_no": contract_no,
+                    "item_no": (it.get("item_no") or "").strip() or f"{i:03d}",
+                    "material_id": mid,
+                    "quantity": q,
+                    "unit_price": price,
+                    "subtotal": round(price * q, 2),
+                    "volume_subtotal": round((_pos(p.get("volume")) or 0.0) * q, 2),
+                    "delivered_qty": 0,
+                    "remark": (it.get("remark") or "").strip(),
+                })
+            seen_no, seen_mid = set(), set()
+            for r in rows:
+                if r["item_no"] in seen_no:
+                    errors.append(f"行号重复: {r['item_no']}")
+                if r["material_id"] in seen_mid:
+                    errors.append(f"同合同物料重复: {r['material_id']}")
+                seen_no.add(r["item_no"])
+                seen_mid.add(r["material_id"])
+            if errors:
+                conn.rollback()
+                return {"ok": False, "errors": errors, "doc_no": None}
+
+            rate = _pos(header.get("exchange_rate"))
+            if rate is None:
+                rate, _note = lookup_exchange_rate(conn, currency, sign_date)
+            if rate is None:
+                conn.rollback()
+                return {"ok": False, "errors": [f"缺少 {currency} 汇率 (请先到汇率录入补 {sign_date[:7]} 当月汇率)"], "doc_no": None}
+
+            total = round(sum(r["subtotal"] for r in rows), 2)
+            head_row = {
+                "contract_no": contract_no, "customer_code": customer,
+                "sign_date": sign_date,
+                "delivery_deadline": header.get("delivery_deadline") or None,
+                "total_amount": total, "currency": currency, "exchange_rate": rate,
+                "total_amount_cny": round(total * rate, 2),
+                "total_volume": round(sum(r["volume_subtotal"] for r in rows), 2),
+                "trade_terms": header.get("trade_terms") or "FOB",
+                "port_loading": header.get("port_loading") or "",
+                "port_discharge": header.get("port_discharge") or "",
+                "freight": _pos(header.get("freight")) or 0,
+                "insurance": _pos(header.get("insurance")) or 0,
+                "status": header.get("status") or "confirmed",
+                "payment_term": header.get("payment_term") or None,
+                "packing": header.get("packing") or None,
+                "remark": header.get("remark") or "",
+            }
+            _doc_insert(cur, "sales_contracts", head_row)
+            for r in rows:
+                _doc_insert(cur, "sales_contract_items", r)
+            if source_quote:
+                cur.execute(
+                    "UPDATE quotations SET status='converted', converted_contract_no=%s WHERE quote_no=%s",
+                    (contract_no, source_quote),
+                )
+            record_id = cur.lastrowid
+        write_audit(conn, "sales_contracts", record_id, "INSERT", None,
+                    {"contract_no": contract_no, "items": len(rows), "total": total,
+                     "source_quote": source_quote or None}, operator)
+        conn.commit()
+        return {"ok": True, "errors": [], "doc_no": contract_no,
+                "total_amount": total, "exchange_rate": rate, "total_amount_cny": head_row["total_amount_cny"],
+                "warnings": []}
+    except Exception as e:  # noqa: BLE001
+        conn.rollback()
+        return {"ok": False, "errors": [f"合同落库失败: {e}"], "doc_no": None}
+    finally:
+        conn.close()
+
+
+def create_delivery(header: dict, items: list[dict], operator: str = "frontend-react") -> dict:
+    """发货单落库: 头+明细+回写合同已发数, 单事务。
+    闸门: 每行发货量 ≤ 合同未发量 (超发拦截); 全部发完合同置 completed, 否则 delivering。
+    R11 公斤价反算三列留 pending, 由发货校验(第16步)口径复核, 不在录入时算。
+    """
+    errors: list[str] = []
+    delivery_no = (header.get("delivery_no") or "").strip()
+    customer = (header.get("customer_code") or "").strip()
+    delivery_date = (header.get("delivery_date") or "").strip()
+    if not delivery_no:
+        errors.append("缺少发货单号 delivery_no")
+    if not customer:
+        errors.append("缺少客户 customer_code")
+    if not _is_date(delivery_date):
+        errors.append(f"发货日期无效: {delivery_date}")
+    if not items:
+        errors.append("至少需要一行明细")
+    if errors:
+        return {"ok": False, "errors": errors, "doc_no": None}
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM customers WHERE code=%s", (customer,))
+            if not cur.fetchone():
+                errors.append(f"客户不存在: {customer}")
+            cur.execute("SELECT 1 FROM delivery_orders WHERE delivery_no=%s", (delivery_no,))
+            if cur.fetchone():
+                errors.append(f"发货单号已存在: {delivery_no}")
+
+            rows = []
+            touched_contracts: set[str] = set()
+            for i, it in enumerate(items, 1):
+                cno = (it.get("contract_no") or "").strip()
+                ino = (it.get("contract_item_no") or "").strip()
+                qty = _pos(it.get("quantity"), 0)
+                if not cno or not ino:
+                    errors.append(f"第{i}行: 必须关联合同号+合同行号")
+                    continue
+                cur.execute(
+                    """SELECT ci.material_id, ci.quantity, ci.delivered_qty, sc.customer_code, sc.status
+                       FROM sales_contract_items ci
+                       JOIN sales_contracts sc ON sc.contract_no = ci.contract_no
+                       WHERE ci.contract_no=%s AND ci.item_no=%s""",
+                    (cno, ino),
+                )
+                ci = cur.fetchone()
+                if not ci:
+                    errors.append(f"第{i}行: 合同明细不存在 {cno}#{ino}")
+                    continue
+                if ci["customer_code"] != customer:
+                    errors.append(f"第{i}行: 合同 {cno} 属于客户 {ci['customer_code']}, 与发货单客户不一致")
+                if ci["status"] == "cancelled":
+                    errors.append(f"第{i}行: 合同 {cno} 已取消")
+                if qty is None:
+                    errors.append(f"第{i}行({ci['material_id']}): 发货数量必须为正整数")
+                    continue
+                pending = int(ci["quantity"]) - int(ci["delivered_qty"])
+                if int(qty) > pending:
+                    errors.append(
+                        f"第{i}行({ci['material_id']}): 发货 {int(qty)} 超合同未发 {pending} (合同 {cno}#{ino})")
+                    continue
+                p = _fetch_product(cur, ci["material_id"])
+                vol = _pos(p.get("volume")) if p else None
+                rows.append({
+                    "delivery_no": delivery_no,
+                    "contract_no": cno,
+                    "contract_item_no": ino,
+                    "material_id": ci["material_id"],
+                    "quantity": int(qty),
+                    "actual_quantity": int(_pos(it.get("actual_quantity"), 0) or qty),
+                    "volume_subtotal": round((vol or 0.0) * int(qty), 2),
+                    "remark": (it.get("remark") or "").strip(),
+                })
+                touched_contracts.add(cno)
+            if errors:
+                conn.rollback()
+                return {"ok": False, "errors": errors, "doc_no": None}
+
+            head_row = {
+                "delivery_no": delivery_no, "customer_code": customer,
+                "delivery_date": delivery_date,
+                "receiver": header.get("receiver") or "",
+                "receiver_phone": header.get("receiver_phone") or "",
+                "receiver_address": header.get("receiver_address") or "",
+                "transport_no": header.get("transport_no") or "",
+                "total_volume": round(sum(r["volume_subtotal"] for r in rows), 2),
+                "status": header.get("status") or "confirmed",
+                "remark": header.get("remark") or "",
+            }
+            _doc_insert(cur, "delivery_orders", head_row)
+            for r in rows:
+                _doc_insert(cur, "delivery_order_items", r)
+                cur.execute(
+                    """UPDATE sales_contract_items SET delivered_qty = delivered_qty + %s
+                       WHERE contract_no=%s AND item_no=%s""",
+                    (r["actual_quantity"], r["contract_no"], r["contract_item_no"]),
+                )
+            # 合同状态联动: 全部发完 completed, 否则 delivering (不动 cancelled/draft)
+            for cno in touched_contracts:
+                cur.execute(
+                    """SELECT SUM(quantity - delivered_qty) AS pending FROM sales_contract_items
+                       WHERE contract_no=%s""",
+                    (cno,),
+                )
+                left = int(cur.fetchone()["pending"] or 0)
+                cur.execute(
+                    """UPDATE sales_contracts SET status=%s
+                       WHERE contract_no=%s AND status IN ('confirmed','delivering')""",
+                    ("completed" if left == 0 else "delivering", cno),
+                )
+            record_id = cur.lastrowid
+        write_audit(conn, "delivery_orders", record_id, "INSERT", None,
+                    {"delivery_no": delivery_no, "items": len(rows),
+                     "contracts": sorted(touched_contracts)}, operator)
+        conn.commit()
+        return {"ok": True, "errors": [], "doc_no": delivery_no,
+                "total_volume": head_row["total_volume"],
+                "contracts_updated": sorted(touched_contracts), "warnings": []}
+    except Exception as e:  # noqa: BLE001
+        conn.rollback()
+        return {"ok": False, "errors": [f"发货单落库失败: {e}"], "doc_no": None}
+    finally:
+        conn.close()
