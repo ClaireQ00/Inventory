@@ -60,6 +60,42 @@ export const api = {
   nominalInches: () => req<string[]>('/options/nominal-inches'),
   fieldValues: (customerCode: string, field: string) =>
     req<string[]>(`/options/field-values?customer_code=${encodeURIComponent(customerCode)}&field=${encodeURIComponent(field)}`),
+  warehouses: () => req<{ code: string; name: string }[]>('/options/warehouses'),
+  materialTypeProfiles: () =>
+    req<{ type_code: string; name: string; guide_cost_price: number | null }[]>('/aux/material-types'),
+  // ── 生产辅料 (标签纸等) ──
+  auxMaterials: () => req<Record<string, unknown>[]>('/aux/materials'),
+  auxCreate: (data: Record<string, unknown>, operator: string) =>
+    post<{ ok: boolean; errors: string[]; record_id: number | null }>('/aux/materials', { data, operator }),
+  auxInventory: (lowOnly = false) =>
+    req<Record<string, unknown>[]>(`/aux/inventory${lowOnly ? '?low_only=true' : ''}`),
+  auxStockIn: (body: Record<string, unknown>) =>
+    post<{ ok: boolean; errors: string[]; move_no: string | null; after_qty: number | null }>('/aux/stock-in', body),
+  auxStockOut: (body: Record<string, unknown>) =>
+    post<{ ok: boolean; errors: string[]; move_no: string | null; after_qty: number | null }>('/aux/stock-out', body),
+  auxMoves: (auxCode?: string) =>
+    req<Record<string, unknown>[]>(`/aux/moves${auxCode ? `?aux_code=${encodeURIComponent(auxCode)}` : ''}`),
+  auxLabelDemand: (contractNo: string) =>
+    req<{
+      contract_no: string; found: boolean; all_sufficient: boolean | null
+      lines: { label_paper: string; aux_code: string; name: string; unit: string; required: number; in_stock: number; shortage: number; profile_missing: boolean }[]
+    }>(`/aux/label-demand?contract_no=${encodeURIComponent(contractNo)}`),
+  auxAttachments: (auxCode: string) =>
+    req<{ id: number; file_name: string; file_type: string; file_size: number; uploaded_by: string; created_at: string }[]>(
+      `/aux/attachments?aux_code=${encodeURIComponent(auxCode)}`),
+  auxUpload: async (auxCode: string, file: File, uploadedBy: string) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    const r = await fetch(`${BASE}/aux/materials/${encodeURIComponent(auxCode)}/attachments?uploaded_by=${encodeURIComponent(uploadedBy)}`, {
+      method: 'POST', body: fd,
+    })
+    if (!r.ok) {
+      const detail = await r.json().catch(() => ({}))
+      throw new Error(detail.detail || `上传失败 ${r.status}`)
+    }
+    return r.json()
+  },
+  auxDownloadUrl: (id: number) => `${BASE}/aux/attachments/${id}/download`,
   derive: (data: Record<string, unknown>) =>
     post<DeriveResp>('/derive', { table: 'products', data }),
   preview: (table: string, data: Record<string, unknown>) =>

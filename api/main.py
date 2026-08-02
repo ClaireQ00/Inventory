@@ -18,7 +18,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -119,6 +119,11 @@ def opt_nominal_inches():
     return db_writer.nominal_inch_options()
 
 
+@app.get("/api/options/warehouses")
+def opt_warehouses():
+    return db_writer.list_options("SELECT code, name FROM warehouses ORDER BY code")
+
+
 @app.get("/api/options/exchange-rates")
 def opt_exchange_rates():
     return db_writer.list_options(
@@ -193,6 +198,122 @@ def validate():
     except subprocess.TimeoutExpired:
         raise HTTPException(504, "校验超时 (>180s)")
     return {"exit_code": proc.returncode, "output": (proc.stdout + proc.stderr)[-8000:]}
+
+
+# ──────────────────────────────────────────────────────────────
+# 生产辅料 (标签纸等) — M1 档案+附件 / M2 收发存 / M3 需求提示
+# 计划: docs/AUX_MATERIALS_PLAN.md (Q1-Q7 已定案)
+# ──────────────────────────────────────────────────────────────
+ATTACH_DIR = Path(os.getenv("ATTACH_DIR", "/app/data/attachments"))
+AUX_FILE_TYPES = {"pdf", "doc", "docx", "jpg", "jpeg", "png"}
+AUX_MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+
+
+class AuxMaterialReq(BaseModel):
+    data: dict
+    operator: str = "frontend-react"
+
+
+class AuxMoveReq(BaseModel):
+    aux_code: str
+    warehouse_code: str = "AUX"
+    qty: int
+    source_type: str           # in: purchase/adjust; out: production_use/scrap/adjust
+    source_no: str = ""        # 生产领用时填合同号
+    operator: str = "frontend-react"
+    move_date: str | None = None
+    remark: str = ""
+
+
+@app.get("/api/aux/material-types")
+def aux_material_types():
+    """物料类型档案 (录入页下拉源; 成本指导价预留)"""
+    return db_writer.list_material_type_profiles()
+
+
+@app.get("/api/aux/materials")
+def aux_materials(aux_type: str | None = None):
+    return db_writer.aux_list_materials(aux_type)
+
+
+@app.post("/api/aux/materials")
+def aux_create(req: AuxMaterialReq):
+    return db_writer.aux_create_material(req.data, req.operator)
+
+
+@app.get("/api/aux/inventory")
+def aux_inventory(low_only: bool = False):
+    return db_writer.aux_inventory_list(low_only)
+
+
+@app.post("/api/aux/stock-in")
+def aux_stock_in(req: AuxMoveReq):
+    return db_writer.aux_stock_move(req.aux_code, req.warehouse_code, "in", req.qty,
+                                    req.source_type, req.source_no, req.operator,
+                                    req.move_date, req.remark)
+
+
+@app.post("/api/aux/stock-out")
+def aux_stock_out(req: AuxMoveReq):
+    return db_writer.aux_stock_move(req.aux_code, req.warehouse_code, "out", req.qty,
+                                    req.source_type, req.source_no, req.operator,
+                                    req.move_date, req.remark)
+
+
+@app.get("/api/aux/moves")
+def aux_moves(aux_code: str | None = None, limit: int = 200):
+    return db_writer.aux_moves(aux_code, limit)
+
+
+@app.get("/api/aux/label-demand")
+def aux_label_demand(contract_no: str):
+    """合同标签纸需求测算: 需求/库存/缺口 (只提示不扣减)"""
+    return db_writer.aux_label_demand(contract_no)
+
+
+@app.post("/api/aux/materials/{aux_code}/attachments")
+async def aux_upload(aux_code: str, file: UploadFile, uploaded_by: str = "frontend-react"):
+    """上传辅料附件 (pdf/doc/docx/jpg/png ≤10MB, sha256 去重)"""
+    import hashlib
+    import uuid as _uuid
+
+    ext = (file.filename or "").rsplit(".", 1)[-1].lower() if "." in (file.filename or "") else ""
+    if ext not in AUX_FILE_TYPES:
+        raise HTTPException(400, f"不支持的文件类型: .{ext} (允许: {sorted(AUX_FILE_TYPES)})")
+    content = await file.read()
+    if len(content) > AUX_MAX_FILE_SIZE:
+        raise HTTPException(400, f"文件超过 10MB ({len(content) / 1024 / 1024:.1f}MB)")
+    sha = hashlib.sha256(content).hexdigest()
+    rel_path = f"aux/{aux_code}/{_uuid.uuid4().hex[:12]}.{ext}"
+    abs_path = ATTACH_DIR / rel_path
+    abs_path.parent.mkdir(parents=True, exist_ok=True)
+    abs_path.write_bytes(content)
+    result = db_writer.aux_add_attachment(aux_code, file.filename or f"file.{ext}",
+                                          ext, rel_path, len(content), sha, uploaded_by)
+    if not result["ok"]:
+        abs_path.unlink(missing_ok=True)
+        raise HTTPException(400, "; ".join(result["errors"]))
+    if result.get("duplicate"):
+        abs_path.unlink(missing_ok=True)  # 内容重复, 不留第二份文件
+    return result
+
+
+@app.get("/api/aux/attachments")
+def aux_attachment_list(aux_code: str):
+    return db_writer.aux_attachments(aux_code)
+
+
+@app.get("/api/aux/attachments/{attachment_id}/download")
+def aux_download(attachment_id: int):
+    from fastapi.responses import FileResponse
+    rows = db_writer.list_options(
+        "SELECT file_name, file_path FROM aux_attachments WHERE id=%s", (attachment_id,))
+    if not rows:
+        raise HTTPException(404, "附件不存在")
+    abs_path = ATTACH_DIR / rows[0]["file_path"]
+    if not abs_path.exists():
+        raise HTTPException(404, "附件文件已丢失 (DB 有记录但磁盘没有)")
+    return FileResponse(abs_path, filename=rows[0]["file_name"])
 
 
 if __name__ == "__main__":

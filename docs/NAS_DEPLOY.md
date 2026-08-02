@@ -227,6 +227,10 @@ docker exec inventory-db mysqldump -uroot -p你的密码A inventory_db > backup_
 ```
 建议设个定时任务（UGOS 任务计划）每天备份到另一个目录。
 
+> **2026-08-01 辅料模块起，备份范围多了一个目录**：辅料附件（标签纸图纸/样张）落盘在
+> `./data/attachments/`（DB 里只存路径+哈希，文件本身不进 mysqldump）。
+> 备份脚本要连 `./data/attachments/` 一起打包，否则恢复后附件记录还在、文件没了。
+
 ### Q6：怎么更新代码/重新部署
 改完文件传到 NAS，然后：
 ```bash

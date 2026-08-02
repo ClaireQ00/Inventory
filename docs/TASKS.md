@@ -131,9 +131,10 @@
 - [x] F2.1 [P0] **阶段二提前启动**（2026-08-01 老板拍板：Streamlit 只做查询/报表/校验日志，录入全部迁 React）：`api/` FastAPI 包装层落地——业务逻辑零重写，全部复用 tools/（db_writer 两段式提交+写后校验+审计、csv_to_sql 派生引擎、local_validator 16 步校验）。接口：health / options(customers·contracts·categories·suggest-material-id·exchange-rates) / derive / preview / insert / validate。容器 inventory-api 绑 127.0.0.1:8000 仅内网
 - [x] F2.2 [P0] **阶段二骨架**：`frontend/`（React19+Vite+Tailwind+Ant Design v6）落地，首页面**物料录入页**——边填边调 /api/derive（300ms 防抖）局部刷新不重载页面；真实类别 AutoComplete（69 种可输新类别）、编码按客户自动建议+刷新按钮、规格自动推算（手改后不再跟随）、两段式预览 Modal 提交。端到端实测：预览/落库/查重闸门全过（测试数据已清理，库面 14,350 不变）
 - [x] F2.2b [P0] **录入页全字段对齐 + 老板规则落地**（2026-08-01）：① 物料录入页字段与 products 表全列对齐（新增标称米数/虚重/虚米/线距/外观三件/包装/标签纸/用料/打线/盘型/压力/喷码/米标/印花循环/备注，外观与工艺两组折叠面板），FIELD_RULES 同步全字段；② 品牌改 AutoComplete——按客户拉已有品牌下拉（Q025→PAGODA），可手填新品牌；③ **标称英寸改"向上取标准管型序列"（老板规则）+ 0.8mm 容忍**（做得略大的归本档：13→1/2"、15→9/16"、23→7/8"、8→5/16"），与 14,350 条目录全量对照 83.3% 一致，差异集中在 1" 以上旧"就近取"细分数（50→2"、75→3"、100→4" 等，符合老板意图）；④ 录入页 inch 改可编辑下拉（28 档，建议值=向上取，特殊规格手改覆盖，手改后 spec 按手改 inch 拼）；⑤ db_writer 与 gen_products_from_excel 两处同算法同步。**待老板确认**：30/40/60/90/110mm 五档归类（新规则 1-1/4"、1-3/4"、2-1/2"、4"、5" vs 历史 1-3/16"、1-9/16"、2-3/8"、3-9/16"、4-5/16"），历史数据不动只影响新录入
-- [ ] M1 [P1] **辅料模块·档案**（计划见 docs/AUX_MATERIALS_PLAN.md，待老板确认 Q1-Q6）：4 张新表（aux_materials/aux_inventory/aux_stock_moves/aux_attachments）+ 迁移 SQL + R/C 品种种子化 + React 辅料档案页（含尺寸+PDF/Word/图片附件上传）
-- [ ] M2 [P1] **辅料模块·收发存**：入库/出库/流水接口 + React 入库/出库/库存查询三页面（出库带合同号可溯源）
-- [ ] M3 [P1] **标签需求提示**：/api/aux/label-demand 接口（合同明细→products.label_paper→需求卷数→比对库存）；M3a Streamlit 合同页先上，M3b 随 F2.6 React 合同页接入
+- [x] M1 [P1] **辅料模块·档案**（2026-08-01，Q1-Q7 已定案）：4 张新表（aux_materials/aux_inventory/aux_stock_moves/aux_attachments，`sql/migrations/2026-08-01_aux.sql` 已上线执行）+ R/C 品种种子化（LP-R02502/R02505/R02506）+ AUX 辅料仓 + React 辅料档案页（新增表单+附件上传/下载/去重）；**物料类型档案** material_type_profiles（成本指导价预留，种子 2 个，`2026-08-01_material_type_profiles.sql`），录入页物料类型下拉切档案源。**排障记录**：迁移曾被 91 分钟前的僵尸连接元数据锁卡住，KILL 后成功——以后 DDL 前先查 SHOW PROCESSLIST
+- [x] M2 [P1] **辅料模块·收发存**：入库/出库/流水接口（单事务锁库存行，库存不足回滚拦截实测 ✓）+ React 收发存页（入库/出库/库存与流水三 tab，出库生产领用带合同号自动算需求参照）。实测：入 1000→出 300→结余 700→出 99999 拦截 ✓（测试数据已清理）
+- [x] M3a [P1] **标签需求提示·Streamlit 侧**：/api/aux/label-demand（合同明细→products.label_paper→需求卷数→比对库存，实测 SC20260730001 算出 3 款标签需求 300/200/11 张）+ Streamlit 合同执行页需求区块（缺料红/够用绿/未建档黄，只提示不扣减）
+- [ ] M3b [P2] **标签需求提示·React 合同页**：随 F2.6 合同录入页接入（保存合同时自动调用，缺料 WARN 不阻止）
 - [ ] M4 [P2] **辅料校验报表**：local_validator 加辅料库存=流水合计一致性检查 + 低库存预警 + aux_type 扩展评估
 - [ ] F2.3 [P1] 收款/汇率录入页迁移 React（复用现有 /api/preview+/api/insert 接口，db_writer 规则已就绪）
 - [ ] F2.4 [P1] Streamlit 录入中心下线（F2.3 完成后撤掉录入 tab，Streamlit 回归纯查询/报表/校验日志）

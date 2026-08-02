@@ -524,6 +524,28 @@ def page_contracts():
         else:
             st.info("该合同暂无明细")
 
+        # ── 标签纸需求提示 (M3a, 2026-08-01 辅料模块)
+        # 规则: 每卷产品 1 张标签; 只提示不扣减, 生产领用出库才扣库存
+        st.subheader("🏷️ 标签纸需求（推送生产前确认）")
+        try:
+            demand = db_writer.aux_label_demand(sel_contract)
+            if not demand["lines"]:
+                st.caption("该合同明细的产品均未设置标签纸 (products.label_paper 为空)")
+            else:
+                for line in demand["lines"]:
+                    if line["profile_missing"]:
+                        st.warning(f"⚠️ {line['label_paper']}：需 **{line['required']}** 张，"
+                                   f"但辅料库未建档（{line['aux_code']}），请到录入端【辅料档案】补档")
+                    elif line["shortage"] > 0:
+                        st.error(f"🔴 {line['aux_code']}（{line['name']}）：需 **{line['required']}** 张 / "
+                                 f"库存 {line['in_stock']} 张 → **缺 {line['shortage']} 张**，请先采购入库")
+                    else:
+                        st.success(f"🟢 {line['aux_code']}（{line['name']}）：需 **{line['required']}** 张 / "
+                                   f"库存 {line['in_stock']} 张，够用")
+                st.caption("提示不扣库存；实际扣减发生在录入端【辅料收发存 → 出库(生产领用)】，出库可带合同号溯源")
+        except Exception as e:  # noqa: BLE001
+            st.caption(f"标签需求测算暂不可用: {e}")
+
 
 # ──────────────────────────────────────────────────────────────
 # 基础资料

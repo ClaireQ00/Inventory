@@ -867,5 +867,117 @@ CREATE TABLE quotation_items (
 CREATE INDEX idx_qi_quote ON quotation_items(quote_no);
 CREATE INDEX idx_qi_group ON quotation_items(group_code);
 
+-- ============================================================
+-- 模块十: 生产辅料 (标签纸先行, 2026-08-01)
+-- 计划文档: docs/AUX_MATERIALS_PLAN.md
+-- 设计: 照抄成品库存的"主档 → 库存 → 流水"骨架, 但辅料独立成 aux_ 一族,
+--       不进 products 表。用料(半成品原材料)后续独立模块, 不在此。
+-- ============================================================
+
+-- ------------------------------------------------------------
+-- 10.1 辅料主档 aux_materials
+-- ------------------------------------------------------------
+DROP TABLE IF EXISTS aux_attachments;
+DROP TABLE IF EXISTS aux_stock_moves;
+DROP TABLE IF EXISTS aux_inventory;
+DROP TABLE IF EXISTS aux_materials;
+CREATE TABLE aux_materials (
+    id              INT AUTO_INCREMENT PRIMARY KEY COMMENT '内部ID',
+    aux_code        VARCHAR(32)  NOT NULL UNIQUE    COMMENT '辅料编码, 如 LP-R02502 (标签纸=LP-+原R/C编号)',
+    aux_type        ENUM('label_paper','packaging','other')
+                                 NOT NULL DEFAULT 'label_paper' COMMENT '辅料类型: 标签纸/包装/其他(预留)。用料=半成品原材料后续独立模块',
+    name            VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '名称, 如 长方形标签 25×40',
+    shape           VARCHAR(8)   NOT NULL DEFAULT '' COMMENT '形状: R=长方形/纸卡, C=圆环形 (沿用 products.label_paper 约定)',
+    width_mm        DECIMAL(8,2) DEFAULT NULL        COMMENT '宽度(mm)',
+    height_mm       DECIMAL(8,2) DEFAULT NULL        COMMENT '高度(mm)',
+    material_desc   VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '材质描述, 如 铜版纸/不干胶',
+    supplier_code   VARCHAR(32)  DEFAULT NULL        COMMENT '默认供应商(关联 suppliers.code)',
+    unit            VARCHAR(16)  NOT NULL DEFAULT '张' COMMENT '计量单位: 张/卷/包',
+    pcs_per_unit    INT          DEFAULT NULL        COMMENT '每单位张数(按卷/包采购时换算用)',
+    min_stock       INT          DEFAULT NULL        COMMENT '安全库存(低于则预警), NULL=不预警',
+    remark          VARCHAR(255) NOT NULL DEFAULT '' COMMENT '备注',
+    is_active       TINYINT(1)   NOT NULL DEFAULT 1 COMMENT '是否启用',
+    created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_aux_supplier FOREIGN KEY (supplier_code) REFERENCES suppliers(code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='生产辅料主档(标签纸等)';
+
+-- ------------------------------------------------------------
+-- 10.2 辅料当前库存 aux_inventory ("结果")
+-- ------------------------------------------------------------
+CREATE TABLE aux_inventory (
+    id              INT AUTO_INCREMENT PRIMARY KEY,
+    aux_code        VARCHAR(32)  NOT NULL COMMENT '辅料编码',
+    warehouse_code  VARCHAR(32)  NOT NULL COMMENT '仓库编号',
+    quantity        INT          NOT NULL DEFAULT 0 COMMENT '当前库存(张)',
+    updated_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    UNIQUE KEY uk_aux_warehouse (aux_code, warehouse_code),
+    CONSTRAINT fk_auxinv_aux       FOREIGN KEY (aux_code)       REFERENCES aux_materials(aux_code),
+    CONSTRAINT fk_auxinv_warehouse FOREIGN KEY (warehouse_code) REFERENCES warehouses(code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='辅料当前库存';
+
+-- ------------------------------------------------------------
+-- 10.3 辅料收发流水 aux_stock_moves ("原因", 入库为正/出库为负)
+-- 辅料收发场景简单, 用单表流水代替成品的"单头+明细"四表结构
+-- ------------------------------------------------------------
+CREATE TABLE aux_stock_moves (
+    id              BIGINT AUTO_INCREMENT PRIMARY KEY,
+    move_no         VARCHAR(32)  NOT NULL              COMMENT '收发单号, 如 AXIN20260801-A1B2C3',
+    aux_code        VARCHAR(32)  NOT NULL,
+    warehouse_code  VARCHAR(32)  NOT NULL,
+    direction       ENUM('in','out') NOT NULL          COMMENT '入库/出库',
+    change_qty      INT          NOT NULL              COMMENT '变动数量(张), 入正出负',
+    after_qty       INT          NOT NULL              COMMENT '变动后该仓该辅料库存',
+    source_type     ENUM('purchase','production_use','adjust','scrap')
+                                 NOT NULL              COMMENT '来源: 采购入库/生产领用/盘点调整/报废',
+    source_no       VARCHAR(32)  NOT NULL DEFAULT ''   COMMENT '关联单号: 采购PO号/合同号(生产领用时填)',
+    operator        VARCHAR(32)  NOT NULL DEFAULT '',
+    move_date       DATE         NOT NULL,
+    remark          VARCHAR(255) NOT NULL DEFAULT '',
+    created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_auxmv_aux       FOREIGN KEY (aux_code)       REFERENCES aux_materials(aux_code),
+    CONSTRAINT fk_auxmv_warehouse FOREIGN KEY (warehouse_code) REFERENCES warehouses(code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='辅料收发流水';
+
+CREATE INDEX idx_auxmv_aux_time ON aux_stock_moves(aux_code, move_date);
+CREATE INDEX idx_auxmv_source   ON aux_stock_moves(source_type, source_no);
+
+-- ------------------------------------------------------------
+-- 10.4 辅料附件 aux_attachments (文件落盘 data/attachments/, DB 登记路径+哈希)
+-- ------------------------------------------------------------
+CREATE TABLE aux_attachments (
+    id              INT AUTO_INCREMENT PRIMARY KEY,
+    aux_code        VARCHAR(32)  NOT NULL,
+    file_name       VARCHAR(128) NOT NULL              COMMENT '原始文件名',
+    file_type       VARCHAR(16)  NOT NULL              COMMENT 'pdf/doc/docx/jpg/jpeg/png',
+    file_path       VARCHAR(255) NOT NULL              COMMENT '落盘相对路径, 如 aux/LP-R02502/<uuid>.pdf',
+    file_size       INT          NOT NULL              COMMENT '字节数',
+    sha256          CHAR(64)     NOT NULL              COMMENT '内容哈希(去重+完整性)',
+    uploaded_by     VARCHAR(32)  NOT NULL DEFAULT '',
+    created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_auxat_aux FOREIGN KEY (aux_code) REFERENCES aux_materials(aux_code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='辅料附件(图纸/样张/规格书)';
+
+-- ------------------------------------------------------------
+-- 10.5 物料类型档案 material_type_profiles (2026-08-01 老板:
+--      物料类型需要下拉选择+档案管理; 成本指导价格预留, 后期关联单据利润核算)
+-- ------------------------------------------------------------
+DROP TABLE IF EXISTS material_type_profiles;
+CREATE TABLE material_type_profiles (
+    id              INT AUTO_INCREMENT PRIMARY KEY,
+    type_code       VARCHAR(32)  NOT NULL UNIQUE    COMMENT '物料类型编码, 与 products.material_type 同值',
+    name            VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '显示名(默认同编码)',
+    guide_cost_price DECIMAL(12,2) DEFAULT NULL     COMMENT '成本指导价格(预留, 后期关联单据利润核算)',
+    price_currency  VARCHAR(8)   NOT NULL DEFAULT 'CNY' COMMENT '指导价格币种(预留)',
+    remark          VARCHAR(255) NOT NULL DEFAULT '',
+    is_active       TINYINT(1)   NOT NULL DEFAULT 1,
+    created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='物料类型档案(成本指导价预留)';
+
 -- 恢复外键检查 (与文件开头的 SET FOREIGN_KEY_CHECKS=0 配对)
 SET FOREIGN_KEY_CHECKS=1;

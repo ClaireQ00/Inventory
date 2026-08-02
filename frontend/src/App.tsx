@@ -2,10 +2,12 @@
 // 定位: 录入/导入/操作全部在这里; Streamlit (8501) 只做查询、报表、校验日志
 import { App as AntApp, ConfigProvider, Layout, Menu, Typography } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
-import { FormOutlined, HomeOutlined } from '@ant-design/icons'
+import { FormOutlined, HomeOutlined, InboxOutlined } from '@ant-design/icons'
 import { Link, Route, Routes, useLocation } from 'react-router'
 import Home from './pages/Home'
 import ProductEntry from './pages/ProductEntry'
+import AuxMaterials from './pages/AuxMaterials'
+import AuxStock from './pages/AuxStock'
 
 const { Header, Sider, Content } = Layout
 
@@ -39,6 +41,13 @@ export default function App() {
                       { key: '/entry/rate', label: '💱 汇率（下一阶段）', disabled: true },
                     ],
                   },
+                  {
+                    key: 'aux', icon: <InboxOutlined />, label: '辅料管理',
+                    children: [
+                      { key: '/aux/materials', label: <Link to="/aux/materials">🗂️ 辅料档案</Link> },
+                      { key: '/aux/stock', label: <Link to="/aux/stock">📦 收发存</Link> },
+                    ],
+                  },
                 ]}
               />
             </Sider>
@@ -46,6 +55,8 @@ export default function App() {
               <Routes>
                 <Route path="/" element={<Home />} />
                 <Route path="/entry/product" element={<ProductEntry />} />
+                <Route path="/aux/materials" element={<AuxMaterials />} />
+                <Route path="/aux/stock" element={<AuxStock />} />
               </Routes>
             </Content>
           </Layout>

@@ -152,6 +152,8 @@ services:
       # 16 步校验接口只读 CSV
       - ./data/csv:/app/data/csv:ro
       - ./data/logs:/app/data/logs:ro
+      # 辅料附件落盘 (标签纸图纸/样张, DB 只存路径+sha256)
+      - ./data/attachments:/app/data/attachments
     depends_on:
       db:
         condition: service_healthy

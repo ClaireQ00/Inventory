@@ -29,7 +29,8 @@
 
 ## 2. 表清单总览
 
-共 **25 张表**(18 张主表 + 7 张明细表),全部源自 `sql/01_schema.sql`,与 `tools/local_validator.py::SQLITE_SCHEMA` 一一对应。
+共 **30 张表**(22 张主表 + 7 张明细表 + 1 张档案表),全部源自 `sql/01_schema.sql`。
+其中模块十"生产辅料"5 张为 2026-08-01 新增(计划见 `docs/AUX_MATERIALS_PLAN.md`),不进 CSV 流水线,纯前端/API 写入。
 
 | # | 表名 | 所属模块 | 职责 | 含明细子表 |
 | --- | --- | --- | --- | --- |
@@ -58,6 +59,11 @@
 | 23 | `quotation_params` | 报价 | 报价全局参数(键值对,如默认汇率/币种/有效期) | — |
 | 24 | `quotations` | 报价 | 报价主表,简要报价(brief)与正式 QT(formal)共用 | ✅ `quotation_items` |
 | 25 | `quotation_items` | 报价 | 报价明细(KG×系数定价,4 个派生字段) | — |
+| 26 | `aux_materials` | 生产辅料 | 辅料主档(标签纸先行,形状/尺寸/安全库存);用料=半成品后续独立模块 | — |
+| 27 | `aux_inventory` | 生产辅料 | 辅料当前库存(辅料 + 仓库 = 一行) | — |
+| 28 | `aux_stock_moves` | 生产辅料 | 辅料收发流水(单表代替单头+明细,出库带合同号溯源) | — |
+| 29 | `aux_attachments` | 生产辅料 | 辅料附件登记(文件落盘 `data/attachments/`,DB 存路径+sha256) | — |
+| 30 | `material_type_profiles` | 生产辅料 | 物料类型档案(下拉源;成本指导价格预留,后期关联利润核算) | — |
 
 > **调拨没有独立表**——它复用 `stock_in` + `stock_out`,通过 `transfer_ref` 软关联实现。设计理由见 §6。
 

@@ -552,3 +552,325 @@ def live_derive_products(data: dict) -> tuple[dict, set, list, float | None, str
     density = calc_density(row)
     group = resolve_category_group(row.get("product_category"))
     return row, computed, msgs, density, group
+
+
+# ──────────────────────────────────────────────────────────────
+# 生产辅料 (标签纸等) — 档案/收发存/需求测算 (2026-08-01 M1+M2)
+# 计划: docs/AUX_MATERIALS_PLAN.md (Q1-Q7 已定案)
+# 范围: 标签纸=实体收发存; 用料=半成品原材料后续独立模块; 打线/米标/物料类型=工艺档案
+# ──────────────────────────────────────────────────────────────
+AUX_MATERIAL_RULES = {
+    "aux_code": {"required": True, "kind": "str", "max": 32},
+    "aux_type": {"kind": "enum", "values": ["label_paper", "packaging", "other"]},
+    "name": {"kind": "str", "max": 64},
+    "shape": {"kind": "str", "max": 8},
+    "width_mm": {"kind": "posnum"},
+    "height_mm": {"kind": "posnum"},
+    "material_desc": {"kind": "str", "max": 64},
+    "supplier_code": {"kind": "str", "fk": ("suppliers", "code", "供应商")},
+    "unit": {"kind": "str", "max": 16},
+    "pcs_per_unit": {"kind": "posnum"},
+    "min_stock": {"kind": "posnum"},
+    "remark": {"kind": "str", "max": 255},
+}
+
+# 出入库方向各自的来源类型白名单
+AUX_SOURCE_TYPES = {
+    "in": ("purchase", "adjust"),
+    "out": ("production_use", "scrap", "adjust"),
+}
+
+
+def _validate_with_rules(rules: dict, data: dict, conn) -> list[str]:
+    """通用字段校验 (复用 validate_fields 的 kind 语义, 但作用于任意规则表)"""
+    errors: list[str] = []
+    for field, rule in rules.items():
+        v = data.get(field)
+        empty = v is None or (isinstance(v, str) and v.strip() == "")
+        if rule.get("required") and empty:
+            errors.append(f"缺少必填字段: {field}")
+            continue
+        if empty:
+            continue
+        kind = rule.get("kind")
+        if kind == "posnum":
+            try:
+                if float(v) <= 0:
+                    errors.append(f"{field} 必须是正数, 收到: {v}")
+            except (TypeError, ValueError):
+                errors.append(f"{field} 必须是数字, 收到: {v}")
+        elif kind == "enum" and v not in rule["values"]:
+            errors.append(f"{field} 必须是 {rule['values']} 之一, 收到: {v}")
+        elif kind == "str" and rule.get("max") and len(str(v)) > rule["max"]:
+            errors.append(f"{field} 超长 (>{rule['max']} 字符)")
+        if rule.get("fk") and conn is not None:
+            fk_table, fk_col, fk_label = rule["fk"]
+            with conn.cursor() as cur:
+                cur.execute(f"SELECT 1 FROM {fk_table} WHERE {fk_col}=%s LIMIT 1", (v,))
+                if not cur.fetchone():
+                    errors.append(f"{field}={v}: {fk_label}不存在")
+    return errors
+
+
+def list_material_type_profiles() -> list[dict]:
+    """物料类型档案 (录入页下拉源; 成本指导价预留)"""
+    return list_options(
+        "SELECT type_code, name, guide_cost_price, price_currency FROM material_type_profiles "
+        "WHERE is_active=1 ORDER BY type_code"
+    )
+
+
+def aux_list_materials(aux_type: str | None = None) -> list[dict]:
+    """辅料档案列表, 带库存合计"""
+    where = "WHERE m.is_active=1"
+    params: tuple = ()
+    if aux_type:
+        where += " AND m.aux_type=%s"
+        params = (aux_type,)
+    return list_options(
+        f"""SELECT m.*, COALESCE(SUM(i.quantity), 0) AS stock_total
+            FROM aux_materials m
+            LEFT JOIN aux_inventory i ON i.aux_code = m.aux_code
+            {where}
+            GROUP BY m.id ORDER BY m.aux_code""",
+        params,
+    )
+
+
+def aux_create_material(data: dict, operator: str = "frontend-react") -> dict:
+    """新增辅料档案: 字段校验 + 查重 + 落库 + 审计"""
+    conn = get_connection()
+    try:
+        errors = _validate_with_rules(AUX_MATERIAL_RULES, data, conn)
+        if not errors and data.get("aux_code"):
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1 FROM aux_materials WHERE aux_code=%s LIMIT 1", (data["aux_code"],))
+                if cur.fetchone():
+                    errors.append(f"唯一键冲突: aux_code = {data['aux_code']} 已存在")
+        if errors:
+            return {"ok": False, "errors": errors, "record_id": None}
+        clean = {k: v for k, v in data.items()
+                 if k in AUX_MATERIAL_RULES and v is not None and v != ""}
+        cols = ", ".join(clean.keys())
+        phs = ", ".join(["%s"] * len(clean))
+        with conn.cursor() as cur:
+            cur.execute(f"INSERT INTO aux_materials ({cols}) VALUES ({phs})", tuple(clean.values()))
+            record_id = cur.lastrowid
+        write_audit(conn, "aux_materials", record_id, "INSERT", None, clean, operator)
+        conn.commit()
+        return {"ok": True, "errors": [], "record_id": record_id}
+    except Exception as e:  # noqa: BLE001
+        conn.rollback()
+        return {"ok": False, "errors": [f"数据库写入失败: {e}"], "record_id": None}
+    finally:
+        conn.close()
+
+
+def aux_inventory_list(low_only: bool = False) -> list[dict]:
+    """辅料库存查询 (低库存=有安全库存且存量低于它)"""
+    having = "HAVING low_stock=1" if low_only else ""
+    return list_options(
+        f"""SELECT i.aux_code, m.name, m.unit, m.min_stock, i.warehouse_code, w.name AS warehouse_name,
+                   i.quantity, i.updated_at,
+                   (m.min_stock IS NOT NULL AND i.quantity < m.min_stock) AS low_stock
+            FROM aux_inventory i
+            JOIN aux_materials m ON m.aux_code = i.aux_code
+            JOIN warehouses w ON w.code = i.warehouse_code
+            ORDER BY i.aux_code, i.warehouse_code"""
+    ) if not low_only else list_options(
+        """SELECT i.aux_code, m.name, m.unit, m.min_stock, i.warehouse_code, w.name AS warehouse_name,
+                  i.quantity, i.updated_at, 1 AS low_stock
+           FROM aux_inventory i
+           JOIN aux_materials m ON m.aux_code = i.aux_code
+           JOIN warehouses w ON w.code = i.warehouse_code
+           WHERE m.min_stock IS NOT NULL AND i.quantity < m.min_stock
+           ORDER BY i.aux_code"""
+    )
+
+
+def aux_stock_move(aux_code: str, warehouse_code: str, direction: str, qty: int,
+                   source_type: str, source_no: str = "", operator: str = "frontend-react",
+                   move_date: str | None = None, remark: str = "") -> dict:
+    """辅料收发 (M2 核心): 单事务内 锁库存行 → 校验 → 改库存 → 写流水 → 审计。
+
+    护栏:
+      - 出库库存不足 → 回滚拦截 (脏数据不进库)
+      - after_qty 由库存行算, 不信任前端
+    """
+    import uuid as _uuid
+    errors: list[str] = []
+    if direction not in ("in", "out"):
+        errors.append(f"direction 必须是 in/out, 收到: {direction}")
+    if source_type not in AUX_SOURCE_TYPES.get(direction, ()):
+        errors.append(f"{direction} 库的来源类型必须是 {AUX_SOURCE_TYPES.get(direction)}, 收到: {source_type}")
+    try:
+        qty = int(qty)
+        if qty <= 0:
+            errors.append(f"数量必须是正整数, 收到: {qty}")
+    except (TypeError, ValueError):
+        errors.append(f"数量必须是正整数, 收到: {qty}")
+        qty = 0
+    move_date = move_date or date.today().isoformat()
+    if not _is_date(move_date):
+        errors.append(f"move_date 必须是日期, 收到: {move_date}")
+    if errors:
+        return {"ok": False, "errors": errors, "move_no": None, "after_qty": None}
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            # 存在性
+            cur.execute("SELECT 1 FROM aux_materials WHERE aux_code=%s AND is_active=1 LIMIT 1", (aux_code,))
+            if not cur.fetchone():
+                conn.rollback()
+                return {"ok": False, "errors": [f"辅料不存在或已停用: {aux_code}"], "move_no": None, "after_qty": None}
+            cur.execute("SELECT 1 FROM warehouses WHERE code=%s LIMIT 1", (warehouse_code,))
+            if not cur.fetchone():
+                conn.rollback()
+                return {"ok": False, "errors": [f"仓库不存在: {warehouse_code}"], "move_no": None, "after_qty": None}
+            # 锁库存行
+            cur.execute(
+                "SELECT quantity FROM aux_inventory WHERE aux_code=%s AND warehouse_code=%s FOR UPDATE",
+                (aux_code, warehouse_code),
+            )
+            row = cur.fetchone()
+            current = int(row["quantity"]) if row else 0
+            if direction == "out" and current < qty:
+                conn.rollback()
+                return {"ok": False,
+                        "errors": [f"库存不足: {aux_code}@{warehouse_code} 当前 {current} 张, 要出库 {qty} 张"],
+                        "move_no": None, "after_qty": current}
+            after = current + qty if direction == "in" else current - qty
+            if row:
+                cur.execute(
+                    "UPDATE aux_inventory SET quantity=%s WHERE aux_code=%s AND warehouse_code=%s",
+                    (after, aux_code, warehouse_code),
+                )
+            else:
+                cur.execute(
+                    "INSERT INTO aux_inventory (aux_code, warehouse_code, quantity) VALUES (%s,%s,%s)",
+                    (aux_code, warehouse_code, after),
+                )
+            move_no = f"AX{'IN' if direction == 'in' else 'OUT'}{move_date.replace('-', '')}-{_uuid.uuid4().hex[:6].upper()}"
+            signed = qty if direction == "in" else -qty
+            cur.execute(
+                """INSERT INTO aux_stock_moves
+                   (move_no, aux_code, warehouse_code, direction, change_qty, after_qty,
+                    source_type, source_no, operator, move_date, remark)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                (move_no, aux_code, warehouse_code, direction, signed, after,
+                 source_type, source_no, operator, move_date, remark),
+            )
+            move_id = cur.lastrowid
+        write_audit(conn, "aux_stock_moves", move_id, "INSERT", None,
+                    {"move_no": move_no, "aux_code": aux_code, "qty": signed, "after": after}, operator)
+        conn.commit()
+        return {"ok": True, "errors": [], "move_no": move_no, "after_qty": after}
+    except Exception as e:  # noqa: BLE001
+        conn.rollback()
+        return {"ok": False, "errors": [f"收发失败: {e}"], "move_no": None, "after_qty": None}
+    finally:
+        conn.close()
+
+
+def aux_moves(aux_code: str | None = None, limit: int = 200) -> list[dict]:
+    """辅料收发流水账 (新的在前)"""
+    if aux_code:
+        return list_options(
+            "SELECT * FROM aux_stock_moves WHERE aux_code=%s ORDER BY id DESC LIMIT %s",
+            (aux_code, limit),
+        )
+    return list_options("SELECT * FROM aux_stock_moves ORDER BY id DESC LIMIT %s", (limit,))
+
+
+def aux_label_demand(contract_no: str) -> dict:
+    """合同标签纸需求测算 (M3 核心, Q1 默认: 每卷产品 1 张标签; Q6: 只提示不扣减)。
+
+    链条: 合同明细.material_id → products.label_paper → aux_materials(LP-前缀) → aux_inventory
+    """
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM sales_contracts WHERE contract_no=%s LIMIT 1", (contract_no,))
+            if not cur.fetchone():
+                return {"contract_no": contract_no, "found": False, "lines": [], "all_sufficient": None}
+            cur.execute(
+                """SELECT p.label_paper AS lp, SUM(ci.quantity) AS required
+                   FROM sales_contract_items ci
+                   JOIN products p ON p.material_id = ci.material_id
+                   WHERE ci.contract_no=%s AND p.label_paper IS NOT NULL AND p.label_paper!=''
+                   GROUP BY p.label_paper""",
+                (contract_no,),
+            )
+            rows = list(cur.fetchall())
+        lines = []
+        for r in rows:
+            aux_code = f"LP-{r['lp']}"
+            with conn.cursor() as cur:
+                cur.execute(
+                    """SELECT m.name, m.unit, COALESCE(SUM(i.quantity),0) AS in_stock
+                       FROM aux_materials m
+                       LEFT JOIN aux_inventory i ON i.aux_code = m.aux_code
+                       WHERE m.aux_code=%s GROUP BY m.aux_code""",
+                    (aux_code,),
+                )
+                stock_row = cur.fetchone()
+            required = int(r["required"])
+            in_stock = int(stock_row["in_stock"]) if stock_row else 0
+            lines.append({
+                "label_paper": r["lp"],
+                "aux_code": aux_code,
+                "name": stock_row["name"] if stock_row else f"(辅料库未建档: {aux_code})",
+                "unit": stock_row["unit"] if stock_row else "张",
+                "required": required,
+                "in_stock": in_stock,
+                "shortage": max(0, required - in_stock),
+                "profile_missing": stock_row is None,
+            })
+        return {
+            "contract_no": contract_no,
+            "found": True,
+            "lines": lines,
+            "all_sufficient": all(l["shortage"] == 0 and not l["profile_missing"] for l in lines),
+        }
+    finally:
+        conn.close()
+
+
+def aux_add_attachment(aux_code: str, file_name: str, file_type: str, file_path: str,
+                       file_size: int, sha256: str, uploaded_by: str) -> dict:
+    """登记辅料附件 (文件已由 API 层落盘)。sha256 同辅料下去重"""
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id FROM aux_attachments WHERE aux_code=%s AND sha256=%s LIMIT 1",
+                (aux_code, sha256),
+            )
+            dup = cur.fetchone()
+            if dup:
+                return {"ok": True, "errors": [], "record_id": dup["id"], "duplicate": True}
+            cur.execute(
+                """INSERT INTO aux_attachments
+                   (aux_code, file_name, file_type, file_path, file_size, sha256, uploaded_by)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s)""",
+                (aux_code, file_name, file_type, file_path, file_size, sha256, uploaded_by),
+            )
+            record_id = cur.lastrowid
+        write_audit(conn, "aux_attachments", record_id, "INSERT", None,
+                    {"aux_code": aux_code, "file_name": file_name}, uploaded_by)
+        conn.commit()
+        return {"ok": True, "errors": [], "record_id": record_id, "duplicate": False}
+    except Exception as e:  # noqa: BLE001
+        conn.rollback()
+        return {"ok": False, "errors": [f"附件登记失败: {e}"], "record_id": None, "duplicate": False}
+    finally:
+        conn.close()
+
+
+def aux_attachments(aux_code: str) -> list[dict]:
+    return list_options(
+        "SELECT id, aux_code, file_name, file_type, file_size, uploaded_by, created_at "
+        "FROM aux_attachments WHERE aux_code=%s ORDER BY id DESC",
+        (aux_code,),
+    )

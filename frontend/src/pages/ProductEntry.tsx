@@ -82,8 +82,10 @@ export default function ProductEntry() {
   const [inch, setInch] = useState('')
   const inchDirty = useRef(false)
   const [inchOptions, setInchOptions] = useState<string[]>([])
-  // 按客户历史值下拉 (喷码/物料类型/用料/打线/米标, 与品牌同款: 下拉+可手填)
+  // 按客户历史值下拉 (喷码/用料/打线/米标, 与品牌同款: 下拉+可手填)
   const [fieldOpts, setFieldOpts] = useState<Record<string, string[]>>({})
+  // 物料类型: 档案库驱动 (material_type_profiles, 成本指导价预留), 客户历史值作补充
+  const [mtArchive, setMtArchive] = useState<string[]>([])
   // 印花循环次数: 默认跟随标称米数, 手改后不再跟随
   const mmCountDirty = useRef(false)
   const [previewOpen, setPreviewOpen] = useState(false)
@@ -99,6 +101,9 @@ export default function ProductEntry() {
     api.customers().then(setCustomers).catch((e) => message.error(`客户列表加载失败: ${e.message}`))
     api.categories().then(setCategories).catch(() => {})
     api.nominalInches().then(setInchOptions).catch(() => {})
+    api.materialTypeProfiles()
+      .then((list) => setMtArchive(list.map((t) => t.type_code)))
+      .catch(() => {})
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── 选客户 → 自动建议物料编码 + 拉该客户的品牌清单 ──
@@ -342,12 +347,12 @@ export default function ProductEntry() {
             />
           </Col>
           <Col span={8}>
-            <Text type="secondary">物料类型（该客户用过的，可手填）</Text>
+            <Text type="secondary">物料类型（档案库下拉，可手填；成本指导价预留）</Text>
             <AutoComplete
               style={{ width: '100%' }}
-              value={form.material_type} placeholder="如 出口线管"
+              value={form.material_type} placeholder="如 出口线管-小内径"
               onChange={(v) => set('material_type', v)}
-              options={(fieldOpts.material_type || []).map((o) => ({ value: o }))}
+              options={[...new Set([...mtArchive, ...(fieldOpts.material_type || [])])].map((o) => ({ value: o }))}
               filterOption={(input, option) => (option?.value as string)?.includes(input)}
             />
           </Col>
