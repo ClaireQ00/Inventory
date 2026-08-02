@@ -12,6 +12,29 @@ import { api, type Customer, type DeriveResp } from '@/api/client'
 
 const { Text, Title } = Typography
 
+// 预览弹窗字段名对照: 中文（英文键名）——同事核对时知道每列是什么 (2026-08-02 老板要求)
+const FIELD_LABELS: Record<string, string> = {
+  material_id: '物料编码', customer_code: '所属客户', brand: '品牌',
+  product_category: '产品类别', material_type: '物料类型', spec: '规格描述',
+  inner_diameter: '内径 (mm)', inner_diameter_inch: '标称英寸',
+  outer_diameter: '外径 (mm)', id_x_od: '内径×外径', thickness: '厚度 (mm)',
+  length: '长度 (M)', spec_meter: '标称米数 (M)',
+  virtual_weight: '虚重 (kg)', virtual_length: '虚米 (m)', wire_spacing: '线距/簧距',
+  weight_per_meter: '米重 (g/m)', weight: '单重 (KG)',
+  appearance_inner: '外观内径 (mm)', appearance_outer: '外观外径 (mm)',
+  appearance_height: '外观高度 (mm)', volume: '体积 (m³)',
+  package: '包装', label_paper: '标签纸', material_used: '用料',
+  wire_pattern: '打线', coil_type: '盘型', pressure: '压力 (Bar)',
+  spray_code: '喷码', meter_mark: '米标', meter_mark_count: '印花循环次数',
+  remark: '备注', is_active: '是否启用',
+}
+
+/** 预览值显示微调: is_active 转中文, 其余原样 */
+function previewValue(key: string, v: unknown): string {
+  if (key === 'is_active') return Number(v) ? '启用' : '停用'
+  return String(v)
+}
+
 interface FormState {
   // A. 标识与基本信息
   customer_code: string | null
@@ -563,8 +586,12 @@ export default function ProductEntry() {
                 .filter(([, v]) => v !== null && v !== '')
                 .map(([k, v]) => (
                   <tr key={k}>
-                    <td style={{ padding: '4px 8px', color: '#888', width: 180, borderBottom: '1px solid #f0f0f0' }}>{k}</td>
-                    <td style={{ padding: '4px 8px', borderBottom: '1px solid #f0f0f0' }}>{String(v)}</td>
+                    <td style={{ padding: '4px 8px', color: '#888', width: 220, borderBottom: '1px solid #f0f0f0' }}>
+                      {FIELD_LABELS[k] ? (
+                        <span>{FIELD_LABELS[k]} <Text type="secondary" style={{ fontSize: 12 }}>({k})</Text></span>
+                      ) : k}
+                    </td>
+                    <td style={{ padding: '4px 8px', borderBottom: '1px solid #f0f0f0' }}>{previewValue(k, v)}</td>
                   </tr>
                 ))}
             </tbody>
