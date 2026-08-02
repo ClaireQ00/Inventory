@@ -86,6 +86,9 @@ export default function ProductEntry() {
   const [fieldOpts, setFieldOpts] = useState<Record<string, string[]>>({})
   // 物料类型: 档案库驱动 (material_type_profiles, 成本指导价预留), 客户历史值作补充
   const [mtArchive, setMtArchive] = useState<string[]>([])
+  // 包装/标签纸: 辅料档案库驱动 (aux_materials), 可手填新值 (2026-08-02 老板要求)
+  const [pkgOpts, setPkgOpts] = useState<{ value: string; label: string }[]>([])
+  const [lpOpts, setLpOpts] = useState<{ value: string; label: string }[]>([])
   // 印花循环次数: 默认跟随标称米数, 手改后不再跟随
   const mmCountDirty = useRef(false)
   const [previewOpen, setPreviewOpen] = useState(false)
@@ -103,6 +106,16 @@ export default function ProductEntry() {
     api.nominalInches().then(setInchOptions).catch(() => {})
     api.materialTypeProfiles()
       .then((list) => setMtArchive(list.map((t) => t.type_code)))
+      .catch(() => {})
+    // 包装/标签纸下拉: 辅料档案库 (种子含 102 种历史包装 + 3 款标签纸)
+    api.auxMaterials('packaging')
+      .then((list) => setPkgOpts(list.map((m) => ({ value: String(m.name), label: String(m.name) }))))
+      .catch(() => {})
+    api.auxMaterials('label_paper')
+      .then((list) => setLpOpts(list.map((m) => {
+        const rCode = String(m.aux_code).replace(/^LP-/, '')   // products.label_paper 存原 R/C 编号
+        return { value: rCode, label: `${rCode} · ${String(m.name)}` }
+      })))
       .catch(() => {})
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -280,7 +293,8 @@ export default function ProductEntry() {
   )
 
   const strField = (
-    key: keyof FormState, label: string, placeholder = '', span = 4, opts?: string[],
+    key: keyof FormState, label: string, placeholder = '', span = 4,
+    opts?: (string | { value: string; label: string })[],
   ) => (
     <Col span={span}>
       <Text type="secondary">{label}</Text>
@@ -289,7 +303,7 @@ export default function ProductEntry() {
           style={{ width: '100%' }}
           value={form[key] as string} placeholder={placeholder}
           onChange={(v) => set(key, v as never)}
-          options={opts.map((o) => ({ value: o }))}
+          options={opts.map((o) => (typeof o === 'string' ? { value: o } : o))}
           filterOption={(input, option) => (option?.value as string)?.includes(input)}
         />
       ) : (
@@ -435,8 +449,8 @@ export default function ProductEntry() {
                   {numField('appearance_inner', '外观内径 (mm)', 1)}
                   {numField('appearance_outer', '外观外径 (mm)', 1)}
                   {numField('appearance_height', '外观高度 (mm)', 1)}
-                  {strField('package', '包装', '如 PE膜')}
-                  {strField('label_paper', '标签纸', 'R=长方 C=圆环')}
+                  {strField('package', '包装（辅料档案下拉，可手填新包装）', '如 PE膜', 4, pkgOpts)}
+                  {strField('label_paper', '标签纸（辅料档案下拉，可手填）', 'R=长方 C=圆环', 4, lpOpts)}
                   {strField('coil_type', '盘型', '如 内径30高7层')}
                 </Row>
               </>

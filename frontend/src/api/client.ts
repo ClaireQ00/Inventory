@@ -70,7 +70,8 @@ export const api = {
   materialTypeProfiles: () =>
     req<{ type_code: string; name: string; guide_cost_price: number | null }[]>('/aux/material-types'),
   // ── 生产辅料 (标签纸等) ──
-  auxMaterials: () => req<Record<string, unknown>[]>('/aux/materials'),
+  auxMaterials: (auxType?: string) =>
+    req<Record<string, unknown>[]>(`/aux/materials${auxType ? `?aux_type=${encodeURIComponent(auxType)}` : ''}`),
   auxCreate: (data: Record<string, unknown>, operator: string) =>
     post<{ ok: boolean; errors: string[]; record_id: number | null }>('/aux/materials', { data, operator }),
   auxInventory: (lowOnly = false) =>
