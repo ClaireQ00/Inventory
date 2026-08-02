@@ -7,6 +7,9 @@
 # 绕过: 紧急情况可 git push --no-verify (慎用, 外泄不可逆)
 # ============================================================
 
+# 认主检查: 只在 inventory 仓库里生效 (全局模板会把它带到别的仓库, 不能误拦)
+[ -f "$(git rev-parse --show-toplevel 2>/dev/null)/.inventory-guard" ] || exit 0
+
 BLOCKED_REGEX='^(data/|mysql-data/|nocodb-data/|\.env$|\.env\.|private/)|\.xlsx$'
 
 # pre-push 从 stdin 读: <local ref> <local sha> <remote ref> <remote sha>
