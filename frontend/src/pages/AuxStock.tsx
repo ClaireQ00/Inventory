@@ -31,7 +31,8 @@ export default function AuxStock() {
   }, [])
 
   useEffect(() => {
-    api.auxMaterials().then(setMaterials).catch((e) => message.error(`辅料档案加载失败: ${e.message}`))
+    // 只拉标签纸: 包装/喷码等是纯档案不计量, 不出现在收发存选择器里 (后端也有同款护栏)
+    api.auxMaterials('label_paper').then(setMaterials).catch((e) => message.error(`辅料档案加载失败: ${e.message}`))
     api.warehouses().then(setWarehouses).catch(() => {})
     reloadStock()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps

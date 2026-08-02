@@ -718,6 +718,12 @@ def _auto_archive_value(field: str, value: str | None, operator: str) -> str | N
                 (code, aux_type, name, f"录入物料时手填新{label}自动建档 (操作人 {operator})"),
             )
             record_id = cur.lastrowid
+            # 标签纸是计量辅料: 建档即给 AUX 仓零库存行
+            if aux_type == "label_paper":
+                cur.execute(
+                    "INSERT IGNORE INTO aux_inventory (aux_code, warehouse_code, quantity) VALUES (%s, 'AUX', 0)",
+                    (code,),
+                )
         write_audit(conn, "aux_materials", record_id, "INSERT", None,
                     {"aux_code": code, "aux_type": aux_type, "name": name, "auto": True}, operator)
         conn.commit()
@@ -766,6 +772,12 @@ def aux_create_material(data: dict, operator: str = "frontend-react") -> dict:
         with conn.cursor() as cur:
             cur.execute(f"INSERT INTO aux_materials ({cols}) VALUES ({phs})", tuple(clean.values()))
             record_id = cur.lastrowid
+            # 标签纸是计量辅料: 建档即给 AUX 仓零库存行, 收发存页立即可见可操作
+            if clean.get("aux_type") == "label_paper":
+                cur.execute(
+                    "INSERT IGNORE INTO aux_inventory (aux_code, warehouse_code, quantity) VALUES (%s, 'AUX', 0)",
+                    (clean["aux_code"],),
+                )
         write_audit(conn, "aux_materials", record_id, "INSERT", None, clean, operator)
         conn.commit()
         return {"ok": True, "errors": [], "record_id": record_id}
@@ -823,11 +835,17 @@ def aux_stock_move(aux_code: str, warehouse_code: str, direction: str, qty: int,
     conn = get_connection()
     try:
         with conn.cursor() as cur:
-            # 存在性
-            cur.execute("SELECT 1 FROM aux_materials WHERE aux_code=%s AND is_active=1 LIMIT 1", (aux_code,))
-            if not cur.fetchone():
+            # 存在性 + 类型护栏: 纯档案辅料(包装/喷码等)不计量, 不能收发
+            cur.execute("SELECT aux_type FROM aux_materials WHERE aux_code=%s AND is_active=1 LIMIT 1", (aux_code,))
+            mat = cur.fetchone()
+            if not mat:
                 conn.rollback()
                 return {"ok": False, "errors": [f"辅料不存在或已停用: {aux_code}"], "move_no": None, "after_qty": None}
+            if mat["aux_type"] != "label_paper":
+                conn.rollback()
+                return {"ok": False,
+                        "errors": [f"{aux_code} 是{mat['aux_type']}类纯档案辅料, 不计量不进收发存 (目前只有标签纸管库存)"],
+                        "move_no": None, "after_qty": None}
             cur.execute("SELECT 1 FROM warehouses WHERE code=%s LIMIT 1", (warehouse_code,))
             if not cur.fetchone():
                 conn.rollback()

@@ -884,9 +884,10 @@ DROP TABLE IF EXISTS aux_materials;
 CREATE TABLE aux_materials (
     id              INT AUTO_INCREMENT PRIMARY KEY COMMENT '内部ID',
     aux_code        VARCHAR(32)  NOT NULL UNIQUE    COMMENT '辅料编码, 如 LP-R02502 (标签纸=LP-+原R/C编号)',
-    aux_type        ENUM('label_paper','packaging','other')
-                                 NOT NULL DEFAULT 'label_paper' COMMENT '辅料类型: 标签纸/包装/其他(预留)。用料=半成品原材料后续独立模块',
-    name            VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '名称, 如 长方形标签 25×40',
+    aux_type        ENUM('label_paper','packaging','spray_code','meter_mark',
+                         'material_used','wire_pattern','coil_type','other')
+                                 NOT NULL DEFAULT 'label_paper' COMMENT '辅料类型: 标签纸/包装/喷码/米标/用料/打线/盘型/其他。除标签纸外均为纯档案不计量(2026-08-02 M1d 扩展, 与迁移 2026-08-02_aux_types.sql 一致)。半成品原材料后续独立模块',
+    name            VARCHAR(255) NOT NULL DEFAULT '' COMMENT '名称 (喷码等长文本可达 200+ 字符, 2026-08-02 由 64 加宽)',
     shape           VARCHAR(8)   NOT NULL DEFAULT '' COMMENT '形状: R=长方形/纸卡, C=圆环形 (沿用 products.label_paper 约定)',
     width_mm        DECIMAL(8,2) DEFAULT NULL        COMMENT '宽度(mm)',
     height_mm       DECIMAL(8,2) DEFAULT NULL        COMMENT '高度(mm)',
