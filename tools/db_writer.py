@@ -368,7 +368,8 @@ def list_options(sql: str, params=()) -> list[dict]:
     try:
         with conn.cursor() as cur:
             cur.execute(sql, params)
-            return cur.fetchall()
+            # PyMySQL fetchall 返回 tuple, 统一转 list (调用方有列表拼接操作)
+            return list(cur.fetchall())
     finally:
         conn.close()
 
