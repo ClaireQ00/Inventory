@@ -142,7 +142,7 @@
 - [ ] M4 [P2] **辅料校验报表**：local_validator 加辅料库存=流水合计一致性检查 + 低库存预警 + aux_type 扩展评估
 - [x] F2.3 [P1] **收款/汇率录入页迁移 React**：db_writer 新增 contract_receipt_summary（合同收款进度，第13步同口径）+ /api/options/contract-receipt-summary；RateEntry（币种/汇率4位小数/生效日期默认当月1号+最近10条汇率表）、ReceiptEntry（客户→合同下拉含"预收款"、选合同显示收款进度、单号默认 RC+日期、预览显示汇率带出+折CNY+rate_note）两个新页面，菜单/Home 接线。实测：预览 100 USD 带出 2026-08-01 汇率 6.7→折 670 CNY ✓；预收款落库 ✓；向已收满的 SC20260730001(7854.3) 再收 1 USD 被闸门拦截"累计收款 7855.30 已超合同总额"自动回滚 ✓（测试数据已清理，receipts/audit 恢复基线）
 - [x] F2.4 [P1] **Streamlit 录入中心下线**：导航撤掉"录入中心/导入中心"（函数本体保留不挂载，防引用断裂），操作中心（跑校验+克隆建物料）保留；Streamlit 回归纯查询/报表/校验日志。py_compile ✓、8501 HTTP 200 ✓、React dev 冒烟 /entry/receipt、/entry/rate 200 ✓（dev server 已关闭无残留）
-- [ ] F2.5 [P1] frontend 生产容器（Nginx 托管 dist/ + 反代 /api → api:8000），NAS 一键部署
+- [x] F2.5 [P1] **frontend 生产容器**（2026-08-02）：frontend/Dockerfile 多阶段构建（node 打包→nginx 托管，npm 清华镜像加速）+ nginx.conf（SPA 兜底、/api 反代 api:8000、附件上传 12MB 与后端对齐、assets 长缓存、gzip、校验长请求 120s 超时）+ compose 加 frontend 服务（FRONTEND_PORT 默认 8082 对局域网开放）+ .env.example/NAS_DEPLOY.md 同步。实测：首页/SPA 路由/反代 health/缓存头 ✓，通过反代上传+下载附件 sha256 一致 ✓（测试数据已清理）。**排障**：Docker Hub 拉镜像偶发 IPv6 超时，重试即过
 - [ ] F2.6 [P2] 报价/合同/发货录入（明细行可编辑表格 + 快照重量规则 ADR-0005）——React 可编辑表格是主战场
 
 ---

@@ -115,6 +115,16 @@ docker exec inventory-db mysql -uroot -p你的强密码A inventory_db \
 在你电脑浏览器打开：`http://NAS内网IP:8080`
 能出现 Adminer 登录页 = 容器层 OK，继续下一步。
 
+### 3.7 React 录入端（阶段二主力界面，2026-08-02 起）
+`docker compose up -d` 会一并拉起 `inventory-frontend` 容器（Nginx 托管 + 反代 /api）。
+同事日常用的是这个界面，不是 Adminer：
+
+- 浏览器打开 `http://NAS内网IP:8082`（FRONTEND_PORT 可调）
+- 物料/收款/汇率录入、辅料档案与收发存、合同标签需求提示全在这里
+- 想让外网同事用录入端，把第 5 步端口转发的 8080 换成 8082（或另加一条）
+
+验证：`curl http://NAS内网IP:8082/api/health` 返回 `{"ok":true,"db":"connected"}` 即全链路通。
+
 ---
 
 ## 第 4 步：配置 DDNS 域名
