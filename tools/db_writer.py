@@ -542,6 +542,49 @@ def distinct_field_values(customer_code: str, field: str, limit: int = 20) -> li
     return [r["v"] for r in rows]
 
 
+# 报价/合同头的"付款条件/包装条款"下拉预置值 (2026-08-02 老板: 付款条件以后影响账期计算/
+# 业务员提成/预计回款时间; 包装条款针对整单, 如打托盘/装箱/装袋。均为"预置+历史值下拉, 可手填"模式)
+PAYMENT_TERM_PRESETS = (
+    "TT 出厂前付清",
+    "TT 30% 定金, 70% 发货前付清",
+    "TT 30% 定金, 70% 见提单副本付款",
+    "月结 30 天",
+    "月结 60 天",
+    "LC 即期",
+)
+PACKING_PRESETS = (
+    "编织袋装",
+    "纸箱装",
+    "编织袋装+打托盘",
+    "纸箱装+打托盘",
+    "散装",
+    "按客户指定包装",
+)
+
+
+def doc_header_term_options(field: str, limit: int = 10) -> list[str]:
+    """付款条件/包装条款下拉清单: 预置值在前, 报价+合同的历史使用值(频次倒序)去重追加在后"""
+    if field == "payment_term":
+        presets = PAYMENT_TERM_PRESETS
+    elif field == "packing":
+        presets = PACKING_PRESETS
+    else:
+        raise ValueError(f"不允许下拉的字段: {field} (白名单: payment_term/packing)")
+    rows = list_options(
+        f"SELECT v, COUNT(*) AS cnt FROM ("
+        f"SELECT {field} AS v FROM quotations WHERE {field} IS NOT NULL AND {field}!='' "
+        f"UNION ALL "
+        f"SELECT {field} AS v FROM sales_contracts WHERE {field} IS NOT NULL AND {field}!=''"
+        f") t GROUP BY v ORDER BY cnt DESC LIMIT %s",
+        (limit,),
+    )
+    out = list(presets)
+    for r in rows:
+        if r["v"] not in out:
+            out.append(r["v"])
+    return out
+
+
 def live_derive_products(data: dict) -> tuple[dict, set, list, float | None, str | None]:
     """物料录入的实时派生 (Streamlit 每次输入变化重跑时调用):
 
@@ -1148,6 +1191,17 @@ def create_quotation(header: dict, items: list[dict], operator: str = "frontend-
         errors.append(f"报价日期无效: {quote_date}")
     if header.get("trade_terms") and header["trade_terms"] not in TRADE_TERMS:
         errors.append(f"贸易术语必须是 {TRADE_TERMS}, 收到: {header['trade_terms']}")
+    delivery_days = header.get("delivery_days")
+    if delivery_days not in (None, ""):
+        try:
+            delivery_days = int(delivery_days)
+            if delivery_days <= 0:
+                errors.append("交货时长必须是正整数(天)")
+        except (TypeError, ValueError):
+            errors.append(f"交货时长必须是正整数(天), 收到: {delivery_days}")
+            delivery_days = None
+    else:
+        delivery_days = None
     if not items:
         errors.append("至少需要一行明细")
     if errors:
@@ -1242,6 +1296,7 @@ def create_quotation(header: dict, items: list[dict], operator: str = "frontend-
                 "port_discharge": header.get("port_discharge") or "",
                 "payment_term": header.get("payment_term") or None,
                 "packing": header.get("packing") or None,
+                "delivery_days": delivery_days,
                 "remark": header.get("remark") or "",
             }
             _doc_insert(cur, "quotations", head_row)

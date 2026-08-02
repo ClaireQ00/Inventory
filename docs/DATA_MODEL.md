@@ -344,14 +344,14 @@ erDiagram
 - **关键字段**:
   - 标识:`quote_no`(如 `QT20260729001`)、`customer_code`、`quote_type`(ENUM `brief`/`formal`)、`version`(简要报价可多版本)
   - 派生关系:`parent_quote_no`(**自引用软关联**,正式 QT 指向其简要报价来源;`ON DELETE SET NULL`,类似调拨 `transfer_ref` 的软关联思路)
-  - 日期:`quote_date`、`valid_until`(有效期至)
+  - 日期:`quote_date`、`valid_until`(有效期至)、`delivery_days` INT(**交货时长(天)**,2026-08-02 加;报价阶段填预计天数,转合同时前端自动预填 `sales_contracts.delivery_deadline` = 签订日期+天数,可再改)
   - 金额四件套(R1):`total_amount` + `currency`(默认 USD) + `exchange_rate` + `total_amount_cny`(派生)
   - `total_volume`(展示用统计,= Σ 明细 `quotation_items.total_volume`,DECIMAL(10,2),跟 `shipping_records.total_cbm` 是两个概念)
   - **贸易/付款/包装条款**(2026-07-29 加,对齐 PI/QT 模板,转合同时拷贝到 `sales_contracts`):
     - `trade_terms` ENUM `FOB`/`CIF`/`CFR`/`EXW`(默认 `FOB`,与 `sales_contracts` 类型对齐)
     - `port_loading` / `port_discharge`(装运港 / 卸货港,如 `Qingdao` / `Jakarta`)
-    - `payment_term` TEXT(付款条件自由文本,如 `TT 30% DOWN PAYMENT AND THE BALANCE BEFORE COPY OF B/L`)
-    - `packing` TEXT(包装条款自由文本,如 `PACKED IN WOVEN BAGS OF 500 COILS EACH`)
+    - `payment_term` TEXT(付款条件;2026-08-02 起录入端为"预置+历史值下拉,可手填"——预置见 `db_writer.PAYMENT_TERM_PRESETS`,如 `TT 出厂前付清`/`月结 30 天`;**后续账期计算/业务员提成/预计回款时间都以此字段为依据,尽量选标准值**)
+    - `packing` TEXT(包装条款,针对整单;2026-08-02 起同为下拉+手填——预置见 `db_writer.PACKING_PRESETS`,如 `编织袋装+打托盘`)
     - **brief 阶段这 5 字段留空**,formal 阶段补齐;formal → SC 转单时连同明细一起拷贝
   - 状态机:`status` ENUM `draft`/`sent`/`confirmed`/`converted`/`cancelled`
   - 转单回填:`converted_contract_no`(转成销售合同后回填,衔接 `sales_contracts`)

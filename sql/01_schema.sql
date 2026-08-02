@@ -799,6 +799,7 @@ CREATE TABLE quotations (
     version             INT          NOT NULL DEFAULT 1 COMMENT '版本(简要报价多版本)',
     quote_date          DATE         NOT NULL          COMMENT '报价日期',
     valid_until         DATE         DEFAULT NULL      COMMENT '报价有效期至',
+    delivery_days       INT          DEFAULT NULL      COMMENT '交货时长(天): 从下单到可发货的预计天数(2026-08-02 新增)',
     -- 金额四件套(R1)
     total_amount        DECIMAL(14,2) NOT NULL DEFAULT 0.00 COMMENT '报价总金额(原币种)',
     currency            VARCHAR(3)   NOT NULL DEFAULT 'USD' COMMENT '币种(ISO 4217): USD/EUR/IDR...',

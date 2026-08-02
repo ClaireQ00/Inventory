@@ -478,6 +478,7 @@ CREATE TABLE IF NOT EXISTS quotations (
     version INTEGER NOT NULL DEFAULT 1,
     quote_date TEXT NOT NULL,
     valid_until TEXT,
+    delivery_days INTEGER,  -- 交货时长(天), 2026-08-02 加 (MySQL quotations 同步加列)
     -- 金额四件套 (R1)
     total_amount REAL NOT NULL DEFAULT 0,
     currency TEXT NOT NULL DEFAULT 'USD',

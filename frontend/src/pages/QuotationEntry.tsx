@@ -2,7 +2,7 @@
 // ADR-0005 快照重量: 行上单重从物料带出可覆盖, 单价=单重×系数, 全部后端重算
 import { useEffect, useState } from 'react'
 import {
-  App, Button, Card, Col, DatePicker, Input, Modal, Row, Select, Space,
+  App, AutoComplete, Button, Card, Col, DatePicker, Input, InputNumber, Modal, Row, Select, Space,
   Statistic, Tag, Typography,
 } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
@@ -20,14 +20,18 @@ export default function QuotationEntry() {
     quote_no: '', customer_code: null as string | null, quote_type: 'brief',
     quote_date: dayjs(), valid_until: null as dayjs.Dayjs | null,
     currency: 'USD', trade_terms: 'FOB', port_loading: '', port_discharge: '',
-    payment_term: '', packing: '', remark: '',
+    payment_term: '', packing: '', delivery_days: null as number | null, remark: '',
   })
+  const [paymentTermOpts, setPaymentTermOpts] = useState<string[]>([])
+  const [packingOpts, setPackingOpts] = useState<string[]>([])
   const [items, setItems] = useState<DocItem[]>([newItem(1)])
   const [operator, setOperator] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
     api.customers().then(setCustomers).catch((e) => message.error(`客户加载失败: ${e.message}`))
+    api.docHeaderTerms('payment_term').then(setPaymentTermOpts).catch(() => {})
+    api.docHeaderTerms('packing').then(setPackingOpts).catch(() => {})
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const suggestNo = () => {
@@ -59,7 +63,8 @@ export default function QuotationEntry() {
         valid_until: header.valid_until?.format('YYYY-MM-DD') || null,
         currency: header.currency, trade_terms: header.trade_terms,
         port_loading: header.port_loading, port_discharge: header.port_discharge,
-        payment_term: header.payment_term, packing: header.packing, remark: header.remark,
+        payment_term: header.payment_term, packing: header.packing,
+        delivery_days: header.delivery_days, remark: header.remark,
       }, validItems.map((it) => ({
         item_no: it.item_no, material_id: it.material_id,
         weight_per_unit: it.weight_per_unit, price_coefficient: it.price_coefficient,
@@ -115,12 +120,21 @@ export default function QuotationEntry() {
             <Input value={header.port_discharge} onChange={(e) => set('port_discharge', e.target.value)} placeholder="如 Jakarta" /></Col>
           <Col span={6}><Text type="secondary">有效期至</Text>
             <DatePicker style={{ width: '100%' }} value={header.valid_until} onChange={(v) => set('valid_until', v)} /></Col>
+          <Col span={6}><Text type="secondary">交货时长（天）</Text>
+            <InputNumber style={{ width: '100%' }} min={1} precision={0} value={header.delivery_days}
+              onChange={(v) => set('delivery_days', v)} placeholder="如 30" /></Col>
         </Row>
         <Row gutter={16} style={{ marginTop: 12 }}>
-          <Col span={12}><Text type="secondary">付款条件</Text>
-            <Input value={header.payment_term} onChange={(e) => set('payment_term', e.target.value)} placeholder="如 TT 30% AS DOWN PAYMENT..." /></Col>
-          <Col span={12}><Text type="secondary">包装条款</Text>
-            <Input value={header.packing} onChange={(e) => set('packing', e.target.value)} placeholder="如 PACKED IN WOVEN BAGS..." /></Col>
+          <Col span={12}><Text type="secondary">付款条件（可选预置/历史，可手填）</Text>
+            <AutoComplete style={{ width: '100%' }} value={header.payment_term}
+              onChange={(v) => set('payment_term', v)}
+              options={paymentTermOpts.map((t) => ({ value: t }))}
+              placeholder="如 TT 出厂前付清 / 月结 30 天..." /></Col>
+          <Col span={12}><Text type="secondary">包装条款（整单，可选预置/历史，可手填）</Text>
+            <AutoComplete style={{ width: '100%' }} value={header.packing}
+              onChange={(v) => set('packing', v)}
+              options={packingOpts.map((t) => ({ value: t }))}
+              placeholder="如 编织袋装+打托盘..." /></Col>
         </Row>
       </Card>
 

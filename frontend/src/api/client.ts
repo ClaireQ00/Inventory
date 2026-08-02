@@ -58,6 +58,8 @@ export const api = {
   brands: (customerCode: string) =>
     req<string[]>(`/options/brands?customer_code=${encodeURIComponent(customerCode)}`),
   nominalInches: () => req<string[]>('/options/nominal-inches'),
+  docHeaderTerms: (field: string) =>
+    req<string[]>(`/options/doc-header-terms?field=${encodeURIComponent(field)}`),
   fieldValues: (customerCode: string, field: string) =>
     req<string[]>(`/options/field-values?customer_code=${encodeURIComponent(customerCode)}&field=${encodeURIComponent(field)}`),
   warehouses: () => req<{ code: string; name: string }[]>('/options/warehouses'),

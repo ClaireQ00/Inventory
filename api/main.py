@@ -129,6 +129,15 @@ def opt_nominal_inches():
     return db_writer.nominal_inch_options()
 
 
+@app.get("/api/options/doc-header-terms")
+def opt_doc_header_terms(field: str):
+    """付款条件/包装条款下拉 (预置值+报价合同历史值, 可手填; field=payment_term|packing)"""
+    try:
+        return db_writer.doc_header_term_options(field)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
 @app.get("/api/options/warehouses")
 def opt_warehouses():
     return db_writer.list_options("SELECT code, name FROM warehouses ORDER BY code")

@@ -3,7 +3,7 @@
 // M3b: 合同落库成功后自动算标签纸需求, 缺料 WARN 不阻止 (领用出库才扣库存)
 import { useEffect, useState } from 'react'
 import {
-  Alert, App, Button, Card, Col, DatePicker, Input, Modal, Row, Select, Space,
+  Alert, App, AutoComplete, Button, Card, Col, DatePicker, Input, Modal, Row, Select, Space,
   Statistic, Tag, Typography,
 } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
@@ -31,6 +31,8 @@ export default function ContractEntry() {
     currency: 'USD', trade_terms: 'FOB', port_loading: '', port_discharge: '',
     payment_term: '', packing: '', remark: '',
   })
+  const [paymentTermOpts, setPaymentTermOpts] = useState<string[]>([])
+  const [packingOpts, setPackingOpts] = useState<string[]>([])
   const [items, setItems] = useState<DocItem[]>([newItem(1)])
   const [operator, setOperator] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -38,6 +40,8 @@ export default function ContractEntry() {
 
   useEffect(() => {
     api.customers().then(setCustomers).catch((e) => message.error(`客户加载失败: ${e.message}`))
+    api.docHeaderTerms('payment_term').then(setPaymentTermOpts).catch(() => {})
+    api.docHeaderTerms('packing').then(setPackingOpts).catch(() => {})
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const suggestNo = () => {
@@ -65,6 +69,8 @@ export default function ContractEntry() {
         trade_terms: String(h.trade_terms || prev.trade_terms),
         port_loading: String(h.port_loading || ''), port_discharge: String(h.port_discharge || ''),
         payment_term: String(h.payment_term || ''), packing: String(h.packing || ''),
+        // 报价上有交货时长(天)时, 自动预填交期=签订日期+天数, 可再改
+        delivery_deadline: h.delivery_days ? prev.sign_date.add(Number(h.delivery_days), 'day') : prev.delivery_deadline,
       }))
       setItems(d.items.map((it, i) => ({
         key: i + 1,
@@ -166,10 +172,14 @@ export default function ContractEntry() {
             <Input value={header.port_discharge} onChange={(e) => set('port_discharge', e.target.value)} /></Col>
           <Col span={4}><Text type="secondary">交货截止</Text>
             <DatePicker style={{ width: '100%' }} value={header.delivery_deadline} onChange={(v) => set('delivery_deadline', v)} /></Col>
-          <Col span={6}><Text type="secondary">付款条件</Text>
-            <Input value={header.payment_term} onChange={(e) => set('payment_term', e.target.value)} /></Col>
-          <Col span={5}><Text type="secondary">包装条款</Text>
-            <Input value={header.packing} onChange={(e) => set('packing', e.target.value)} /></Col>
+          <Col span={6}><Text type="secondary">付款条件（可选手填）</Text>
+            <AutoComplete style={{ width: '100%' }} value={header.payment_term}
+              onChange={(v) => set('payment_term', v)}
+              options={paymentTermOpts.map((t) => ({ value: t }))} /></Col>
+          <Col span={5}><Text type="secondary">包装条款（可选手填）</Text>
+            <AutoComplete style={{ width: '100%' }} value={header.packing}
+              onChange={(v) => set('packing', v)}
+              options={packingOpts.map((t) => ({ value: t }))} /></Col>
         </Row>
       </Card>
 
