@@ -528,6 +528,10 @@ CATEGORY_ALIASES = {
     "四胶三线 胶管": "线管",
     "黄色三胶一线 花线管": "线管",
     "蓝色三胶一线 花线管": "线管",
+    # 2026-08-11 产品数据全量核实补录 (原始数据双空格变体, 老板确认归线管 1.35)
+    "黄色三胶一线  花线管": "线管",
+    "牛筋管  磨沙流体管 淡蓝色": "线管",
+    "内白外黄三胶一线  邢培栩": "线管",
     "工程管": "线管",
     "工程管内瓷白中黑（黑无味）外透明三胶双编": "线管",
     "黑园林工程高压专用管": "线管",
@@ -583,6 +587,11 @@ def resolve_category_group(raw_category):
         return None
     if cat in CATEGORY_ALIASES:
         return CATEGORY_ALIASES[cat]
+    # 2026-08-11: 内部连续空格归一成单空格再查一次
+    # (原始数据有 "黄色三胶一线  花线管" 这类双空格变体, 曾致 102 行漏映射)
+    cat_norm = " ".join(cat.split())
+    if cat_norm != cat and cat_norm in CATEGORY_ALIASES:
+        return CATEGORY_ALIASES[cat_norm]
     if cat in DENSITY_RULES:  # 直接就是大类名 (或塑筋管)
         return cat
     if "钢丝" in cat:
