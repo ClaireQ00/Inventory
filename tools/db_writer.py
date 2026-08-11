@@ -1271,8 +1271,12 @@ def suggest_customer_code(letter: str | None = None) -> str:
     max_seq = 0
     for r in rows:
         suffix = r["code"][len(prefix):]
-        if suffix.isdigit():
+        # 只认恰好 3 位流水的合规码 (字母+digit+3位=字母+4位数字);
+        # D11150 这类历史 5 位异常码不参与推荐, 否则会推出 D11151 违反规则
+        if suffix.isdigit() and len(suffix) == 3:
             max_seq = max(max_seq, int(suffix))
+    if max_seq >= 999:
+        return ""  # 该业务员的 3 位流水用尽 (999 个客户): 不给建议, 需老板定扩段规则
     return f"{prefix}{max_seq + 1:03d}"
 
 
