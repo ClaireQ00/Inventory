@@ -8,6 +8,7 @@ import {
 import { ReloadOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { api, type Customer } from '@/api/client'
+import { selectFilter } from '@/lib/fuzzy'
 
 const { Text, Title } = Typography
 
@@ -118,6 +119,7 @@ export default function DeliveryEntry() {
         <Row gutter={16}>
           <Col span={6}><Text type="secondary">客户 *</Text>
             <Select style={{ width: '100%' }} placeholder="选择客户" value={header.customer_code} onChange={onCustomer}
+              showSearch filterOption={selectFilter}
               options={customers.map((c) => ({ value: c.code, label: `${c.code} - ${c.name}` }))} /></Col>
           <Col span={6}><Text type="secondary">关联合同 *（带出未发明细）</Text>
             <Select

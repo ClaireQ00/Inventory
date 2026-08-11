@@ -9,6 +9,7 @@ import {
 } from 'antd'
 import { ReloadOutlined, ToolOutlined } from '@ant-design/icons'
 import { api, type Customer, type DeriveResp } from '@/api/client'
+import { autoCompleteFilter, selectFilter } from '@/lib/fuzzy'
 
 const { Text, Title } = Typography
 
@@ -357,7 +358,7 @@ export default function ProductEntry() {
           value={form[key] as string} placeholder={placeholder}
           onChange={(v) => set(key, v as never)}
           options={opts.map((o) => (typeof o === 'string' ? { value: o } : o))}
-          filterOption={(input, option) => (option?.value as string)?.includes(input)}
+          filterOption={autoCompleteFilter}
         />
       ) : (
         <Input
@@ -381,6 +382,7 @@ export default function ProductEntry() {
               style={{ width: '100%' }} placeholder="选择客户"
               value={form.customer_code}
               onChange={onCustomerChange}
+              showSearch filterOption={selectFilter}
               options={customers.map((c) => ({ value: c.code, label: `${c.code} - ${c.name}` }))}
             />
           </Col>
@@ -398,7 +400,7 @@ export default function ProductEntry() {
               value={form.product_category}
               onChange={(v) => set('product_category', v)}
               options={categories.map((c) => ({ value: c }))}
-              filterOption={(input, option) => (option?.value as string)?.includes(input)}
+              filterOption={autoCompleteFilter}
             />
           </Col>
         </Row>
@@ -410,7 +412,7 @@ export default function ProductEntry() {
               value={form.brand}
               onChange={(v) => set('brand', v)}
               options={brands.map((b) => ({ value: b }))}
-              filterOption={(input, option) => (option?.value as string)?.includes(input)}
+              filterOption={autoCompleteFilter}
             />
           </Col>
           <Col span={8}>
@@ -420,7 +422,7 @@ export default function ProductEntry() {
               value={form.material_type} placeholder="如 出口线管-小内径"
               onChange={(v) => set('material_type', v)}
               options={[...new Set([...mtArchive, ...(fieldOpts.material_type || [])])].map((o) => ({ value: o }))}
-              filterOption={(input, option) => (option?.value as string)?.includes(input)}
+              filterOption={autoCompleteFilter}
             />
           </Col>
           <Col span={4}>
@@ -434,7 +436,7 @@ export default function ProductEntry() {
               value={inch}
               onChange={(v) => { inchDirty.current = true; setInch(v) }}
               options={inchOptions.map((o) => ({ value: o }))}
-              filterOption={(input, option) => (option?.value as string)?.includes(input)}
+              filterOption={autoCompleteFilter}
             />
           </Col>
         </Row>

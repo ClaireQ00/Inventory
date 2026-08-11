@@ -7,6 +7,7 @@ import {
 } from 'antd'
 import dayjs from 'dayjs'
 import { api, type Customer, type PreviewResp } from '@/api/client'
+import { selectFilter } from '@/lib/fuzzy'
 
 const { Text, Title } = Typography
 
@@ -116,6 +117,7 @@ export default function ReceiptEntry() {
         <Row gutter={16}>
           <Col span={8}><Text type="secondary">客户 *</Text>
             <Select style={{ width: '100%' }} placeholder="选择客户" value={form.customer_code} onChange={onCustomerChange}
+              showSearch filterOption={selectFilter}
               options={customers.map((c) => ({ value: c.code, label: `${c.code} - ${c.name}` }))} /></Col>
           <Col span={10}><Text type="secondary">关联合同（预收款留空）</Text>
             <Select style={{ width: '100%' }} value={form.contract_no} onChange={onContractChange} options={contractOptions} /></Col>

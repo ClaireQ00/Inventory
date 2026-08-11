@@ -9,6 +9,8 @@ import {
 import { ReloadOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { api, type Customer } from '@/api/client'
+import { autoCompleteFilter } from '@/lib/fuzzy'
+import { selectFilter } from '@/lib/fuzzy'
 import DocItemsEditor, { newItem, itemCalc, type DocItem, type ProductOption } from '@/components/DocItemsEditor'
 
 const { Text, Title } = Typography
@@ -141,6 +143,7 @@ export default function ContractEntry() {
         <Row gutter={16}>
           <Col span={6}><Text type="secondary">客户 *</Text>
             <Select style={{ width: '100%' }} placeholder="选择客户" value={header.customer_code} onChange={onCustomer}
+              showSearch filterOption={selectFilter}
               options={customers.map((c) => ({ value: c.code, label: `${c.code} - ${c.name}` }))} /></Col>
           <Col span={6}><Text type="secondary">合同号 *（按日期自动建议）</Text>
             <Space.Compact style={{ width: '100%' }}>
@@ -175,10 +178,12 @@ export default function ContractEntry() {
             <DatePicker style={{ width: '100%' }} value={header.delivery_deadline} onChange={(v) => set('delivery_deadline', v)} /></Col>
           <Col span={6}><Text type="secondary">付款条件（可选手填）</Text>
             <AutoComplete style={{ width: '100%' }} value={header.payment_term}
+              filterOption={autoCompleteFilter}
               onChange={(v) => set('payment_term', v)}
               options={paymentTermOpts.map((t) => ({ value: t }))} /></Col>
           <Col span={5}><Text type="secondary">包装条款（可选手填）</Text>
             <AutoComplete style={{ width: '100%' }} value={header.packing}
+              filterOption={autoCompleteFilter}
               onChange={(v) => set('packing', v)}
               options={packingOpts.map((t) => ({ value: t }))} /></Col>
         </Row>
