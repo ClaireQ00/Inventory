@@ -129,7 +129,7 @@ notes = [
     "2. ① Shipped = 2026-08-08 Linyi loading (511 contract-anchored + 280 legacy opening stock). ①=0808临沂装柜(合同锚定511卷+历史期初货物280卷)。",
     "3. ③ Factory stock 11 rolls of 1/4\" = pre-system manual entry on 2026-08-02. 本厂1/4寸11卷为08-02既有录入。",
     "4. Unit price: contract price where available; M-Q025-014/011 use measured price from source sheet (no contract in system). 单价优先取合同价, 3/4寸与2寸无系统合同, 取原报表实测价。",
-    "5. CBM/roll from products.volume; M-Q025-013 uses source-sheet value 0.13 (master data pending). 单卷体积取物料主数据, M-Q025-013 主数据缺体积暂用原报表值。",
+    "5. CBM/roll from products.volume (OD²×H×0.93 rule, appearance dims updated to BL-2608 batch measurements 2026-08-10). 单卷体积取物料主数据(0.93装箱系数), 外观尺寸已按本批实测更新。",
 ]
 for i, t in enumerate(notes):
     ws.cell(row=r + 2 + i, column=1, value=t).alignment = Alignment(wrap_text=False)

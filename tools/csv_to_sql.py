@@ -133,9 +133,11 @@ DERIVED_RULES = {
             "mismatch_level": "warn",
             "description": "米重(g/m) = (内径+厚度)×厚度×3.14×密度",
         },
-        # A4: 单件体积 CBM (m³) = 外观外径(mm)² × 外观高度(mm) × 0.93 / 1e6
-        # 外贸装箱经验系数 0.93: 圆盘装箱比正方体小、比圆柱体大, 用 0.93 估算
-        # 单位铁律: appearance_outer / appearance_height 都是 mm, 1e6 把 mm³ 换算成 m³
+        # A4: 单件体积 CBM (m³) = 外观外径(cm)² × 外观高度(cm) × 0.93 / 1e6
+        # 外贸装箱经验系数 0.93: 圆卷装柜, 毛圆柱(π/4≈0.785)偏小、长方体(1.0)偏大,
+        # 0.93 介于六方密排(0.87)与方阵(1.0)之间, 预算舱位略保守 (2026-08-10 老板拍板统一口径)
+        # 单位铁律: appearance_outer / appearance_height 都是 cm (卷的外观尺寸, 非管子口径),
+        # 1e6 把 cm³ 换算成 m³。注意: 早期文档误写 mm, 若按 mm 录入体积会大 1000 倍!
         "volume": {
             "expr": lambda row: (
                 lambda ao, ah: _safe_div(

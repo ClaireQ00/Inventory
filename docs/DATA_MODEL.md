@@ -443,7 +443,7 @@ erDiagram
 
 有些派生字段依赖跨表数据,`csv_to_sql.py` 做不了,只能在校验时算:
 
-- **明细表 `volume_subtotal`** vs **`products.volume`**:跨表校验在 `check_volume_subtotals`(步骤 8/16)。单件体积公式:`appearance_outer(mm)² × appearance_height(mm) × 0.93 / 1e6`(圆盘装箱经验系数 0.93;1e6 把 mm³ 换算成 m³)。各明细表 `volume_subtotal = products.volume × quantity`,`delivery_order_items` 也按计划数 `quantity` 算,装柜后 `actual_quantity` 只影响报关/短装链路,不改体积小计。**主表 `total_volume`(quotations/sales_contracts/purchase_orders/delivery_orders)是这些明细体积的累加**,由第 9 步(发货单)和各主表所在步骤(2/4/15)校验一致性,WARN 级。
+- **明细表 `volume_subtotal`** vs **`products.volume`**:跨表校验在 `check_volume_subtotals`(步骤 8/16,**2026-08-10 起 WARN 级**——明细体积小计是开单时点快照,主数据外观尺寸按批次实测修正后快照刻意不动,与重量快照 §5.1 同例)。单件体积公式:`appearance_outer(cm)² × appearance_height(cm) × 0.93 / 1e6`(圆卷装箱经验系数 0.93:毛圆柱 0.785 偏小、长方体 1.0 偏大,0.93 为统一口径,2026-08-10 拍板;外观尺寸指**整卷**的盘卷外径/高度,非管子口径;1e6 把 cm³ 换算成 m³,早期文档误写 mm)。各明细表 `volume_subtotal = products.volume × quantity`,`delivery_order_items` 也按计划数 `quantity` 算,装柜后 `actual_quantity` 只影响报关/短装链路,不改体积小计。**主表 `total_volume`(quotations/sales_contracts/purchase_orders/delivery_orders)是这些明细体积的累加**,由第 9 步(发货单)和各主表所在步骤(2/4/15)校验一致性,WARN 级。
 
 ### 5.5 跨字段一致性(WARN 级)
 

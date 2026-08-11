@@ -74,7 +74,7 @@
 **输入(CSV 字段)**:
 - 必填:`material_id`(企业内部唯一)、`inner_diameter`(内径 mm)、`length`(长度 m)、`product_category`(决定密度)
 - 任选 1~3 个:`thickness` / `weight_per_meter` / `weight`
-- 外观(算体积用,可选):`appearance_outer`(外观外径 mm)、`appearance_height`(外观高度 mm)
+- 外观(算体积用,可选):`appearance_outer`(整卷外观外径 cm,非管子口径)、`appearance_height`(整卷外观高度 cm)
 - 虚标(可选,业务约定):`virtual_weight` 虚重、`virtual_length` 虚米
 
 **输出**:
@@ -103,7 +103,7 @@
 **输出**(由 `apply_derived_rules()` 自动加算):
 - `outer_diameter` = `inner_diameter + thickness × 2`(mm,容差 0.05)
 - `id_x_od` = `"{inner}x{outer}"` 字符串(如 `32x40.36`)
-- `volume` = `appearance_outer(mm)² × appearance_height(mm) × 0.93 / 1e6`(CBM,容差 0.001;0.93 是圆盘装箱系数;1e6 把 mm³ 换算成 m³)
+- `volume` = `appearance_outer(cm)² × appearance_height(cm) × 0.93 / 1e6`(CBM,容差 0.001;0.93 是圆卷装箱系数——毛圆柱 0.785 偏小、长方体 1.0 偏大,2026-08-10 统一口径;1e6 把 cm³ 换算成 m³)
 
 **验收标准**:
 - AC1:CSV 里派生列为空 → 按公式自动填入(`derived-fields/SKILL.md §5`)

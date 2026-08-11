@@ -956,6 +956,12 @@ def check_volume_subtotals(conn, report):
 
     规则: 单件体积(来自 products 表) × 数量 = 该行体积小计
     跨表校验, csv_to_sql 做不了, 只能这里做。
+
+    2026-08-10 起降级为 WARN (与重量快照 §5.1 同例):
+    volume_subtotal 是开单时点的快照。主数据 products.volume 会因批次实测
+    更新外观尺寸而修正 (如 BL-2608 批次), 历史单据快照刻意不动 (查无依据),
+    因此"快照 ≠ 当前主数据×数量"是合法的漂移, 只提醒不阻断。
+    录入新行时 db_writer 派生引擎仍会按当前主数据算好, 不依赖本校验兜底。
     """
     cur = conn.cursor()
 
@@ -997,9 +1003,10 @@ def check_volume_subtotals(conn, report):
             expected = round(unit_vol * qty, 2)
             actual = vs or 0
             if abs(actual - expected) > 0.01:
-                report.error(
+                report.warn(
                     f"{label_map[table]} ID={item_id} / 物料 {mid}: "
-                    f"volume_subtotal={actual} 与 单件体积×数量={expected} 不符"
+                    f"volume_subtotal={actual} 与 当前单件体积×数量={expected} 不符"
+                    f" (快照与主数据漂移, 若为主数据批次修正则属正常)"
                 )
 
 
