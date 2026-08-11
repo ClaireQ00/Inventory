@@ -1,2 +1,2 @@
-out_no,material_id,quantity,remark
-OUT20240731001,M-001,5,示例出库明细
+out_no,material_id,contract_no,quantity,remark
+OUT20240731001,M-001,,5,示例出库明细 (contract_no 可空; 销售出库由发货单自动反解, 关联 sales_contracts.contract_no)

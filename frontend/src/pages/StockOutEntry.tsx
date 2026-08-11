@@ -20,7 +20,7 @@ export default function StockOutEntry() {
   const [deliveryProducts, setDeliveryProducts] = useState<ProductOption[] | null>(null)
   const [header, setHeader] = useState({
     out_no: '', out_type: 'sale', warehouse_code: null as string | null,
-    delivery_no: null as string | null, out_date: dayjs(), remark: '',
+    delivery_no: null as string | null, transfer_ref: '', out_date: dayjs(), remark: '',
   })
   const [items, setItems] = useState<StockItem[]>([newStockItem(1)])
   const [operator, setOperator] = useState('')
@@ -54,12 +54,14 @@ export default function StockOutEntry() {
     if (!header.out_no.trim()) return message.warning('请填出库单号')
     if (!header.warehouse_code) return message.warning('请选择仓库')
     if (header.out_type === 'sale' && !header.delivery_no) return message.warning('销售出库必须选择发货单')
+    if (header.out_type === 'transfer' && !header.transfer_ref.trim()) return message.warning('调拨出库必须填调拨关联号')
     if (validItems.length === 0) return message.warning('至少一行完整明细（物料+数量）')
     setSubmitting(true)
     try {
       const r = await api.createDoc('stock-out', {
         out_no: header.out_no.trim(), out_type: header.out_type,
         warehouse_code: header.warehouse_code, delivery_no: header.delivery_no || '',
+        transfer_ref: header.transfer_ref.trim(),
         out_date: header.out_date.format('YYYY-MM-DD'), remark: header.remark,
       }, validItems.map((it) => ({
         material_id: it.material_id, quantity: it.quantity, remark: it.remark,
@@ -98,8 +100,10 @@ export default function StockOutEntry() {
               onChange={(v) => { set('out_type', v); if (v !== 'sale') { set('delivery_no', null); setDeliveryProducts(null) } }}
               options={[
                 { value: 'sale', label: '销售出库' },
+                { value: 'transfer', label: '调拨出库' },
                 { value: 'production', label: '生产领用' },
                 { value: 'scrap', label: '报废出库' },
+                { value: 'adjust', label: '调整出库（期初历史货物）' },
               ]} /></Col>
           <Col span={5}><Text type="secondary">仓库 *</Text>
             <Select style={{ width: '100%' }} placeholder="选择仓库" value={header.warehouse_code}
@@ -119,6 +123,12 @@ export default function StockOutEntry() {
                   value: d.delivery_no as string,
                   label: `${d.delivery_no} - ${d.customer_code}（${String(d.delivery_date).slice(0, 10)}）`,
                 }))} /></Col>
+          </Row>
+        )}
+        {header.out_type === 'transfer' && (
+          <Row gutter={16} style={{ marginTop: 12 }}>
+            <Col span={8}><Text type="secondary">调拨关联号 *（与调拨入库同号，如 TR20260807001）</Text>
+              <Input value={header.transfer_ref} onChange={(e) => set('transfer_ref', e.target.value)} placeholder="TR+日期+流水" /></Col>
           </Row>
         )}
       </Card>

@@ -59,6 +59,7 @@ done < <(find . -maxdepth 2 \( -name ".env" -o -name ".env.*" \) -print 2>/dev/n
 # 关键: 防止真实数据 CSV/Excel 被误传到仓库目录
 # 规则: data/ 和 private/ 之外, 不应该有 *.csv/.xlsx/.db 文件
 # 例外: sample/ 下的模板和示例文件 (是仓库教学/工具用, 不是真实数据)
+# 例外: output/ 是系统生成的报表产物目录 (已 gitignore, 可由数据库重建)
 echo "Scanning for stray data files in repo (excluding data/ and private/)..."
 STRAY=$(find . -maxdepth 3 \
   \( -name "*.csv" -o -name "*.xlsx" -o -name "*.db" -o -name "*.sqlite" \) \
@@ -66,6 +67,7 @@ STRAY=$(find . -maxdepth 3 \
   -not -path "./data/*" \
   -not -path "./private/*" \
   -not -path "./sample/*" \
+  -not -path "./output/*" \
   2>/dev/null || true)
 if [[ -n "$STRAY" ]]; then
   echo "[ERROR] 发现疑似数据文件出现在仓库目录 (应放到 data/ 或 private/):"

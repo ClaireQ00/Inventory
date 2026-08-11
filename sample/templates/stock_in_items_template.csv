@@ -1,2 +1,2 @@
-in_no,material_id,quantity,remark
-IN20240731001,M-001,10,采购入库明细
+in_no,material_id,contract_no,quantity,remark
+IN20240731001,M-001,,10,采购入库明细 (contract_no 可空; 生产入库挂合同时填, 关联 sales_contracts.contract_no)

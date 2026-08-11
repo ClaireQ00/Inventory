@@ -355,8 +355,8 @@ DROP TABLE IF EXISTS stock_in;
 CREATE TABLE stock_in (
     id              INT AUTO_INCREMENT PRIMARY KEY COMMENT '入库单内部ID',
     in_no           VARCHAR(32)  NOT NULL UNIQUE    COMMENT '入库单号(如 IN20260726001)',
-    in_type         ENUM('purchase','production','transfer','return')
-                                NOT NULL DEFAULT 'purchase' COMMENT '入库类型: 采购/生产/调拨/退货',
+    in_type         ENUM('purchase','production','transfer','return','adjust')
+                                NOT NULL DEFAULT 'purchase' COMMENT '入库类型: 采购/生产/调拨/退货/期初调整(2026-08-10 加 adjust)',
     warehouse_code  VARCHAR(32)  NOT NULL           COMMENT '入库仓库编号(关联 warehouses.code)',
     po_no           VARCHAR(32)  DEFAULT NULL       COMMENT '关联采购单号(采购入库时填, 关联 purchase_orders.po_no)',
     operator        VARCHAR(32)  DEFAULT ''         COMMENT '操作人',
@@ -408,8 +408,8 @@ DROP TABLE IF EXISTS stock_out;
 CREATE TABLE stock_out (
     id              INT AUTO_INCREMENT PRIMARY KEY COMMENT '出库单内部ID',
     out_no          VARCHAR(32)  NOT NULL UNIQUE    COMMENT '出库单号(如 OUT20260726001)',
-    out_type        ENUM('sale','production','transfer','scrap')
-                                NOT NULL DEFAULT 'sale' COMMENT '出库类型: 销售/生产/调拨/报废',
+    out_type        ENUM('sale','production','transfer','scrap','adjust')
+                                NOT NULL DEFAULT 'sale' COMMENT '出库类型: 销售/生产/调拨/报废/调整(期初历史货物出清, 2026-08-10 加)',
     warehouse_code  VARCHAR(32)  NOT NULL           COMMENT '出库仓库编号(关联 warehouses.code)',
     delivery_no     VARCHAR(32)  DEFAULT NULL       COMMENT '关联发货单号(销售出库时填, 关联 delivery_orders.delivery_no)',
     operator        VARCHAR(32)  DEFAULT ''         COMMENT '操作人',

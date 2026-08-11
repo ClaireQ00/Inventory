@@ -35,3 +35,6 @@ frontend/dist/
 
 # 辅料附件落盘 (M1, 内容大且可重建, 不进 git)
 data/attachments/
+
+# 系统生成的报表/表单产物 (可由数据库重新生成, 且可能含真实业务数据, 不进 git)
+output/

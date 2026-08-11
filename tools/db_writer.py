@@ -1721,8 +1721,8 @@ def create_delivery(header: dict, items: list[dict], operator: str = "frontend-r
 #   - 负库存: 按项目约定允许"先做后补", 不拦截, 但 warnings 显著提示 (校验第6步同款 WARN)
 # ──────────────────────────────────────────────────────────────
 
-STOCK_IN_TYPES = ("purchase", "production", "return")
-STOCK_OUT_TYPES = ("sale", "production", "scrap")
+STOCK_IN_TYPES = ("purchase", "production", "transfer", "return", "adjust")
+STOCK_OUT_TYPES = ("sale", "production", "transfer", "scrap", "adjust")
 
 
 def list_deliveries() -> list[dict]:
@@ -1816,6 +1816,13 @@ def create_stock_in(header: dict, items: list[dict], operator: str = "frontend-r
         errors.append("生产入库必须关联合同号 contract_no")
     if in_type != "production":
         contract_no = ""
+    # 2026-08-10: 调拨入库需 transfer_ref (与调拨出库同号配对, 校验第14步);
+    # adjust=期初/调整入库, 不挂任何单据 (系统切换建账专用)
+    transfer_ref = (header.get("transfer_ref") or "").strip()
+    if in_type == "transfer" and not transfer_ref:
+        errors.append("调拨入库必须填调拨关联号 transfer_ref (与调拨出库同号)")
+    if in_type != "transfer":
+        transfer_ref = ""
     if not warehouse:
         errors.append("缺少仓库 warehouse_code")
     if not _is_date(in_date):
@@ -1867,6 +1874,7 @@ def create_stock_in(header: dict, items: list[dict], operator: str = "frontend-r
             head_id = _doc_insert(cur, "stock_in", {
                 "in_no": in_no, "in_type": in_type, "warehouse_code": warehouse,
                 "po_no": po_no or None, "operator": operator, "in_date": in_date,
+                "transfer_ref": transfer_ref or None,
                 "status": "confirmed", "remark": (header.get("remark") or "").strip(),
             })
             for r in rows:
@@ -1920,6 +1928,12 @@ def create_stock_out(header: dict, items: list[dict], operator: str = "frontend-
         errors.append("销售出库必须关联发货单号 delivery_no")
     if out_type != "sale":
         delivery_no = ""
+    # 2026-08-10: 调拨出库需 transfer_ref (与调拨入库同号配对); adjust=期初历史货物出清
+    transfer_ref = (header.get("transfer_ref") or "").strip()
+    if out_type == "transfer" and not transfer_ref:
+        errors.append("调拨出库必须填调拨关联号 transfer_ref (与调拨入库同号)")
+    if out_type != "transfer":
+        transfer_ref = ""
     if not warehouse:
         errors.append("缺少仓库 warehouse_code")
     if not _is_date(out_date):
@@ -1972,6 +1986,7 @@ def create_stock_out(header: dict, items: list[dict], operator: str = "frontend-
             head_id = _doc_insert(cur, "stock_out", {
                 "out_no": out_no, "out_type": out_type, "warehouse_code": warehouse,
                 "delivery_no": delivery_no or None, "operator": operator, "out_date": out_date,
+                "transfer_ref": transfer_ref or None,
                 "status": "confirmed", "remark": (header.get("remark") or "").strip(),
             })
             for r in rows:

@@ -20,6 +20,7 @@
 | **报关** | 装船后给海关看的实际数据(SH/CI/PL),含唛头/毛净重/CBM;差异超 5% 走 credit_note |
 | **收款** | 客户付款记录 + 月固定汇率折算 CNY,做应收对账 |
 | **调拨** | 仓库间挪货,复用 stock_in/stock_out,通过 `transfer_ref` 软关联配对,不进报关/收款 |
+| **期初/调整** | `in_type`/`out_type='adjust'`:系统上线前的历史库存、盘点差异等无源单据的库存增减,不挂任何单,保留真相不虚构历史合同 |
 | **报价** | 签合同前的报价环节,KG×系数定价;简要报价(brief)→正式 QT(formal)→销售合同(PI)派生链 |
 
 > 9 个模块的串行流程见 `docs/GLOSSARY.md §1 流程时序`。本文档关注"每张表长什么样"。
@@ -222,7 +223,7 @@ erDiagram
 
 #### `stock_in` — 入库单主表
 - **职责**:货物实际进仓的凭证。来源由 `in_type` 区分。
-- **关键字段**:`in_no`、`in_type`(ENUM: `purchase`/`production`/`transfer`/`return`)、`warehouse_code`、`po_no`(采购入库时填)、`in_date`、`status`、`transfer_ref`(调拨入库时填,与配对 `stock_out` 同号)
+- **关键字段**:`in_no`、`in_type`(ENUM: `purchase`/`production`/`transfer`/`return`/`adjust`)、`warehouse_code`、`po_no`(采购入库时填)、`in_date`、`status`、`transfer_ref`(调拨入库时填,与配对 `stock_out` 同号)
 - **状态机**:`draft` / `confirmed` / `cancelled`
 - **外键**:`warehouse_code → warehouses(code)`、`po_no → purchase_orders(po_no)`
 - **派生字段**:无
@@ -236,7 +237,7 @@ erDiagram
 
 #### `stock_out` — 出库单主表
 - **职责**:货物实际出仓的凭证。来源由 `out_type` 区分。
-- **关键字段**:`out_no`、`out_type`(ENUM: `sale`/`production`/`transfer`/`scrap`)、`warehouse_code`、`delivery_no`(销售出库时填)、`out_date`、`status`、`transfer_ref`(调拨出库时填)
+- **关键字段**:`out_no`、`out_type`(ENUM: `sale`/`production`/`transfer`/`scrap`/`adjust`)、`warehouse_code`、`delivery_no`(销售出库时填)、`out_date`、`status`、`transfer_ref`(调拨出库时填)
 - **状态机**:`draft` / `confirmed` / `cancelled`
 - **外键**:`warehouse_code → warehouses(code)`、`delivery_no → delivery_orders(delivery_no)`
 - **派生字段**:无
@@ -503,6 +504,20 @@ stock_in  (in_type='transfer',  transfer_ref='TR20260729001', warehouse=目标�
 ### 6.6 调拨不走外贸单据流程
 
 调拨**不产生** shipping_records、不触发 UCP600 ±5%、不涉及 receipts/汇率/credit_note。`trade-documents` / `payment-receivable` 两个 skill 不管调拨。
+
+### 6.7 期初/调整类型 `adjust`(2026-08-10 新增)
+
+`stock_in.in_type` / `stock_out.out_type` 各增加 `adjust` 枚举值(迁移 `sql/migrations/2026-08-10_stock_adjust_type.sql`),用于**没有源单据的库存增减**:
+
+- **期初建账**:系统上线前仓库里已有的货(如 BL-2608 批次临沂仓 0726 结余),用 `adjust` 入库直接把库存摆到正确起点;
+- **历史货物出库**:这批货出掉时用 `adjust` 出库,不挂合同、不挂发货单;
+- **盘点差异**:盘盈盘亏的修正。
+
+**设计决策:不伪造历史合同。** 历史货物没有系统内的报价/合同,如果为了过"销售出库必须挂发货单"的闸门而补录假合同,会污染合同账和收款对账。`adjust` 类型保留真相:货是真的、来源是"系统外历史",进出都有 `stock_logs` 流水可查。规则:
+
+- `adjust` 单不挂 `po_no` / `delivery_no` / `contract_no`,明细行 `contract_no` 留 NULL;
+- `adjust` 出库不受销售闸门约束(不校验合同余量),但仍过库存校验;
+- 在报表中 `adjust` 来源标注为"历史期初货物 Legacy",与合同锚定出货分列(见 `tools/gen_distribution_table.py` 生成的 GOODS DISTRIBUTION TABLE)。
 
 ---
 

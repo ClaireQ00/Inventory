@@ -22,7 +22,7 @@ export default function StockInEntry() {
   const [header, setHeader] = useState({
     in_no: '', in_type: 'production', warehouse_code: null as string | null,
     po_no: null as string | null, contract_no: null as string | null,
-    in_date: dayjs(), remark: '',
+    transfer_ref: '', in_date: dayjs(), remark: '',
   })
   const [items, setItems] = useState<StockItem[]>([newStockItem(1)])
   const [operator, setOperator] = useState('')
@@ -58,13 +58,14 @@ export default function StockInEntry() {
     if (!header.warehouse_code) return message.warning('请选择仓库')
     if (header.in_type === 'purchase' && !header.po_no) return message.warning('采购入库必须选择采购单')
     if (header.in_type === 'production' && !header.contract_no) return message.warning('生产入库必须选择关联合同')
+    if (header.in_type === 'transfer' && !header.transfer_ref.trim()) return message.warning('调拨入库必须填调拨关联号')
     if (validItems.length === 0) return message.warning('至少一行完整明细（物料+数量）')
     setSubmitting(true)
     try {
       const r = await api.createDoc('stock-in', {
         in_no: header.in_no.trim(), in_type: header.in_type,
         warehouse_code: header.warehouse_code, po_no: header.po_no || '',
-        contract_no: header.contract_no || '',
+        contract_no: header.contract_no || '', transfer_ref: header.transfer_ref.trim(),
         in_date: header.in_date.format('YYYY-MM-DD'), remark: header.remark,
       }, validItems.map((it) => ({
         material_id: it.material_id, quantity: it.quantity, remark: it.remark,
@@ -103,7 +104,9 @@ export default function StockInEntry() {
               options={[
                 { value: 'production', label: '生产完工入库' },
                 { value: 'purchase', label: '采购入库' },
+                { value: 'transfer', label: '调拨入库' },
                 { value: 'return', label: '退货入库' },
+                { value: 'adjust', label: '期初/调整入库' },
               ]} /></Col>
           <Col span={5}><Text type="secondary">仓库 *</Text>
             <Select style={{ width: '100%' }} placeholder="选择仓库" value={header.warehouse_code}
@@ -123,6 +126,12 @@ export default function StockInEntry() {
                   value: p.po_no as string,
                   label: `${p.po_no} - ${p.supplier_code}（${String(p.order_date).slice(0, 10)}）`,
                 }))} /></Col>
+          </Row>
+        )}
+        {header.in_type === 'transfer' && (
+          <Row gutter={16} style={{ marginTop: 12 }}>
+            <Col span={8}><Text type="secondary">调拨关联号 *（与调拨出库同号，如 TR20260807001）</Text>
+              <Input value={header.transfer_ref} onChange={(e) => set('transfer_ref', e.target.value)} placeholder="TR+日期+流水" /></Col>
           </Row>
         )}
         {header.in_type === 'production' && (
