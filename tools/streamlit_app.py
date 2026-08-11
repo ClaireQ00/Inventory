@@ -584,11 +584,16 @@ def page_contracts():
 # ──────────────────────────────────────────────────────────────
 def page_master_data():
     st.header("🏭 基础资料")
+    st.caption("查询页只读；新增/编辑请点按钮跳录入端（8082），两边数据同源实时生效")
+
+    # 录入端地址: 局域网访问时宿主机 IP 不同, 用环境变量覆盖 (.env 加 ENTRY_BASE)
+    entry_base = os.getenv("ENTRY_BASE", "http://localhost:8082")
 
     subtab = st.tabs(["产品", "客户", "供应商", "仓库"])
 
     with subtab[0]:
         st.subheader("📦 产品物料")
+        st.link_button("➕ 新增物料（录入端）", f"{entry_base}/entry/product")
         products = run_query(
             """
             SELECT material_id, spec, product_category, inner_diameter,
@@ -605,6 +610,9 @@ def page_master_data():
 
     with subtab[1]:
         st.subheader("👤 客户")
+        col_a, col_b = st.columns(2)
+        col_a.link_button("➕ 新增客户（录入端）", f"{entry_base}/entry/customer")
+        col_b.link_button("🧑‍💼 业务员档案（录入端）", f"{entry_base}/entry/salesperson")
         customers = run_query(
             "SELECT code, name, brand_name, contact_person, phone, address FROM customers ORDER BY code"
         )
@@ -627,6 +635,7 @@ def page_master_data():
                 st.warning("未设置 is_self=1 的本公司记录")
         else:
             st.info("暂无供应商数据")
+        st.caption("供应商录入页尚未做（录入端后续补 FB.x）")
 
     with subtab[3]:
         st.subheader("🏭 仓库")
@@ -637,6 +646,7 @@ def page_master_data():
             st.dataframe(warehouses, use_container_width=True, hide_index=True)
         else:
             st.info("暂无仓库数据")
+        st.caption("仓库录入页尚未做（录入端后续补 FB.x）")
 
 
 # ──────────────────────────────────────────────────────────────
