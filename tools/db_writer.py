@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from datetime import date, datetime
 from pathlib import Path
@@ -193,7 +194,30 @@ def apply_derived(table: str, data: dict) -> tuple[dict, list[tuple[str, str]]]:
     # 空字符串统一成 None 语义由引擎内部判断; 数值字段转成 float 帮助引擎计算
     report: list[tuple[str, str]] = []
     apply_derived_rules(table, row, row_index=1, report=report)
+    if table == "products":
+        _normalize_category_variant(row, report)
     return row, report
+
+
+# 同物异名防线 (2026-08-11): "双联/双连""磨砂/磨沙"这类谐音异写,
+# 录入时归一到既有类别写法, 防止类别裂成两个统计口径。规则见 tools/name_variants.py
+def _normalize_category_variant(row: dict, report: list[tuple[str, str]]) -> None:
+    cat = (row.get("product_category") or "").strip()
+    if not cat:
+        return
+    try:
+        from name_variants import near_match
+        existing = [r["product_category"] for r in list_options(
+            "SELECT DISTINCT product_category FROM products "
+            "WHERE product_category IS NOT NULL AND product_category<>''")]
+        hit = near_match(cat, existing)
+        if hit:
+            row["product_category"] = hit
+            report.append(("warn",
+                           f"产品类别『{cat}』与既有类别『{hit}』疑似同物异名, 已自动归一为『{hit}』;"
+                           f"如确为新类别请改回并告知管理员扩充别名表"))
+    except Exception:
+        pass  # 防线失效不阻断录入主流程
 
 
 # ──────────────────────────────────────────────────────────────
@@ -1132,23 +1156,34 @@ CUSTOMER_FIELDS = ("code", "name", "contact_person", "phone", "address",
 
 
 def suggest_customer_code() -> str:
-    """建议下一个客户编号: Q+3位顺推。可手改, 这只是建议值"""
+    """建议下一个客户编号: Q+4位数字补全顺推 (2026-08-11 老板规则: 字母+四位数字)。
+    可手改, 这只是建议值。历史 Q+3位 (Q024/Q025) 不再产生, 但保留有效。"""
     rows = list_options("SELECT code FROM customers WHERE code LIKE %s", ("Q%",))
     max_seq = 0
     for r in rows:
         suffix = r["code"][1:]
         if suffix.isdigit():
             max_seq = max(max_seq, int(suffix))
-    return f"Q{max_seq + 1:03d}"
+    return f"Q{max_seq + 1:04d}"
+
+
+# 客户编码规则 (2026-08-11 老板定):
+#   字母 + 四位数字补全。字母 = 当前负责业务员代码; 数字 = 客户终身唯一号,
+#   其中第一位数字 = 首次把客户引入系统的业务员数字编码。
+#   客户更换业务员只换字母, 四位数字不再变化 (所以 A8039/D8039 是同一客户的沿革)。
+CUSTOMER_CODE_RE = re.compile(r"^[A-Z]\d{4}$")
 
 
 def create_customer(data: dict, operator: str = "frontend-react") -> dict:
-    """客户建档: 编号唯一 + 名称必填, 写审计"""
+    """客户建档: 编号唯一 + 名称必填 + 编号格式(字母+4位数字), 写审计"""
     code = (data.get("code") or "").strip().upper()
     name = (data.get("name") or "").strip()
     errors: list[str] = []
     if not code:
         errors.append("缺少客户编号 code")
+    elif not CUSTOMER_CODE_RE.match(code):
+        errors.append(f"客户编号格式应为 字母+4位数字 (如 Q0026): {code}。"
+                      "字母=负责业务员, 数字=客户终身唯一号(首位=首次引入的业务员数字编码)")
     if not name:
         errors.append("缺少客户名称 name")
     if errors:

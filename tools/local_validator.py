@@ -653,6 +653,18 @@ def check_master_data(conn, report):
     if cur.fetchone()[0] == 0:
         report.warn("customers 为空 (后续销售合同必须有客户)")
 
+    # 同物异名近名簇扫描 (2026-08-11): "双联/双连""磨砂/磨沙"类谐音异写
+    # 录入侧已由 db_writer 归一, 这里做存量兜底; 只报 WARN 列候选, 合并不合并由人定
+    try:
+        from name_variants import find_clusters
+        cur.execute("""SELECT DISTINCT product_category FROM products
+                       WHERE product_category IS NOT NULL AND product_category<>''""")
+        cats = [r[0] for r in cur.fetchall()]
+        for cluster in find_clusters(cats):
+            report.warn(f"产品类别疑似同物异名簇: {cluster} (确认后告知管理员归并)")
+    except Exception:
+        pass  # 扫描失败不阻断校验
+
 
 def check_purchase_orders(conn, report):
     """采购单: 金额 = 明细小计之和; 体积 = 明细体积小计之和(展示统计, WARN)"""
