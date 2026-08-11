@@ -179,6 +179,25 @@ CREATE TABLE customers (
                                  ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='客户名录';
 
+-- ------------------------------------------------------------
+-- 1.4 业务员档案 salespersons (2026-08-11 新增)
+-- 客户编码规则的权威来源: 编码 = 字母(业务员code) + 4位数字(客户终身号,
+-- 首位 = salespersons.digit)。后期客户管理/仓位/回款/提成都挂这张表。
+-- ------------------------------------------------------------
+CREATE TABLE salespersons (
+    id              INT AUTO_INCREMENT PRIMARY KEY COMMENT '业务员ID',
+    code            VARCHAR(8)   NOT NULL UNIQUE  COMMENT '业务员代码(客户编码的首字母, 如 A/D/Q)',
+    name            VARCHAR(64)  NOT NULL DEFAULT '' COMMENT '姓名(回填期可空, 待补充)',
+    digit           CHAR(1)      NOT NULL         COMMENT '客户编码首位数字(该业务员的数字编码, 0-9)',
+    phone           VARCHAR(32)  DEFAULT NULL     COMMENT '电话',
+    commission_rate DECIMAL(6,4) DEFAULT NULL     COMMENT '提成比例(预留, 后期业务提成管理)',
+    is_active       TINYINT(1)   NOT NULL DEFAULT 1 COMMENT '在职: 1是 0否',
+    remark          VARCHAR(255) DEFAULT ''       COMMENT '备注',
+    created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
+                                 ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='业务员档案(客户编码首字母/首位数字的权威来源)';
+
 -- ============================================================
 -- 模块二: 采购管理
 -- ============================================================

@@ -317,9 +317,21 @@ def aux_pr_list(status: str | None = None):
 
 
 @app.get("/api/options/suggest-customer-code")
-def opt_suggest_customer_code():
-    """建议下一个客户编号: Q+3位顺推 (可手改)"""
-    return {"code": db_writer.suggest_customer_code()}
+def opt_suggest_customer_code(letter: str | None = None):
+    """建议下一个客户编号: 按业务员字母推荐 (字母+首位数字+3位流水), 默认 Q 公共序列"""
+    return {"code": db_writer.suggest_customer_code(letter)}
+
+
+@app.get("/api/options/salespersons")
+def opt_salespersons():
+    """业务员档案下拉 (客户录入页用)"""
+    return db_writer.list_salespersons()
+
+
+@app.post("/api/salespersons")
+def salesperson_create(req: CustomerReq):
+    """业务员建档: 代码(首字母)唯一 + 首位数字必填"""
+    return db_writer.create_salesperson(req.data, req.operator)
 
 
 @app.post("/api/customers")

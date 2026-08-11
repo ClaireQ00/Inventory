@@ -6,6 +6,12 @@ export interface Customer {
   name: string
 }
 
+export interface Salesperson {
+  code: string
+  name: string
+  digit: string
+}
+
 export interface EngineMsg {
   level: 'info' | 'warn' | 'error'
   msg: string
@@ -101,7 +107,11 @@ export const api = {
     post<{ ok: boolean; errors: string[]; req_nos: string[] }>('/aux/purchase-requests', body),
   auxPurchaseRequests: (status?: string) =>
     req<Record<string, unknown>[]>(`/aux/purchase-requests${status ? `?status=${encodeURIComponent(status)}` : ''}`),
-  suggestCustomerCode: () => req<{ code: string }>('/options/suggest-customer-code'),
+  suggestCustomerCode: (letter?: string) =>
+    req<{ code: string }>(`/options/suggest-customer-code${letter ? `?letter=${encodeURIComponent(letter)}` : ''}`),
+  salespersons: () => req<Salesperson[]>('/options/salespersons'),
+  createSalesperson: (data: Record<string, unknown>, operator: string) =>
+    post<{ ok: boolean; errors: string[]; code: string | null }>('/salespersons', { data, operator }),
   createCustomer: (data: Record<string, unknown>, operator: string) =>
     post<{ ok: boolean; errors: string[]; code: string | null }>('/customers', { data, operator }),
   auxAttachments: (auxCode: string) =>

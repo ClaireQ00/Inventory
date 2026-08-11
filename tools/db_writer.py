@@ -440,6 +440,48 @@ def list_customers() -> list[dict]:
     return list_options("SELECT code, name FROM customers ORDER BY code")
 
 
+def list_salespersons() -> list[dict]:
+    """业务员档案下拉 (客户录入页用)"""
+    return list_options(
+        "SELECT code, name, digit FROM salespersons WHERE is_active=1 ORDER BY code")
+
+
+def create_salesperson(data: dict, operator: str = "frontend-react") -> dict:
+    """业务员建档: 代码(首字母)唯一 + 首位数字必填 (客户编码推荐的权威来源)"""
+    code = (data.get("code") or "").strip().upper()[:1]
+    digit = str(data.get("digit") or "").strip()[:1]
+    name = (data.get("name") or "").strip()
+    errors: list[str] = []
+    if not code or not code.isalpha():
+        errors.append("业务员代码应为 1 个字母 (客户编码的首字母)")
+    if not digit or not digit.isdigit():
+        errors.append("首位数字应为 0-9 (该业务员的数字编码, 客户编码的第一位数字)")
+    if errors:
+        return {"ok": False, "errors": errors, "code": None}
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM salespersons WHERE code=%s", (code,))
+            if cur.fetchone():
+                conn.rollback()
+                return {"ok": False, "errors": [f"业务员代码已存在: {code}"], "code": None}
+            cur.execute(
+                "INSERT INTO salespersons (code, name, digit, phone, commission_rate, remark) "
+                "VALUES (%s,%s,%s,%s,%s,%s)",
+                (code, name, digit, (data.get("phone") or "").strip() or None,
+                 data.get("commission_rate") or None, (data.get("remark") or "").strip()))
+            record_id = cur.lastrowid
+        write_audit(conn, "salespersons", record_id, "INSERT", None,
+                    {"code": code, "digit": digit, "name": name}, operator)
+        conn.commit()
+        return {"ok": True, "errors": [], "code": code}
+    except Exception as e:  # noqa: BLE001
+        conn.rollback()
+        return {"ok": False, "errors": [f"业务员建档失败: {e}"], "code": None}
+    finally:
+        conn.close()
+
+
 def list_contracts(customer_code: str | None = None) -> list[dict]:
     if customer_code:
         return list_options(
@@ -1155,16 +1197,34 @@ CUSTOMER_FIELDS = ("code", "name", "contact_person", "phone", "address",
                    "bank_account", "brand_name", "company_profiles", "billing_profiles", "remark")
 
 
-def suggest_customer_code() -> str:
-    """建议下一个客户编号: Q+4位数字补全顺推 (2026-08-11 老板规则: 字母+四位数字)。
-    可手改, 这只是建议值。历史 Q+3位 (Q024/Q025) 不再产生, 但保留有效。"""
-    rows = list_options("SELECT code FROM customers WHERE code LIKE %s", ("Q%",))
+def suggest_customer_code(letter: str | None = None) -> str:
+    """建议下一个客户编号 (2026-08-11 老板规则: 字母+4位数字补全)。
+
+    letter = 业务员代码 (customers 编码首字母)。默认 Q (公共/非业务员引入序列)。
+    数字段 = salespersons.digit (首位, 业务员数字编码) + 3位流水。
+    新业务员/空序列 → 从 001 起推荐 ("找相应的空值推荐")。
+    可手改, 这只是建议值。历史 Q+3位 (Q024/Q025) 已补全为 Q0024/Q0025。
+    """
+    letter = (letter or "Q").strip().upper()[:1] or "Q"
+    digit = None
+    try:
+        rows = list_options("SELECT digit FROM salespersons WHERE code=%s AND is_active=1", (letter,))
+        if rows:
+            digit = str(rows[0]["digit"])
+    except Exception:
+        pass  # salespersons 表未建(老库) 时兜底
+    if digit is None:
+        digit = "0" if letter == "Q" else None
+    if digit is None:
+        return ""  # 未知业务员且无档案: 不给建议, 让人先建业务员档案
+    prefix = f"{letter}{digit}"
+    rows = list_options("SELECT code FROM customers WHERE code LIKE %s", (f"{prefix}%",))
     max_seq = 0
     for r in rows:
-        suffix = r["code"][1:]
+        suffix = r["code"][len(prefix):]
         if suffix.isdigit():
             max_seq = max(max_seq, int(suffix))
-    return f"Q{max_seq + 1:04d}"
+    return f"{prefix}{max_seq + 1:03d}"
 
 
 # 客户编码规则 (2026-08-11 老板定):
