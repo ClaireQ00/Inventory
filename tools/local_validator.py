@@ -121,6 +121,18 @@ CREATE TABLE IF NOT EXISTS customers (
     is_active INTEGER DEFAULT 1
 );
 
+-- 业务员档案 (2026-08-11): code=客户编码首字母, digit=业务员数字编码(客户编码第一位数字)
+CREATE TABLE IF NOT EXISTS salespersons (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    code TEXT UNIQUE NOT NULL,
+    name TEXT DEFAULT '',
+    digit TEXT NOT NULL,
+    phone TEXT,
+    commission_rate REAL,
+    is_active INTEGER DEFAULT 1,
+    remark TEXT DEFAULT ''
+);
+
 -- 采购
 CREATE TABLE IF NOT EXISTS purchase_orders (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1625,6 +1637,7 @@ IMPORT_ORDER = [
     ("warehouses.csv", "warehouses"),
     ("suppliers.csv", "suppliers"),
     ("customers.csv", "customers"),
+    ("salespersons.csv", "salespersons"),
     ("purchase_orders.csv", "purchase_orders"),
     ("purchase_order_items.csv", "purchase_order_items"),
     ("sales_contracts.csv", "sales_contracts"),

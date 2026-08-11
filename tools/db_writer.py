@@ -482,6 +482,55 @@ def create_salesperson(data: dict, operator: str = "frontend-react") -> dict:
         conn.close()
 
 
+def list_salespersons_full() -> list[dict]:
+    """业务员档案全字段列表 (业务员管理页用, 含停用)"""
+    return list_options(
+        "SELECT id, code, name, digit, phone, commission_rate, is_active, remark "
+        "FROM salespersons ORDER BY code")
+
+
+def update_salesperson(code: str, data: dict, operator: str = "frontend-react") -> dict:
+    """业务员档案编辑: 姓名/电话/提成比例/停用/备注; code 与 digit 不可改 (客户编码的锚)"""
+    code = (code or "").strip().upper()
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, code, name, digit, phone, commission_rate, is_active, remark "
+                "FROM salespersons WHERE code=%s", (code,))
+            old = cur.fetchone()
+            if not old:
+                conn.rollback()
+                return {"ok": False, "errors": [f"业务员不存在: {code}"]}
+            if "code" in data or "digit" in data:
+                conn.rollback()
+                return {"ok": False, "errors": [
+                    "代码/首位数字不可修改——它们是客户编码的锚; 换业务员请改客户编码的字母"]}
+            fields = {
+                "name": (data.get("name") or "").strip(),
+                "phone": (data.get("phone") or "").strip() or None,
+                "commission_rate": data.get("commission_rate") or None,
+                "is_active": 1 if data.get("is_active", 1) else 0,
+                "remark": (data.get("remark") or "").strip(),
+            }
+            if not fields["name"]:
+                conn.rollback()
+                return {"ok": False, "errors": ["姓名不能为空"]}
+            cur.execute(
+                "UPDATE salespersons SET name=%s, phone=%s, commission_rate=%s, "
+                "is_active=%s, remark=%s WHERE code=%s",
+                (fields["name"], fields["phone"], fields["commission_rate"],
+                 fields["is_active"], fields["remark"], code))
+        write_audit(conn, "salespersons", old["id"], "UPDATE", dict(old), fields, operator)
+        conn.commit()
+        return {"ok": True, "errors": [], "code": code}
+    except Exception as e:  # noqa: BLE001
+        conn.rollback()
+        return {"ok": False, "errors": [f"业务员更新失败: {e}"]}
+    finally:
+        conn.close()
+
+
 def list_contracts(customer_code: str | None = None) -> list[dict]:
     if customer_code:
         return list_options(

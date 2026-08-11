@@ -6,6 +6,7 @@ import { FormOutlined, HomeOutlined, InboxOutlined } from '@ant-design/icons'
 import { Link, Route, Routes, useLocation } from 'react-router'
 import Home from './pages/Home'
 import CustomerEntry from './pages/CustomerEntry'
+import SalespersonEntry from './pages/SalespersonEntry'
 import StockInEntry from './pages/StockInEntry'
 import StockOutEntry from './pages/StockOutEntry'
 import ProductEntry from './pages/ProductEntry'
@@ -44,9 +45,13 @@ export default function App() {
                   {
                     key: 'entry', icon: <FormOutlined />, label: '录入中心',
                     children: [
+                      { key: '/entry/customer', label: <Link to="/entry/customer">👤 客户</Link> },
+                      { key: '/entry/salesperson', label: <Link to="/entry/salesperson">🧑‍💼 业务员</Link> },
                       { key: '/entry/product', label: <Link to="/entry/product">🧱 物料</Link> },
                       { key: '/entry/quotation', label: <Link to="/entry/quotation">📋 报价</Link> },
                       { key: '/entry/contract', label: <Link to="/entry/contract">📄 合同</Link> },
+                      { key: '/entry/stock-in', label: <Link to="/entry/stock-in">📥 入库</Link> },
+                      { key: '/entry/stock-out', label: <Link to="/entry/stock-out">📤 出库</Link> },
                       { key: '/entry/delivery', label: <Link to="/entry/delivery">🚚 发货</Link> },
                       { key: '/entry/receipt', label: <Link to="/entry/receipt">💰 收款</Link> },
                       { key: '/entry/rate', label: <Link to="/entry/rate">💱 汇率</Link> },
@@ -66,6 +71,7 @@ export default function App() {
               <Routes>
                 <Route path="/" element={<Home />} />
                 <Route path="/entry/customer" element={<CustomerEntry />} />
+                <Route path="/entry/salesperson" element={<SalespersonEntry />} />
                 <Route path="/entry/stock-in" element={<StockInEntry />} />
                 <Route path="/entry/stock-out" element={<StockOutEntry />} />
                 <Route path="/entry/product" element={<ProductEntry />} />

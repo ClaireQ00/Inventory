@@ -334,6 +334,18 @@ def salesperson_create(req: CustomerReq):
     return db_writer.create_salesperson(req.data, req.operator)
 
 
+@app.get("/api/salespersons")
+def salesperson_list():
+    """业务员档案全字段列表 (管理页用, 含停用)"""
+    return db_writer.list_salespersons_full()
+
+
+@app.put("/api/salespersons/{code}")
+def salesperson_update(code: str, req: CustomerReq):
+    """业务员档案编辑: 姓名/电话/提成/停用/备注; code 与 digit 不可改"""
+    return db_writer.update_salesperson(code, req.data, req.operator)
+
+
 @app.post("/api/customers")
 def customer_create(req: CustomerReq):
     """客户建档: 编号唯一+名称必填, 写审计"""

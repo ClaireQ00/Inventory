@@ -12,6 +12,14 @@ export interface Salesperson {
   digit: string
 }
 
+export interface SalespersonFull extends Salesperson {
+  id: number
+  phone: string | null
+  commission_rate: number | null
+  is_active: number
+  remark: string | null
+}
+
 export interface EngineMsg {
   level: 'info' | 'warn' | 'error'
   msg: string
@@ -110,8 +118,13 @@ export const api = {
   suggestCustomerCode: (letter?: string) =>
     req<{ code: string }>(`/options/suggest-customer-code${letter ? `?letter=${encodeURIComponent(letter)}` : ''}`),
   salespersons: () => req<Salesperson[]>('/options/salespersons'),
+  salespersonsFull: () => req<SalespersonFull[]>('/salespersons'),
   createSalesperson: (data: Record<string, unknown>, operator: string) =>
     post<{ ok: boolean; errors: string[]; code: string | null }>('/salespersons', { data, operator }),
+  updateSalesperson: (code: string, data: Record<string, unknown>, operator: string) =>
+    req<{ ok: boolean; errors: string[]; code: string | null }>(
+      `/salespersons/${encodeURIComponent(code)}`,
+      { method: 'PUT', body: JSON.stringify({ data, operator }) }),
   createCustomer: (data: Record<string, unknown>, operator: string) =>
     post<{ ok: boolean; errors: string[]; code: string | null }>('/customers', { data, operator }),
   auxAttachments: (auxCode: string) =>
