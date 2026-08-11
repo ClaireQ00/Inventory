@@ -147,7 +147,7 @@ erDiagram
 #### `products` — 物料主数据
 - **职责**:存线管/管材的属性字典(尺寸、重量、外观、包装等)。**不带价格**——价格跟着业务单据(PO/SC)走。
 - **关键字段**:
-  - 标识:`material_id`(企业内部唯一,如 M-001)、`customer_code`、`product_category`(决定密度公式)
+  - 标识:`material_id`(企业内部唯一,**编码规则 `M-{客户编码}-{3位流水}`,如 M-Q0025-001**;2026-08-11 全量重编码,14,336 行从旧 M-NNNNN 纯流水/M-Q025 旧式归入新格式,映射留痕 `data/logs/material_remap_20260811.csv`;16 行待认领除外:9 行 `9129.0` 归属待定 + 7 行孤儿)、`customer_code`、`product_category`(决定密度公式)
   - 尺寸:`inner_diameter`(mm)、`thickness`(mm)、`outer_diameter`(派生)、`id_x_od`(派生)、`length`(m)
   - 重量:`weight_per_meter`(g/m)、`weight`(kg)
   - 外观:`appearance_outer`、`appearance_height`、`volume`(派生)
