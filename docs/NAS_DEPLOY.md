@@ -1,5 +1,9 @@
 # NAS 部署手册（绿联 DXP4800 Plus）
 
+> ⚠️ **本文档已被取代**（2026-08-11）：系统已发展为 db/api/frontend/streamlit 四服务架构，请使用
+> **[DEPLOY_WINDOWS_NAS_HOME.md](DEPLOY_WINDOWS_NAS_HOME.md)**（Windows+NAS+IPv6 完整方案，含应急搬迁预案）。
+> 本文保留仅供追溯早期单容器部署思路。
+>
 > 本手册面向**部署者**（你，会 SSH 的人）。部署完成后，团队（非技术同事）看 [REMOTE_ACCESS.md](REMOTE_ACCESS.md) 即可。
 >
 > 目标：把进销存系统部署到绿联 NAS 上，让团队通过互联网用浏览器查看数据。
