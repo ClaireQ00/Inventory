@@ -145,13 +145,26 @@ def export(quote_no: str, out_dir: Path) -> Path:
                         "H": float(header["total_amount"]),  # 金额合计(系统落库值, 标红)
                         "I": tot_rolls, "J": round(tot_cbm, 2), "K": round(tot_kg, 1),
                         "L": header["packing"] or ""}, height=49, red_cols="H")
+    ws.merge_cells(f"B{r}:G{r}")  # 付款条件长文本合并显示 (老板 2026-08-11)
     ws.merge_cells(f"L{r}:O{r}")
+    for cc in (f"B{r}", f"L{r}"):  # 长文本开自动换行
+        al = copy(ws[cc].alignment)
+        al.wrap_text = True
+        al.vertical = "center"
+        ws[cc].alignment = al
     r += 1
     delivery = f"收到定金后{header['delivery_days']}天" if header.get("delivery_days") else ""
     trade = f"{header['trade_terms']} {header['port_loading'] or ''}".strip()
     put(ws, r, st_terms, {"A": "报价方式：", "B": trade, "D": "交货期：", "E": delivery,
                           "H": "有效期至：", "I": header["valid_until"], "K": header["customer_code"]},
         height=40)
+    ws.merge_cells(f"B{r}:C{r}")  # 报价方式 (如 FOB Qingdao)
+    ws.merge_cells(f"E{r}:G{r}")  # 交货期
+    for cc in (f"B{r}", f"E{r}"):
+        al = copy(ws[cc].alignment)
+        al.wrap_text = True
+        al.vertical = "center"
+        ws[cc].alignment = al
     ws[f"I{r}"].number_format = "yyyy/m/d"
 
     # 标题
