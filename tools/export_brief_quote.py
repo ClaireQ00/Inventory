@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pymysql
 from openpyxl import load_workbook
+from openpyxl.styles import Color
 
 ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE = ROOT / "data" / "简要报价模板.xltx"
@@ -65,11 +66,16 @@ def snap_style(ws, row):
                 "number_format": ws[f"{c}{row}"].number_format} for c in COLS}
 
 
-def put(ws, row, styles, values, height=None):
+def put(ws, row, styles, values, height=None, shrink_cols="", red_cols=""):
     for c in COLS:
         cell = ws[f"{c}{row}"]
         st = styles[c]
-        cell.font, cell.border, cell.fill, cell.alignment = st["font"], st["border"], st["fill"], st["alignment"]
+        font = copy(st["font"])
+        if c in shrink_cols and font.size:
+            font.size = max(font.size - 2, 6)  # 外观尺寸 4 列小两号 (老板 2026-08-11)
+        if c in red_cols:
+            font.color = Color(rgb="FFFF0000")  # 合计金额标红 (老板 2026-08-11)
+        cell.font, cell.border, cell.fill, cell.alignment = font, st["border"], st["fill"], st["alignment"]
         cell.number_format = st["number_format"]
         if c in values:
             cell.value = values[c]
@@ -128,7 +134,7 @@ def export(quote_no: str, out_dir: Path) -> Path:
                 "G": wt, "H": float(it["unit_price"]), "I": qty,
                 "J": round(vol * qty, 4), "K": round(wt * qty, 3),
                 "L": it["appearance_inner"], "M": it["appearance_outer"],
-                "N": it["appearance_height"], "O": vol}, height=20)
+                "N": it["appearance_height"], "O": vol}, height=20, shrink_cols="LMNO")
             r += 1
 
     # 合计行: 卷数/体积/重量/金额
@@ -136,9 +142,9 @@ def export(quote_no: str, out_dir: Path) -> Path:
     ws.merge_cells(f"A{r}:K{r}")
     r += 1
     put(ws, r, st_sum, {"A": "付款条件：", "B": header["payment_term"] or "",
-                        "H": float(header["total_amount"]),  # 金额合计(系统落库值)
+                        "H": float(header["total_amount"]),  # 金额合计(系统落库值, 标红)
                         "I": tot_rolls, "J": round(tot_cbm, 2), "K": round(tot_kg, 1),
-                        "L": header["packing"] or ""}, height=49)
+                        "L": header["packing"] or ""}, height=49, red_cols="H")
     ws.merge_cells(f"L{r}:O{r}")
     r += 1
     delivery = f"收到定金后{header['delivery_days']}天" if header.get("delivery_days") else ""
