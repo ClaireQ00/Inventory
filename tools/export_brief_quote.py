@@ -160,6 +160,7 @@ def export(quote_no: str, out_dir: Path) -> Path:
         height=40)
     ws.merge_cells(f"B{r}:C{r}")  # 报价方式 (如 FOB Qingdao)
     ws.merge_cells(f"E{r}:G{r}")  # 交货期
+    ws.merge_cells(f"I{r}:J{r}")  # 有效期日期合并两格才显示全 (老板 2026-08-11)
     for cc in (f"B{r}", f"E{r}"):
         al = copy(ws[cc].alignment)
         al.wrap_text = True
