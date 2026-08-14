@@ -390,8 +390,28 @@ def render_doc_chain(contract_no: str):
             tuple(dnos),
         ):
             delivery_totals[t["delivery_no"]] = t
+
+    # 入库/出库单 likewise: 每单总卷数与吨位
+    def _doc_totals(item_table, doc_col, doc_nos):
+        if not doc_nos:
+            return {}
+        ph = ",".join(["%s"] * len(doc_nos))
+        return {
+            t["doc"]: t
+            for t in run_query(
+                f"SELECT i.{doc_col} AS doc, SUM(i.quantity) AS qty, "
+                f"SUM(i.quantity * p.weight) / 1000 AS tons "
+                f"FROM {item_table} i JOIN products p ON i.material_id=p.material_id "
+                f"WHERE i.{doc_col} IN ({ph}) GROUP BY i.{doc_col}",
+                tuple(doc_nos),
+            )
+        }
+
+    in_totals = _doc_totals("stock_in_items", "in_no", [r["in_no"] for r in ins])
+    out_totals = _doc_totals("stock_out_items", "out_no", [r["out_no"] for r in outs])
     shippings = run_query(
-        "SELECT s.shipping_no, s.shipping_date, s.status, s.delivery_no "
+        "SELECT s.shipping_no, s.shipping_date, s.status, s.delivery_no, "
+        "s.total_pkgs, s.total_cbm, s.total_gross_wt "
         "FROM shipping_records s WHERE s.delivery_no IN "
         "(SELECT DISTINCT delivery_no FROM delivery_order_items WHERE contract_no=%s)",
         (contract_no,),
@@ -454,7 +474,9 @@ def render_doc_chain(contract_no: str):
 
     for r in ins:
         tag = {"purchase": "采购入库", "production": "生产入库", "transfer": "调拨入库", "adjust": "调整入库"}.get(r["in_type"], r["in_type"])
-        lines.append(node(r["in_no"], f'入库 {r["in_no"]}\\n{tag} | {r["in_date"]} | {r["status"]}', "in"))
+        t = in_totals.get(r["in_no"])
+        qty_txt = f"\\n{int(t['qty'])} 卷 / {float(t['tons']):.2f} 吨" if t else ""
+        lines.append(node(r["in_no"], f'入库 {r["in_no"]}\\n{tag} | {r["in_date"]} | {r["status"]}{qty_txt}', "in"))
         if r["in_type"] == "transfer" and r["transfer_ref"]:
             edges.append(f'  "{r["transfer_ref"]}" -> "{r["in_no"]}" [label="调拨到达"];')
         else:
@@ -462,7 +484,9 @@ def render_doc_chain(contract_no: str):
 
     for r in outs:
         tag = {"sale": "销售出库", "transfer": "调拨发出", "adjust": "调整出库"}.get(r["out_type"], r["out_type"])
-        lines.append(node(r["out_no"], f'出库 {r["out_no"]}\\n{tag} | {r["out_date"]} | {r["status"]}', "out"))
+        t = out_totals.get(r["out_no"])
+        qty_txt = f"\\n{int(t['qty'])} 卷 / {float(t['tons']):.2f} 吨" if t else ""
+        lines.append(node(r["out_no"], f'出库 {r["out_no"]}\\n{tag} | {r["out_date"]} | {r["status"]}{qty_txt}', "out"))
         if r["out_type"] == "transfer":
             edges.append(f'  "{contract_no}" -> "{r["out_no"]}" [label="调拨发出"];')
         elif r["delivery_no"]:
@@ -476,7 +500,9 @@ def render_doc_chain(contract_no: str):
                           "delivery"))
         edges.append(f'  "{contract_no}" -> "{d["delivery_no"]}" [label="下发货单"];')
     for s in shippings:
-        lines.append(node(s["shipping_no"], f'报关 {s["shipping_no"]}\\n{s["shipping_date"]} | {s["status"]}', "shipping"))
+        lines.append(node(s["shipping_no"],
+                          f'报关 {s["shipping_no"]}\\n{s["shipping_date"]} | {s["status"]}\\n{s["total_pkgs"]} 件 / {float(s["total_cbm"]):.2f} m³ / 毛重 {float(s["total_gross_wt"]):.0f} kg',
+                          "shipping"))
         edges.append(f'  "{s["delivery_no"]}" -> "{s["shipping_no"]}" [label="报关"];')
 
     for r in receipts:
@@ -979,6 +1005,7 @@ def page_reports():
     report_type = st.selectbox(
         "选择报表",
         [
+            "单据查询（按日期范围）",
             "低库存预警（库存 < 30）",
             "未发完合同（已确认但还有未发数量）",
             "待处理差异（pending credit_notes）",
@@ -987,7 +1014,91 @@ def page_reports():
         ],
     )
 
-    if report_type == "业务员提成基数（按客户汇总吨位/回款）":
+    if report_type == "单据查询（按日期范围）":
+        st.caption(
+            "按日期范围查单据。默认按**出库日期**过滤；也可切到入库/发货/收款日期。"
+            "数量列：发货单显示实发卷数/吨位（actual_quantity 优先），入出库单显示明细合计。"
+        )
+        from datetime import date as _date, timedelta as _td
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            d_from = st.date_input("从哪天", _date.today() - _td(days=30), key="docq_from")
+        with c2:
+            d_to = st.date_input("到哪天", _date.today() + _td(days=60), key="docq_to")
+        with c3:
+            date_field = st.selectbox(
+                "按哪种日期查",
+                ["出库日期", "入库日期", "发货日期", "收款日期"],
+                key="docq_field",
+            )
+
+        if date_field == "出库日期":
+            doc_rows = run_query(
+                """
+                SELECT o.out_no AS 单号, o.out_date AS 日期, o.out_type AS 类型,
+                       o.warehouse_code AS 仓库, o.delivery_no AS 关联发货单,
+                       o.status AS 状态, o.operator AS 经手人, o.remark AS 备注,
+                       (SELECT SUM(i.quantity) FROM stock_out_items i WHERE i.out_no=o.out_no) AS 卷数,
+                       (SELECT ROUND(SUM(i.quantity*p.weight)/1000,3)
+                          FROM stock_out_items i JOIN products p ON i.material_id=p.material_id
+                         WHERE i.out_no=o.out_no) AS 吨位
+                FROM stock_out o
+                WHERE o.out_date BETWEEN %s AND %s
+                ORDER BY o.out_date DESC, o.out_no
+                """,
+                (d_from, d_to),
+            )
+        elif date_field == "入库日期":
+            doc_rows = run_query(
+                """
+                SELECT s.in_no AS 单号, s.in_date AS 日期, s.in_type AS 类型,
+                       s.warehouse_code AS 仓库, s.po_no AS 关联采购单,
+                       s.status AS 状态, s.operator AS 经手人, s.remark AS 备注,
+                       (SELECT SUM(i.quantity) FROM stock_in_items i WHERE i.in_no=s.in_no) AS 卷数,
+                       (SELECT ROUND(SUM(i.quantity*p.weight)/1000,3)
+                          FROM stock_in_items i JOIN products p ON i.material_id=p.material_id
+                         WHERE i.in_no=s.in_no) AS 吨位
+                FROM stock_in s
+                WHERE s.in_date BETWEEN %s AND %s
+                ORDER BY s.in_date DESC, s.in_no
+                """,
+                (d_from, d_to),
+            )
+        elif date_field == "发货日期":
+            doc_rows = run_query(
+                """
+                SELECT d.delivery_no AS 单号, d.delivery_date AS 日期, d.customer_code AS 客户,
+                       d.status AS 状态, d.receiver AS 收货人, d.remark AS 备注,
+                       (SELECT SUM(IF(i.actual_quantity>0,i.actual_quantity,i.quantity))
+                          FROM delivery_order_items i WHERE i.delivery_no=d.delivery_no) AS 实发卷数,
+                       (SELECT ROUND(SUM(IF(i.actual_quantity>0,i.actual_quantity,i.quantity)*p.weight)/1000,3)
+                          FROM delivery_order_items i JOIN products p ON i.material_id=p.material_id
+                         WHERE i.delivery_no=d.delivery_no) AS 实发吨位
+                FROM delivery_orders d
+                WHERE d.delivery_date BETWEEN %s AND %s
+                ORDER BY d.delivery_date DESC, d.delivery_no
+                """,
+                (d_from, d_to),
+            )
+        else:
+            doc_rows = run_query(
+                """
+                SELECT r.receipt_no AS 单号, r.paid_date AS 日期, r.customer_code AS 客户,
+                       r.contract_no AS 关联合同, r.amount AS 金额, r.currency AS 币种,
+                   r.status AS 状态, r.remark AS 备注
+                FROM receipts r
+                WHERE r.paid_date BETWEEN %s AND %s
+                ORDER BY r.paid_date DESC, r.receipt_no
+                """,
+                (d_from, d_to),
+            )
+        if doc_rows:
+            st.success(f"{d_from} ~ {d_to} 共 {len(doc_rows)} 张单据")
+            st.dataframe(doc_rows, use_container_width=True, hide_index=True)
+        else:
+            st.info(f"{d_from} ~ {d_to} 没有{date_field}的单据")
+
+    elif report_type == "业务员提成基数（按客户汇总吨位/回款）":
         st.caption(
             "提成规则说明：三种方式（按量·元/吨 ｜ 按价格 ｜ 按回款时间）各有系数，"
             "系数未定前本表先出**基数**。**吨位基数按实际发货重量**（2026-08-14 老板定："
