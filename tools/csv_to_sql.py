@@ -577,6 +577,43 @@ DENSITY_RULES = {
 }
 
 
+def _parse_nominal_inch(inch_str):
+    """解析标称英寸 ('1-1/4"', '1/4"', '2"') 为浮点; 失败返回 None"""
+    s = (inch_str or "").strip().rstrip('"').strip()
+    if not s:
+        return None
+    try:
+        if "-" in s:  # 带分数: 1-1/4
+            whole, frac = s.split("-", 1)
+            num, den = frac.split("/")
+            return int(whole) + int(num) / int(den)
+        if "/" in s:  # 纯分数: 1/4
+            num, den = s.split("/")
+            return int(num) / int(den)
+        return float(s)
+    except (ValueError, ZeroDivisionError):
+        return None
+
+
+def classify_id_size(inch_str, inner_mm=None):
+    """物料内径大小分类 (老板 2026-08-11 口径, 按标称英寸判):
+      <1"        → 小内径
+      1" ~ <3"   → 中内径
+      3" 起      → 大内径 (内径 ≥170mm → 超大内径)
+    判不了返回 None。注意 23.8mm 这种 1" 标称实际不足 25.4mm, 必须按标称英寸判, 不能按 mm。
+    """
+    inch = _parse_nominal_inch(inch_str)
+    if inch is None:
+        return None
+    if inch < 1:
+        return "小内径"
+    if inch < 3:
+        return "中内径"
+    if inner_mm is not None and inner_mm >= 170:
+        return "超大内径"
+    return "大内径"
+
+
 def resolve_category_group(raw_category):
     """
     把客户原始产品类别映射成产品大类 (钢丝管/线管/复合管/水带)。
