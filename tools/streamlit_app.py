@@ -826,7 +826,12 @@ def page_contracts():
                      WHERE oi.contract_no=sci.contract_no AND oi.material_id=sci.material_id
                        AND o.status='confirmed') AS out_qty,
                    (SELECT COALESCE(SUM(quantity),0) FROM inventory
-                     WHERE material_id=sci.material_id) AS stock_total
+                     WHERE material_id=sci.material_id) AS stock_total,
+                   (SELECT COALESCE(SUM(sci2.quantity - sci2.delivered_qty),0)
+                      FROM sales_contract_items sci2
+                      JOIN sales_contracts sc2 ON sci2.contract_no=sc2.contract_no
+                     WHERE sci2.material_id=sci.material_id AND sci2.contract_no<>sci.contract_no
+                       AND sc2.status NOT IN ('cancelled','completed')) AS other_contracts_owe
             FROM sales_contract_items sci
             JOIN products p ON sci.material_id = p.material_id
             WHERE sci.contract_no = %s
@@ -847,11 +852,16 @@ def page_contracts():
                         "已发货(吨)": round(float(r["shipped_qty"]) * float(r["weight"]) / 1000, 3),
                         "已出库(卷)": r["out_qty"],
                         "当前库存(卷·全仓)": r["stock_total"],
+                        "其他合同还欠(卷)": r["other_contracts_owe"],
                     }
                     for r in progress
                 ],
                 use_container_width=True,
                 hide_index=True,
+            )
+            st.caption(
+                "「其他合同还欠」= 同一物料在其他未完成合同里的未发量。"
+                "判断库存够不够：当前库存 ≥ 本合同未发 + 其他合同还欠 才够。"
             )
             with st.expander("❓ 这些列是什么意思？（点我看大白话解释）"):
                 st.markdown(
@@ -1006,6 +1016,7 @@ def page_reports():
         "选择报表",
         [
             "单据查询（按日期范围）",
+            "客户订单总览（截止某日的生产/发货情况）",
             "低库存预警（库存 < 30）",
             "未发完合同（已确认但还有未发数量）",
             "待处理差异（pending credit_notes）",
@@ -1014,7 +1025,71 @@ def page_reports():
         ],
     )
 
-    if report_type == "单据查询（按日期范围）":
+    if report_type == "客户订单总览（截止某日的生产/发货情况）":
+        st.caption(
+            "客户视角：截止你选的那天，这个客户下的所有合同，每个物料**生产入库了多少、"
+            "发货发了多少、还欠多少**。入库/发货都只统计截止日及之前的单据。"
+        )
+        from datetime import date as _date2
+        custs = run_query(
+            "SELECT DISTINCT c.code, c.name FROM customers c "
+            "JOIN sales_contracts sc ON sc.customer_code=c.code ORDER BY c.code"
+        )
+        if custs:
+            c1, c2 = st.columns(2)
+            with c1:
+                cust_opts = {f"{c['code']} - {c['name']}": c["code"] for c in custs}
+                picked_c = st.selectbox("客户", list(cust_opts), key="ov_cust")
+            with c2:
+                cutoff = st.date_input("截止日期", _date2.today(), key="ov_cutoff")
+            rows = run_query(
+                """
+                SELECT sc.contract_no, sc.status AS contract_status,
+                       sci.item_no, sci.material_id, p.spec,
+                       sci.quantity AS contract_qty,
+                       (SELECT COALESCE(SUM(i.quantity),0)
+                          FROM stock_in_items i JOIN stock_in s ON i.in_no=s.in_no
+                         WHERE i.contract_no=sci.contract_no AND i.material_id=sci.material_id
+                           AND s.in_type IN ('production','purchase') AND s.status='confirmed'
+                           AND s.in_date <= %s) AS produced_qty,
+                       (SELECT COALESCE(SUM(IF(doi.actual_quantity>0, doi.actual_quantity, doi.quantity)),0)
+                          FROM delivery_order_items doi JOIN delivery_orders d ON doi.delivery_no=d.delivery_no
+                         WHERE doi.contract_no=sci.contract_no AND doi.contract_item_no=sci.item_no
+                           AND d.status IN ('confirmed','shipped')
+                           AND d.delivery_date <= %s) AS shipped_qty,
+                       p.weight
+                FROM sales_contract_items sci
+                JOIN sales_contracts sc ON sci.contract_no=sc.contract_no
+                JOIN products p ON sci.material_id=p.material_id
+                WHERE sc.customer_code=%s AND sc.status NOT IN ('cancelled')
+                ORDER BY sc.contract_no, sci.item_no
+                """,
+                (cutoff, cutoff, cust_opts[picked_c]),
+            )
+            if rows:
+                st.dataframe(
+                    [
+                        {
+                            "合同号": r["contract_no"],
+                            "合同状态": status_badge(r["contract_status"]),
+                            "物料号": r["material_id"],
+                            "规格": r["spec"],
+                            "合同数(卷)": r["contract_qty"],
+                            "已生产入库(卷)": r["produced_qty"],
+                            "已发货(卷)": r["shipped_qty"],
+                            "已发货(吨)": round(float(r["shipped_qty"]) * float(r["weight"]) / 1000, 3),
+                            "还欠(卷)": r["contract_qty"] - r["shipped_qty"],
+                            "发货进度": f"{round(float(r['shipped_qty']) / float(r['contract_qty']) * 100, 1)}%" if r["contract_qty"] else "-",
+                        }
+                        for r in rows
+                    ],
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            else:
+                st.info("该客户没有合同明细")
+
+    elif report_type == "单据查询（按日期范围）":
         st.caption(
             "按日期范围查单据。默认按**出库日期**过滤；也可切到入库/发货/收款日期。"
             "数量列：发货单显示实发卷数/吨位（actual_quantity 优先），入出库单显示明细合计。"
