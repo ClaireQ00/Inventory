@@ -278,13 +278,14 @@ def post_checks(table: str, conn, data: dict) -> list[tuple[str, str]]:
         # 对齐第 12 步: 当月汇率是否齐全 (已有 receipts 用到这个月)
         eff_month = str(data["effective_date"])[:7]
         with conn.cursor() as cur:
+            # 注意: pymysql 参数替换走 Python % 格式化, SQL 里写字面 % 必须转义成 %%
             cur.execute(
-                "SELECT DISTINCT currency FROM receipts WHERE DATE_FORMAT(paid_date,'%Y-%m')=%s",
+                "SELECT DISTINCT currency FROM receipts WHERE DATE_FORMAT(paid_date,'%%Y-%%m')=%s",
                 (eff_month,),
             )
             used = {r["currency"] for r in cur.fetchall()}
             cur.execute(
-                "SELECT currency FROM exchange_rates WHERE DATE_FORMAT(effective_date,'%Y-%m')=%s",
+                "SELECT currency FROM exchange_rates WHERE DATE_FORMAT(effective_date,'%%Y-%%m')=%s",
                 (eff_month,),
             )
             have = {r["currency"] for r in cur.fetchall()}
