@@ -49,12 +49,16 @@ export default function DeliveryEntry() {
   const onCustomer = (code: string) => {
     setHeader((h) => ({ ...h, customer_code: code, contract_no: null }))
     setRows([])
+    setGapApproved(false)
+    setGapReason('')
     api.contracts(code).then((list) => setContracts(list as unknown as Record<string, unknown>[])).catch(() => setContracts([]))
     if (!header.delivery_no) suggestNo()
   }
 
   const onContract = async (contractNo: string) => {
     setHeader((h) => ({ ...h, contract_no: contractNo }))
+    setGapApproved(false)
+    setGapReason('')
     try {
       const d = await api.contractPending(contractNo)
       if (!d.found) return message.warning(`合同 ${contractNo} 不存在`)
@@ -104,6 +108,8 @@ export default function DeliveryEntry() {
           content: '合同已发数已回写，状态自动联动（全部发完→已完成，否则→发货中）。',
         })
         setRows([])
+        setGapApproved(false)
+        setGapReason('')
         setHeader((h) => ({ ...h, contract_no: null }))
         suggestNo()
       } else {
