@@ -298,6 +298,46 @@ def page_dashboard():
         st.caption("处置方式：①跟客户确认先发哪张单 ②旧单不做了就到【合同执行】关闭对应行，预警即消失。"
                    "录入端会拦截此类发货，确需先发须老板特批（填 price_gap_approved + 原因，留痕审计）")
 
+    # ── 大额余量关行复核 (2026-08-14 老板定): 放弃余量>5% 的关行摆出来给老板事后复核
+    # 事前审批待登录权限上线后再做; 当前约束 = 原因必填 + 此卡公示 + 审计留痕
+    big_closes = run_query(
+        """
+        SELECT ci.contract_no, ci.item_no, ci.material_id, p.spec,
+               ci.quantity, ci.delivered_qty,
+               (ci.quantity - ci.delivered_qty) AS abandoned,
+               ROUND((ci.quantity - ci.delivered_qty) / ci.quantity * 100, 1) AS pct,
+               ci.remark
+        FROM sales_contract_items ci
+        JOIN products p ON p.material_id = ci.material_id
+        WHERE ci.status='closed' AND ci.quantity > 0
+          AND (ci.quantity - ci.delivered_qty) / ci.quantity > 0.05
+        ORDER BY ci.id DESC
+        LIMIT 50
+        """
+    )
+    if big_closes:
+        st.warning(
+            f"🔍 大额余量关行复核：{len(big_closes)} 行关闭时放弃余量超过合同量 5%，请老板过目确认。"
+        )
+        st.dataframe(
+            [
+                {
+                    "合同": r["contract_no"],
+                    "行": r["item_no"],
+                    "物料": f"{r['material_id']} {r['spec'] or ''}",
+                    "合同量": r["quantity"],
+                    "已发": r["delivered_qty"],
+                    "放弃余量": r["abandoned"],
+                    "放弃占比%": r["pct"],
+                    "关闭留痕(时间/操作人/原因)": (r["remark"] or "").split("|")[-1].strip(),
+                }
+                for r in big_closes
+            ],
+            use_container_width=True,
+            hide_index=True,
+        )
+        st.caption("复核无误即可忽略；发现误关需联系管理员改回（暂无一键撤销，关行前请确认）")
+
     st.divider()
 
     # 最近合同 + 库存概览

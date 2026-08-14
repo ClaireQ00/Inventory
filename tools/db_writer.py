@@ -1912,7 +1912,12 @@ def close_contract_item(contract_no: str, item_no: str, reason: str,
 
     幂等: 已关闭的行再次调用直接返回成功。
     联动: 该合同所有行都"发完或关闭"时, 合同自动 completed。
+    2026-08-14 起: 关闭原因必填; 放弃余量>5% 的关行进 8501 首页老板复核卡。
+    (事前审批待登录权限上线后再做, 见 BUSINESS_RULES 变更记录)
     """
+    if not (reason or "").strip():
+        return {"ok": False, "errors": ["关闭原因必填 (如: 客户确认放弃余量 / 转其他合同)。"
+                                        "无原因的关行无法追溯, 直接拒绝"]}
     conn = get_connection()
     try:
         with conn.cursor() as cur:
@@ -1950,9 +1955,13 @@ def close_contract_item(contract_no: str, item_no: str, reason: str,
                     {"status": "active"}, {"status": "closed", "reason": reason},
                     operator)
         conn.commit()
-        return {"ok": True, "errors": [],
-                "warnings": [f"已关闭 {contract_no} 行 {item_no}, 放弃余量 {remaining} 卷"
-                             + ("; 合同已全部了结, 状态置 completed" if left == 0 else "")]}
+        warns = []
+        if int(row["quantity"]) > 0 and remaining / int(row["quantity"]) > 0.05:
+            warns.append(f"⚠️ 放弃余量 {remaining} 卷占合同量 {remaining / int(row['quantity']) * 100:.1f}% (>5%), "
+                         f"已列入 8501 首页老板复核清单")
+        warns.append(f"已关闭 {contract_no} 行 {item_no}, 放弃余量 {remaining} 卷"
+                     + ("; 合同已全部了结, 状态置 completed" if left == 0 else ""))
+        return {"ok": True, "errors": [], "warnings": warns}
     except Exception as e:  # noqa: BLE001
         conn.rollback()
         return {"ok": False, "errors": [f"关闭合同行失败: {e}"]}
