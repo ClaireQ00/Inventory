@@ -669,48 +669,83 @@ def page_reports():
     if report_type == "业务员提成基数（按客户汇总吨位/回款）":
         st.caption(
             "提成规则说明：三种方式（按量·元/吨 ｜ 按价格 ｜ 按回款时间）各有系数，"
-            "系数未定前本表先出**基数**。坏账扣减规则：损失 ≤1% 不报警，超出部分等额扣提成（R13）。"
+            "系数未定前本表先出**基数**。**吨位基数按实际发货重量**（2026-08-14 老板定："
+            "实发与合同有偏差，±5% 内合理，超 5% 标红关注）。坏账扣减：损失 ≤1% 不报警，"
+            "超出部分等额扣提成（R13）。"
         )
-        # 吨位基数 = Σ 合同明细数量 × 单重(products.weight 主数据) / 1000 (kg→吨)
-        # 回款基数 = receipts 实收 (已确认) 按合同汇总; 业务员 = 客户编码首字母 → salespersons
+        # 吨位基数 = Σ 发货明细实际数量 × 单重(products.weight) / 1000 (kg→吨)
+        # 实发口径: actual_quantity>0 优先否则 quantity (同校验第 5 步); 已确认发货单
+        # 注意: 合同吨位用客户级子查询单独汇总 (整合同口径), 不与发货行直接 JOIN,
+        #       避免同一合同行分多批发货时合同数量被重复计数。
+        # 数量偏差 = (累计实发 - 合同总量) / 合同总量; 分批未发完时显示负偏差属正常。
         rows = run_query(
             """
             SELECT sp.code AS 业务员, sp.name AS 姓名,
                    c.code AS 客户编码, c.name AS 客户名称,
-                   COUNT(DISTINCT sc.contract_no) AS 合同数,
-                   ROUND(SUM(sci.quantity * p.weight) / 1000, 3) AS 合同吨位,
-                   ROUND(SUM(sci.delivered_qty * p.weight) / 1000, 3) AS 已发吨位,
-                   ROUND(SUM(sci.subtotal), 2) AS 合同金额_原币,
-                   sc.currency AS 币种
-            FROM sales_contract_items sci
-            JOIN sales_contracts sc ON sci.contract_no = sc.contract_no
-            JOIN customers c ON sc.customer_code = c.code
-            JOIN products p ON sci.material_id = p.material_id
+                   d.cnt AS 发货单数,
+                   ROUND(d.tons, 3) AS 实发吨位_基数,
+                   ROUND(ct.tons, 3) AS 合同吨位_对照,
+                   ROUND((d.qty - ct.qty) / NULLIF(ct.qty, 0) * 100, 2) AS 数量偏差_pct
+            FROM customers c
             JOIN salespersons sp ON sp.code = LEFT(c.code, 1)
-            WHERE sc.status NOT IN ('cancelled')
-            GROUP BY sp.code, sp.name, c.code, c.name, sc.currency
-            ORDER BY sp.code, 合同吨位 DESC
+            JOIN (
+                SELECT sc.customer_code,
+                       COUNT(DISTINCT doi.delivery_no) AS cnt,
+                       SUM(IF(doi.actual_quantity > 0, doi.actual_quantity, doi.quantity)) AS qty,
+                       SUM(IF(doi.actual_quantity > 0, doi.actual_quantity, doi.quantity)
+                           * p.weight) / 1000 AS tons
+                FROM delivery_order_items doi
+                JOIN delivery_orders d2 ON doi.delivery_no = d2.delivery_no
+                JOIN sales_contracts sc ON doi.contract_no = sc.contract_no
+                JOIN products p ON doi.material_id = p.material_id
+                WHERE d2.status IN ('confirmed', 'shipped')
+                GROUP BY sc.customer_code
+            ) d ON d.customer_code = c.code
+            LEFT JOIN (
+                SELECT sc.customer_code,
+                       SUM(sci.quantity) AS qty,
+                       SUM(sci.quantity * p.weight) / 1000 AS tons
+                FROM sales_contracts sc
+                JOIN sales_contract_items sci ON sci.contract_no = sc.contract_no
+                JOIN products p ON sci.material_id = p.material_id
+                WHERE sc.status NOT IN ('cancelled')
+                  AND sc.contract_no IN (
+                      SELECT DISTINCT doi.contract_no
+                      FROM delivery_order_items doi
+                      JOIN delivery_orders d3 ON doi.delivery_no = d3.delivery_no
+                      WHERE d3.status IN ('confirmed', 'shipped')
+                  )
+                GROUP BY sc.customer_code
+            ) ct ON ct.customer_code = c.code
+            ORDER BY sp.code, 实发吨位_基数 DESC
             """
         )
         if rows:
+            for r in rows:
+                dev = r.get("数量偏差_pct")
+                if dev is not None and abs(float(dev)) > 5:
+                    st.warning(
+                        f"⚠️ {r['客户编码']} {r['客户名称']}：累计实发与合同数量偏差 {dev}%"
+                        "（超 ±5% 合理线；若为分批未发完的负偏差则属正常）"
+                    )
             st.dataframe(rows, use_container_width=True, hide_index=True)
-            # 业务员小计
-            st.subheader("业务员小计")
+            # 业务员小计 (实发口径)
+            st.subheader("业务员小计（实发吨位 = 提成按量基数）")
             summary = run_query(
                 """
                 SELECT sp.code AS 业务员, sp.name AS 姓名,
-                       COUNT(DISTINCT sc.contract_no) AS 合同数,
+                       COUNT(DISTINCT doi.delivery_no) AS 发货单数,
                        COUNT(DISTINCT c.code) AS 客户数,
-                       ROUND(SUM(sci.quantity * p.weight) / 1000, 3) AS 合同吨位合计,
-                       ROUND(SUM(sci.delivered_qty * p.weight) / 1000, 3) AS 已发吨位合计
-                FROM sales_contract_items sci
-                JOIN sales_contracts sc ON sci.contract_no = sc.contract_no
+                       ROUND(SUM(IF(doi.actual_quantity>0, doi.actual_quantity, doi.quantity) * p.weight) / 1000, 3) AS 实发吨位合计
+                FROM delivery_order_items doi
+                JOIN delivery_orders d ON doi.delivery_no = d.delivery_no
+                JOIN sales_contracts sc ON doi.contract_no = sc.contract_no
                 JOIN customers c ON sc.customer_code = c.code
-                JOIN products p ON sci.material_id = p.material_id
+                JOIN products p ON doi.material_id = p.material_id
                 JOIN salespersons sp ON sp.code = LEFT(c.code, 1)
-                WHERE sc.status NOT IN ('cancelled')
+                WHERE d.status IN ('confirmed', 'shipped')
                 GROUP BY sp.code, sp.name
-                ORDER BY 合同吨位合计 DESC
+                ORDER BY 实发吨位合计 DESC
                 """
             )
             st.dataframe(summary, use_container_width=True, hide_index=True)

@@ -164,7 +164,8 @@
 - [x] G7.11 [P0] **物料全量重编码**（2026-08-11）：`M-NNNNN` 纯流水/M-Q025 旧式 → `M-{客户编码}-{3位流水}`（14,336 行，工具 `tools/renumber_materials.py`，单事务关 FK 检查改 products+10 张引用表）；小写/全角客户码机械归一 34 行、`8039.0`→D8039；16 行待认领保持原编码；映射留痕 `data/logs/material_remap_20260811.csv`；编码自动建议已接续新格式（Q0025→M-Q0025-015 ✓）
 - [ ] G7.9 [P2] **半成品原材料收发模块**（预留）：用料字段已就位，后续补半成品库存/出入库
 - [ ] G7.10 [P2] **成本指导价→利润核算**（预留）：material_type_profiles.guide_cost_price 关联单据利润
-- [x] G7.12 [P1] **业务员提成预留**（2026-08-13 老板定，R13）：三种提成方式（按量·元/吨、按价格、按回款时间）各有系数；坏账 ≤1% 不报警、超出部分等额扣提成。落地：`commission_rules` 系数表（业务员×方式×系数×生效期，系数待老板补）；Streamlit 报表中心新增"业务员提成基数"（业务员→客户 汇总合同吨位/已发吨位/合同额/回款，吨位=Σ数量×products.weight÷1000，业务员归属=客户编码首字母→salespersons）。**待老板补**：具体系数与计算公式；吨位口径是否改用合同快照重量（需 sales_contract_items 加快照字段）
+- [x] G7.12 [P1] **业务员提成预留**（2026-08-13 老板定，R13）：三种提成方式（按量·元/吨、按价格、按回款时间）各有系数；坏账 ≤1% 不报警、超出部分等额扣提成。落地：`commission_rules` 系数表（业务员×方式×系数×生效期，系数待老板补）；Streamlit 报表中心新增"业务员提成基数"（业务员→客户 汇总；**吨位基数=实发口径**：发货明细 actual_quantity 优先 × products.weight ÷1000，只计 confirmed/shipped，合同吨位仅对照，±5% 合理线超标页面提醒——2026-08-14 老板定；业务员归属=客户编码首字母→salespersons）。**待老板补**：具体系数与计算公式、回款时间分档
+- [x] G7.13 [P1] **灌库幂等修复 + 双轨回写工具**（2026-08-14，R14）：查明 load-csv-to-db.sh 对只有自增主键的明细表非幂等（每跑一次校验重复灌一遍，累计 6~8 倍重复行）；迁移 `2026-08-14_dedupe_natural_keys.sql` 完成去重（delivery_order_items 66→16、stock_in_items 71→21、stock_out_items 105→25、shipping_record_items 80→10）+ item_no 浮点格式（1.0→001）规范化 + 四表补自然唯一键；新增 `tools/db_to_csv.py`（MySQL→CSV 回写方向，12 张 UI 录入/流水表已同步，24 表双轨一致）；校验器 loader 自动忽略 SQLite 校验库没有的 MySQL 运维列。操作前备份：`data/backups/inventory_db_20260814_pre_dedupe.sql`
 
 ---
 

@@ -352,7 +352,7 @@ CI 同样以此为门禁(`scripts/ci.sh` / `.github/workflows/ci.yml`)。
 
 | 方式 | method | 系数单位 | 基数 |
 | --- | --- | --- | --- |
-| 按量提成 | `quantity` | **人民币 元/吨** | 吨位（合同明细数量 × 单重 ÷ 1000） |
+| 按量提成 | `quantity` | **人民币 元/吨** | 吨位（**实际发货数量** × 单重 ÷ 1000，2026-08-14 老板定） |
 | 按价格提成 | `price` | 比例（待老板定口径：合同额 or 利润） | 合同金额 |
 | 按回款时间提成 | `receipt_time` | 分档系数（`tier_note` 记档位，如"30 天内"/"月结 60 天"） | 回款金额 × 时间档 |
 
@@ -360,10 +360,32 @@ CI 同样以此为门禁(`scripts/ci.sh` / `.github/workflows/ci.yml`)。
 
 **预留设计（三层分离）**：
 1. **规则层** `commission_rules`（已建表，迁移 `2026-08-13_commission_rules.sql`）：业务员 × 方式 × 系数 × 生效期（`effective_from/to` 留历史）。系数给了就 INSERT，不改代码。
-2. **基数层**（已上线）：Streamlit 报表中心"业务员提成基数"——按 业务员→客户 汇总合同吨位/已发吨位/合同额/回款。吨位用 `products.weight` 主数据；业务员归属 = 客户编码首字母 → `salespersons`（R12 锚点复用）。
+2. **基数层**（已上线）：Streamlit 报表中心"业务员提成基数"——按 业务员→客户 汇总。**吨位基数 = 实发口径**：`delivery_order_items`（actual_quantity>0 优先，否则 quantity）× `products.weight` ÷ 1000，只计 confirmed/shipped 发货单（2026-08-14 老板定：实发与合同有偏差，**±5% 内合理**，超线页面标黄提醒）；合同吨位仅作对照列（整合同口径，客户级子查询汇总，避免分多批发货时合同数量被发货行重复计数）。业务员归属 = 客户编码首字母 → `salespersons`（R12 锚点复用）。
 3. **计算层**（待老板补计算方式）：基数 × 系数 − 坏账扣减，出提成单。
 
-> ⚠ 吨位基数当前用 `products.weight` 主数据。若严格按合同谈判快照，需给 `sales_contract_items` 补重量快照字段——等计算方式定了再定这个口径。
+> 单重取值：用 `products.weight` 主数据现值。单据行重量快照归快照（报价/合同谈判留痕），提成统计归统计（以发货时点的真实重量为准），两个口径不冲突。
+
+---
+
+## R14. CSV 灌库幂等与双轨回写 (2026-08-14 定) ⭐铁律
+
+**事故回顾**：`load-csv-to-db.sh` 用 `csv_to_sql.py --mode replace` 生成 `REPLACE INTO`，但
+`delivery_order_items / stock_in_items / stock_out_items / shipping_record_items`
+四张明细表只有自增 id 主键、没有自然唯一键，`REPLACE` 失去锚点退化为纯追加——
+每跑一次校验脚本就重复灌一遍（实测累计 6~8 倍重复，2026-08-14 清理）。
+
+**规则**：
+1. **凡是 CSV 会灌的表，必须有自然唯一键**（业务键），不允许只有自增 id。
+   已补：`uk_doi_doc_item (delivery_no, contract_no, contract_item_no)`、
+   `uk_sii_doc_material (in_no, material_id)`、`uk_soi_doc_material (out_no, material_id)`、
+   `uk_sri_doc_material (shipping_no, material_id)`（迁移 `2026-08-14_dedupe_natural_keys.sql`）。
+   今后新建 CSV 灌入的表，建表时同步设计自然唯一键。
+2. **双轨两个方向都要有工具**：CSV→MySQL 用 `load-csv-to-db.sh`；
+   MySQL→CSV 用 `tools/db_to_csv.py`（录入端/手工 SQL 写进库的数据，用它回写 CSV）。
+   单向同步不算同步。`--check` 模式只对比行数不写入。
+3. **item_no 一律三位补零**（`001`），禁止浮点格式（`1.0`）入库
+   （pandas 读 Excel 会把 `001` 吃成 `1.0`，导入工具需规范化）。
+4. 日志类表（`stock_logs`/`audit_logs`/`aux_stock_moves` 等）不走 CSV，不受此限。
 
 ---
 
@@ -373,6 +395,8 @@ CI 同样以此为门禁(`scripts/ci.sh` / `.github/workflows/ci.yml`)。
 | --- | --- | --- |
 | 2026-08-11 | R12 客户编码 | 新增:字母+4位数字,首位=首录业务员数字编码,换业务员只换字母;salespersons 档案上线;Q024/Q025 补全 Q0024/Q0025;推荐函数只认 3 位流水合规码 |
 | 2026-08-13 | R13 业务员提成 | 预留:三种方式(按量元/吨·按价·按回款时间)+坏账超1%等额扣减;commission_rules 表上线(系数待老板补),报表中心"业务员提成基数"统计上线 |
+| 2026-08-14 | R13 提成口径 | 吨位基数改为**实发口径**(发货明细实发数量×products.weight),合同吨位仅对照,±5% 合理线 |
+| 2026-08-14 | R14 灌库幂等 | 新增:CSV 可灌表必须有自然唯一键(四张明细表补键+历史去重);db_to_csv.py 补齐 MySQL→CSV 回写方向;item_no 三位补零 |
 | 2026-07-28 | R1 金额四件套 | 客户确认,确立铁律 |
 | 2026-07-28 | R2 汇率月固定 | 客户确认 |
 | 2026-07-29 | 本规则库 | 从 CLAUDE.md / skills 反向提炼,结构化集中 |

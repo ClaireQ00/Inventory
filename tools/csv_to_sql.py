@@ -27,6 +27,7 @@ import csv
 import sys
 import os
 import math
+import re
 import argparse
 
 
@@ -346,6 +347,9 @@ DERIVED_RULES = {
     #       若 subtotal 依赖 unit_price 会在 unit_price 尚未加算前就跳过。
     # ============================================================
     "quotation_items": {
+        # 2026-08-14 全部降级 warn: 报价行是开单时点快照, 卷价允许手填偏离公式值
+        # (老板 2026-08-11 定: 以手填为准), 且 products 批次实测更新后快照必然漂移。
+        # 偏差写进报告提醒, 不阻止生成, 保留库中现值。
         # Q1: 总重 (KG) = 单卷重量 × 数量
         "total_weight": {
             "expr": lambda row: _safe_mul(
@@ -355,6 +359,7 @@ DERIVED_RULES = {
             ),
             "depends_on": ["weight_per_unit", "quantity"],
             "tolerance": 0.001,
+            "mismatch_level": "warn",
             "description": "总重(KG) = 单卷重量 × 数量",
         },
         # Q2: 单卷价 (USD) = 单卷重量 × 报价系数
@@ -366,6 +371,7 @@ DERIVED_RULES = {
             ),
             "depends_on": ["weight_per_unit", "price_coefficient"],
             "tolerance": 0.01,
+            "mismatch_level": "warn",
             "description": "单卷价(USD) = 单卷重量(KG) × 报价系数(USD/KG)",
         },
         # Q3: 小计 (USD) = 单卷重量 × 报价系数 × 数量
@@ -380,6 +386,7 @@ DERIVED_RULES = {
             ),
             "depends_on": ["weight_per_unit", "price_coefficient", "quantity"],
             "tolerance": 0.01,
+            "mismatch_level": "warn",
             "description": "小计(USD) = 单卷重量 × 报价系数 × 数量 (直接公式, 不依赖派生 unit_price)",
         },
         # Q4: 总体积 (m³) = 单卷体积 × 数量
@@ -391,6 +398,7 @@ DERIVED_RULES = {
             ),
             "depends_on": ["volume", "quantity"],
             "tolerance": 0.01,
+            "mismatch_level": "warn",
             "description": "总体积(m³) = 单卷体积 × 数量 精度0.01",
         },
     },
@@ -1040,9 +1048,19 @@ def convert_csv_to_sql(csv_path, table_name, output_sql_path, mode="insert"):
         for field in fields:
             raw = row.get(field)
             if raw is None or raw == "":
-                # 数值类型空值用 NULL, 字符串类型如果带默认值也用 NULL
+                # 空值处理: 默认 NULL; 但"NOT NULL 无默认值的字符串列"(NULL 会直接报错)
+                # 登记在 EMPTY_AS_EMPTY_STRING 里, 空值写 '' 与库中现状一致 (R14, 2026-08-14)
+                if field in EMPTY_AS_EMPTY_STRING.get(table_name, set()):
+                    cols.append(f"`{field}`")
+                    vals.append("''")
+                else:
+                    cols.append(f"`{field}`")
+                    vals.append("NULL")
+            elif _is_string_column(field):
+                # 编号类列强制字符串: 数值化会丢前导零 ('001'->'1.0' 破坏唯一键锚点),
+                # 或把 char(1) 的 '8' 变成 '8.0' 撑爆列宽 (R14, 2026-08-14)
                 cols.append(f"`{field}`")
-                vals.append("NULL")
+                vals.append(sql_escape(raw))
             else:
                 # 尝试转数值
                 num = _to_float(raw)
@@ -1091,6 +1109,26 @@ def convert_csv_to_sql(csv_path, table_name, output_sql_path, mode="insert"):
     return len(rows)
 
 
+def _is_string_column(field: str) -> bool:
+    """编号类列判定: 这些列本质是字符串, 即使内容纯数字也不允许数值化。
+
+    - 精确名单: digit(char(1), '8' 数值化变 '8.0' 直接撑爆列宽)、电话/银行账号、行号
+    - 后缀规则: *_no / *_code / *_id (delivery_no、customer_code、material_id...)
+      注: 即使个别 int 类型的 _id 列被引号包成字符串, MySQL 隐式转换照常工作, 无副作用。
+    (R14, 2026-08-14)
+    """
+    exact = {"digit", "phone", "bank_account", "item_no", "contract_item_no"}
+    return field in exact or field.endswith(("_no", "_code", "_id"))
+
+
+# NOT NULL 且无默认值的字符串列: 空值必须写 '' 而不是 NULL, 否则 ERROR 1048。
+# (salespersons.name = 人员空缺行; quotation_items.group_code = UI 录入未分组行)
+EMPTY_AS_EMPTY_STRING = {
+    "salespersons": {"name"},
+    "quotation_items": {"group_code"},
+}
+
+
 def _looks_like_number(s):
     """判断字符串是不是数值 (避免把电话号码/银行账号当数字处理)
 
@@ -1113,6 +1151,11 @@ def _looks_like_number(s):
     # 长度超过 10 的纯数字串一定是电话号/银行账号/单号, 不当数字处理
     # (FLOAT 精度上限本来也只到 15-16 位有效数字, 16 位银行账号会被四舍五入)
     if len(s) > 10 and "." not in s:
+        return False
+    # 2026-08-14 修复: 前导零纯数字串 ('001', '007') 是编号不是数值。
+    # item_no 三位补零是项目约定 (R14), 一旦数值化 str(1.0)='1.0' 灌库,
+    # 与库里 '001' 对不上, REPLACE INTO 失去唯一键锚点退化成追加, 产生重复行。
+    if re.fullmatch(r"0\d+", s):
         return False
     try:
         float(s)

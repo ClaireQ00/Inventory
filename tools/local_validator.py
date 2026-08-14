@@ -600,6 +600,15 @@ def load_csv_into_sqlite(conn, csv_path, table_name, report):
     if not rows:
         return 0
 
+    # 只保留 SQLite 校验库里真实存在的列:
+    # MySQL 表可能带 created_at/updated_at 等运维列, 校验库结构没跟进时直接忽略,
+    # 避免 CSV ↔ MySQL 双轨导出后因列不一致卡死校验。
+    table_cols = {r[1] for r in cur.execute(f"PRAGMA table_info({table_name})")}
+    dropped = [c for c in fields if c not in table_cols]
+    if dropped:
+        report.warn(f"{table_name}: 校验库无这些列, 导入时忽略: {', '.join(dropped)}")
+        fields = [c for c in fields if c in table_cols]
+
     placeholders = ", ".join(["?"] * len(fields))
     cols = ", ".join(fields)
     sql = f"INSERT OR REPLACE INTO {table_name} ({cols}) VALUES ({placeholders})"
