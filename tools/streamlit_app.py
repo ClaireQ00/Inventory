@@ -314,19 +314,32 @@ def page_dashboard():
 
     all_contracts = run_query(
         """
-        SELECT sc.contract_no, c.name AS customer_name
+        SELECT sc.contract_no, sc.customer_code, c.name AS customer_name
         FROM sales_contracts sc JOIN customers c ON sc.customer_code = c.code
         ORDER BY sc.sign_date DESC
         """
     )
     if all_contracts:
-        chain_options = {
-            f"{r['contract_no']}（{r['customer_name']}）": r["contract_no"]
-            for r in all_contracts
-        }
-        picked = st.selectbox("选择合同", list(chain_options), key="chain_contract")
-        if picked:
-            render_doc_chain(chain_options[picked])
+        mode = st.radio("查看方式", ["按合同", "按客户"], horizontal=True, key="chain_mode")
+        if mode == "按合同":
+            chain_options = {
+                f"{r['contract_no']}（{r['customer_name']}）": r["contract_no"]
+                for r in all_contracts
+            }
+            picked = st.selectbox("选择合同", list(chain_options), key="chain_contract")
+            if picked:
+                render_doc_chain(chain_options[picked])
+        else:
+            cust_map = {}
+            for r in all_contracts:
+                cust_map.setdefault(
+                    f"{r['customer_code']}（{r['customer_name']}）", []
+                ).append(r["contract_no"])
+            picked_cust = st.selectbox("选择客户", list(cust_map), key="chain_customer")
+            if picked_cust:
+                for cno in cust_map[picked_cust]:
+                    st.markdown(f"**合同 {cno}**")
+                    render_doc_chain(cno)
     else:
         st.info("暂无合同数据")
 
@@ -363,6 +376,20 @@ def render_doc_chain(contract_no: str):
         "WHERE i.contract_no=%s",
         (contract_no,),
     )
+    # 每张发货单的实发卷数与吨位 (actual_quantity 优先, 同校验第 5 步口径)
+    delivery_totals = {}
+    if deliveries:
+        dnos = [d["delivery_no"] for d in deliveries]
+        ph = ",".join(["%s"] * len(dnos))
+        for t in run_query(
+            f"SELECT doi.delivery_no, "
+            f"SUM(IF(doi.actual_quantity>0, doi.actual_quantity, doi.quantity)) AS qty, "
+            f"SUM(IF(doi.actual_quantity>0, doi.actual_quantity, doi.quantity) * p.weight) / 1000 AS tons "
+            f"FROM delivery_order_items doi JOIN products p ON doi.material_id=p.material_id "
+            f"WHERE doi.delivery_no IN ({ph}) GROUP BY doi.delivery_no",
+            tuple(dnos),
+        ):
+            delivery_totals[t["delivery_no"]] = t
     shippings = run_query(
         "SELECT s.shipping_no, s.shipping_date, s.status, s.delivery_no "
         "FROM shipping_records s WHERE s.delivery_no IN "
@@ -442,9 +469,12 @@ def render_doc_chain(contract_no: str):
             edges.append(f'  "{r["delivery_no"]}" -> "{r["out_no"]}" [label="装柜出库"];')
 
     for d in deliveries:
-        lines.append(node(d["delivery_no"], f'发货 {d["delivery_no"]}\\n{d["delivery_date"]} | {d["status"]}', "delivery"))
+        t = delivery_totals.get(d["delivery_no"])
+        qty_txt = f"\\n实发 {int(t['qty'])} 卷 / {float(t['tons']):.2f} 吨" if t else ""
+        lines.append(node(d["delivery_no"],
+                          f'发货 {d["delivery_no"]}\\n{d["delivery_date"]} | {d["status"]}{qty_txt}',
+                          "delivery"))
         edges.append(f'  "{contract_no}" -> "{d["delivery_no"]}" [label="下发货单"];')
-
     for s in shippings:
         lines.append(node(s["shipping_no"], f'报关 {s["shipping_no"]}\\n{s["shipping_date"]} | {s["status"]}', "shipping"))
         edges.append(f'  "{s["delivery_no"]}" -> "{s["shipping_no"]}" [label="报关"];')
@@ -465,6 +495,10 @@ def render_doc_chain(contract_no: str):
 # ──────────────────────────────────────────────────────────────
 def page_inventory():
     st.header("📦 库存查询")
+    st.caption(
+        "口径说明：当前库存 = 现在仓库里实际剩余的卷数（每次入库/出库确认后实时增减，"
+        "与库存流水 stock_logs 逐笔对账）。库存是大池子，不按合同分开存放。"
+    )
 
     # 筛选器
     col1, col2, col3 = st.columns(3)
@@ -573,6 +607,79 @@ def page_inventory():
     else:
         st.info("暂无流水记录")
 
+    # ── 同一物料跨合同分布: 一个料供几张合同, 各欠多少, 池子还剩多少 ──
+    st.divider()
+    st.subheader("🧩 同一物料跨合同分布")
+    st.caption("库存是大池子、不按合同分开放。这里按物料看：几张合同在等这个料、各欠多少卷、池子里还剩多少。")
+
+    mats_with_contracts = run_query(
+        """
+        SELECT DISTINCT sci.material_id, p.spec
+        FROM sales_contract_items sci
+        JOIN sales_contracts sc ON sci.contract_no = sc.contract_no
+        JOIN products p ON sci.material_id = p.material_id
+        WHERE sc.status NOT IN ('cancelled', 'completed')
+        ORDER BY sci.material_id
+        """
+    )
+    if mats_with_contracts:
+        mat_opts = {f"{m['material_id']} - {m['spec']}": m["material_id"] for m in mats_with_contracts}
+        picked_mat = st.selectbox("选择物料（只列有未完成合同的）", list(mat_opts), key="cross_mat")
+        if picked_mat:
+            mid = mat_opts[picked_mat]
+            dist = run_query(
+                """
+                SELECT sc.contract_no, c.name AS customer_name, sc.status,
+                       sci.quantity AS contract_qty,
+                       (SELECT COALESCE(SUM(IF(doi.actual_quantity>0, doi.actual_quantity, doi.quantity)),0)
+                          FROM delivery_order_items doi JOIN delivery_orders d ON doi.delivery_no=d.delivery_no
+                         WHERE doi.contract_no=sci.contract_no AND doi.contract_item_no=sci.item_no
+                           AND d.status IN ('confirmed','shipped')) AS shipped_qty
+                FROM sales_contract_items sci
+                JOIN sales_contracts sc ON sci.contract_no = sc.contract_no
+                JOIN customers c ON sc.customer_code = c.code
+                WHERE sci.material_id = %s AND sc.status NOT IN ('cancelled')
+                ORDER BY sc.sign_date
+                """,
+                (mid,),
+            )
+            stock = run_query(
+                "SELECT COALESCE(SUM(quantity),0) AS total FROM inventory WHERE material_id=%s",
+                (mid,),
+            )
+            total_stock = stock[0]["total"] if stock else 0
+            if dist:
+                st.dataframe(
+                    [
+                        {
+                            "合同号": r["contract_no"],
+                            "客户": r["customer_name"],
+                            "状态": status_badge(r["status"]),
+                            "合同数(卷)": r["contract_qty"],
+                            "已发(卷)": r["shipped_qty"],
+                            "还欠(卷)": r["contract_qty"] - r["shipped_qty"],
+                        }
+                        for r in dist
+                    ],
+                    use_container_width=True,
+                    hide_index=True,
+                )
+                owe = sum(r["contract_qty"] - r["shipped_qty"] for r in dist)
+                c1, c2, c3 = st.columns(3)
+                c1.metric("当前库存（全仓合计）", f"{int(total_stock)} 卷")
+                c2.metric("所有合同还欠", f"{int(owe)} 卷")
+                c3.metric(
+                    "缺口（欠 − 库存）",
+                    f"{int(owe - total_stock)} 卷",
+                    delta="库存够用" if total_stock >= owe else "⚠️ 库存不够，需安排生产/采购",
+                    delta_color="normal" if total_stock >= owe else "inverse",
+                )
+            else:
+                st.info("该物料没有关联合同")
+    else:
+        st.info("暂无未完成合同的物料")
+
+
 
 # ──────────────────────────────────────────────────────────────
 # 合同执行
@@ -673,6 +780,68 @@ def page_contracts():
             )
         else:
             st.info("该合同暂无明细")
+
+        # ── 合同进度: 生产/采购入库 → 发货 → 出库 → 当前库存 (按物料逐行)
+        st.subheader("📈 合同进度（生产/采购 → 入库 → 发货 → 出库 → 库存）")
+        progress = run_query(
+            """
+            SELECT sci.item_no, sci.material_id, p.spec, p.weight,
+                   sci.quantity AS contract_qty,
+                   (SELECT COALESCE(SUM(i.quantity),0)
+                      FROM stock_in_items i JOIN stock_in s ON i.in_no=s.in_no
+                     WHERE i.contract_no=sci.contract_no AND i.material_id=sci.material_id
+                       AND s.in_type IN ('production','purchase') AND s.status='confirmed') AS produced_qty,
+                   (SELECT COALESCE(SUM(IF(doi.actual_quantity>0, doi.actual_quantity, doi.quantity)),0)
+                      FROM delivery_order_items doi JOIN delivery_orders d ON doi.delivery_no=d.delivery_no
+                     WHERE doi.contract_no=sci.contract_no AND doi.contract_item_no=sci.item_no
+                       AND d.status IN ('confirmed','shipped')) AS shipped_qty,
+                   (SELECT COALESCE(SUM(oi.quantity),0)
+                      FROM stock_out_items oi JOIN stock_out o ON oi.out_no=o.out_no
+                     WHERE oi.contract_no=sci.contract_no AND oi.material_id=sci.material_id
+                       AND o.status='confirmed') AS out_qty,
+                   (SELECT COALESCE(SUM(quantity),0) FROM inventory
+                     WHERE material_id=sci.material_id) AS stock_total
+            FROM sales_contract_items sci
+            JOIN products p ON sci.material_id = p.material_id
+            WHERE sci.contract_no = %s
+            ORDER BY sci.item_no
+            """,
+            (sel_contract,),
+        )
+        if progress:
+            st.dataframe(
+                [
+                    {
+                        "行号": r["item_no"],
+                        "物料号": r["material_id"],
+                        "规格": r["spec"],
+                        "合同数(卷)": r["contract_qty"],
+                        "已入库(卷)": r["produced_qty"],
+                        "已发货(卷)": r["shipped_qty"],
+                        "已发货(吨)": round(float(r["shipped_qty"]) * float(r["weight"]) / 1000, 3),
+                        "已出库(卷)": r["out_qty"],
+                        "当前库存(卷·全仓)": r["stock_total"],
+                    }
+                    for r in progress
+                ],
+                use_container_width=True,
+                hide_index=True,
+            )
+            with st.expander("❓ 这些列是什么意思？（点我看大白话解释）"):
+                st.markdown(
+                    """
+| 列名 | 大白话解释 | 对应实际工作 |
+| --- | --- | --- |
+| **合同数** | 跟客户签合同时承诺的卷数 | 业务经理签合同 |
+| **已入库** | 这张合同的货，工厂做完（或外协买回来）已经入到仓库的累计卷数。外协走"采购入库"，自产走"生产入库" | 车间完工/外协到货，仓库点收 |
+| **已发货（卷/吨）** | **装柜后回填的实际卷数**（不是计划数）。预制发货单只是备货指令；装柜时可能有损耗，装完回填"实发数"才算真发了。吨位 = 实发卷数 × 单卷重量 | 仓库装柜、回填实发数 |
+| **已出库** | 仓库账上实际出掉的卷数（这个动作才真正扣库存）。一般和已发货一致；调拨中转时会先出到临沂仓 | 仓库做出库单 |
+| **当前库存** | 这个物料**现在所有仓库加总**还剩多少卷。注意：库存是个大池子，**不按合同分开存**——同一个物料供好几张合同时，池子是共用的 | 实时余量 |
+
+**发货和出库的区别**：发货单管"对客户的承诺兑现了多少"（业务口径，算应收、算提成用它）；
+出库单管"仓库货架上少了多少"（库存口径，盘仓用它）。正常一单对一单，调拨中转时会错开。
+"""
+                )
 
         # ── 标签纸需求提示 (M3a, 2026-08-01 辅料模块)
         # 规则: 每卷产品 1 张标签; 只提示不扣减, 生产领用出库才扣库存
