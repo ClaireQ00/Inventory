@@ -1740,6 +1740,7 @@ def create_delivery(header: dict, items: list[dict], operator: str = "frontend-r
     R11 公斤价反算三列留 pending, 由发货校验(第16步)口径复核, 不在录入时算。
     """
     errors: list[str] = []
+    warnings: list[str] = []
     delivery_no = (header.get("delivery_no") or "").strip()
     customer = (header.get("customer_code") or "").strip()
     delivery_date = (header.get("delivery_date") or "").strip()
@@ -1775,6 +1776,7 @@ def create_delivery(header: dict, items: list[dict], operator: str = "frontend-r
                     continue
                 cur.execute(
                     """SELECT ci.material_id, ci.quantity, ci.delivered_qty, ci.status AS item_status,
+                              ci.unit_price AS item_price,
                               sc.customer_code, sc.status
                        FROM sales_contract_items ci
                        JOIN sales_contracts sc ON sc.contract_no = ci.contract_no
@@ -1799,6 +1801,29 @@ def create_delivery(header: dict, items: list[dict], operator: str = "frontend-r
                     errors.append(
                         f"第{i}行({ci['material_id']}): 发货 {int(qty)} 超合同未发 {pending} (合同 {cno}#{ino})")
                     continue
+                # 低价先发货预警 (2026-08-14 老板定): 同客户同物料, 旧合同还有未发且单价更高,
+                # 先发低价合同会造成价差损失。只警告不拦截 (业务上可能客户已协商)
+                cur.execute(
+                    """SELECT ci2.contract_no, ci2.item_no, ci2.unit_price,
+                              (ci2.quantity - ci2.delivered_qty) AS remain
+                       FROM sales_contract_items ci2
+                       JOIN sales_contracts sc2 ON sc2.contract_no = ci2.contract_no
+                       WHERE sc2.customer_code=%s AND ci2.material_id=%s
+                         AND ci2.status='active'
+                         AND sc2.status IN ('confirmed','delivering')
+                         AND ci2.delivered_qty < ci2.quantity
+                         AND NOT (ci2.contract_no=%s AND ci2.item_no=%s)
+                         AND ci2.unit_price > %s""",
+                    (customer, ci["material_id"], cno, ino, ci["item_price"]),
+                )
+                for hi in cur.fetchall():
+                    loss = round((float(hi["unit_price"]) - float(ci["item_price"])) * int(qty), 2)
+                    warnings.append(
+                        f"第{i}行({ci['material_id']}): ⚠️ 高价旧合同 {hi['contract_no']}#{hi['item_no']} "
+                        f"还有 {int(hi['remain'])} 卷未发 (单价 {hi['unit_price']} > 本单 {ci['item_price']}), "
+                        f"本次先发低价 {int(qty)} 卷, 价差损失约 {loss} (原币/卷价差×卷数)。"
+                        f"确认客户已同意先发新单再提交"
+                    )
                 p = _fetch_product(cur, ci["material_id"])
                 vol = _pos(p.get("volume")) if p else None
                 rows.append({
@@ -1814,7 +1839,7 @@ def create_delivery(header: dict, items: list[dict], operator: str = "frontend-r
                 touched_contracts.add(cno)
             if errors:
                 conn.rollback()
-                return {"ok": False, "errors": errors, "doc_no": None}
+                return {"ok": False, "errors": errors, "doc_no": None, "warnings": warnings}
 
             head_row = {
                 "delivery_no": delivery_no, "customer_code": customer,
@@ -1856,7 +1881,7 @@ def create_delivery(header: dict, items: list[dict], operator: str = "frontend-r
         conn.commit()
         return {"ok": True, "errors": [], "doc_no": delivery_no,
                 "total_volume": head_row["total_volume"],
-                "contracts_updated": sorted(touched_contracts), "warnings": []}
+                "contracts_updated": sorted(touched_contracts), "warnings": warnings}
     except Exception as e:  # noqa: BLE001
         conn.rollback()
         return {"ok": False, "errors": [f"发货单落库失败: {e}"], "doc_no": None}

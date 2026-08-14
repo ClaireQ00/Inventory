@@ -76,7 +76,12 @@ def run_query(sql: str, params: tuple | None = None) -> list[dict]:
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
-            cur.execute(sql, params or ())
+            # pymysql 只要 args 非 None 就走 % 格式化, SQL 里的字面 % (如 DATE_FORMAT '%Y-%m')
+            # 会被误解析。无参查询必须传 None, 不能传空元组。
+            if params:
+                cur.execute(sql, params)
+            else:
+                cur.execute(sql)
             return cur.fetchall()
     except Exception as exc:
         st.error(f"查询出错: {exc}\nSQL: {sql[:200]}")
@@ -88,7 +93,10 @@ def run_execute(sql: str, params: tuple | None = None) -> int:
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
-            cur.execute(sql, params or ())
+            if params:
+                cur.execute(sql, params)
+            else:
+                cur.execute(sql)
             conn.commit()
             return cur.rowcount
     except Exception as exc:
@@ -243,6 +251,51 @@ def page_dashboard():
             delta="⚠️ 需关注" if low_stock and low_stock[0]["cnt"] > 0 else None,
             delta_color="inverse",
         )
+
+    st.divider()
+
+    # ── 低价先发货预警 (2026-08-14 老板定): 同客户同物料, 高价旧合同未发完而低价新合同在执行
+    price_risks = run_query(
+        """
+        SELECT c.name AS customer_name, p.material_id, p.spec,
+               hi.contract_no AS hi_contract, hi.unit_price AS hi_price,
+               (hi.quantity - hi.delivered_qty) AS hi_remain,
+               lo.contract_no AS lo_contract, lo.unit_price AS lo_price,
+               (lo.quantity - lo.delivered_qty) AS lo_remain,
+               ROUND((hi.unit_price - lo.unit_price) * (hi.quantity - hi.delivered_qty), 2) AS potential_loss
+        FROM sales_contract_items hi
+        JOIN sales_contract_items lo ON lo.material_id = hi.material_id AND lo.contract_no <> hi.contract_no
+        JOIN sales_contracts hsc ON hsc.contract_no = hi.contract_no
+        JOIN sales_contracts lsc ON lsc.contract_no = lo.contract_no AND lsc.customer_code = hsc.customer_code
+        JOIN customers c ON c.code = hsc.customer_code
+        JOIN products p ON p.material_id = hi.material_id
+        WHERE hi.status='active' AND lo.status='active'
+          AND hsc.status IN ('confirmed','delivering') AND lsc.status IN ('confirmed','delivering')
+          AND hi.delivered_qty < hi.quantity AND lo.delivered_qty < lo.quantity
+          AND hi.unit_price > lo.unit_price
+        ORDER BY potential_loss DESC
+        """
+    )
+    if price_risks:
+        st.error(
+            f"⚠️ 价差风险预警：{len(price_risks)} 组同客户同物料存在高价旧合同未发完、低价新合同在执行。先发低价单会少收钱！"
+        )
+        st.dataframe(
+            [
+                {
+                    "客户": r["customer_name"],
+                    "物料": f"{r['material_id']} {r['spec']}",
+                    "高价合同(未发完)": f"{r['hi_contract']} @{r['hi_price']} 剩{r['hi_remain']}卷",
+                    "低价合同(执行中)": f"{r['lo_contract']} @{r['lo_price']} 剩{r['lo_remain']}卷",
+                    "价差/卷": round(float(r["hi_price"]) - float(r["lo_price"]), 2),
+                    "潜在损失(若旧单被放弃)": r["potential_loss"],
+                }
+                for r in price_risks
+            ],
+            use_container_width=True,
+            hide_index=True,
+        )
+        st.caption("处置方式：①跟客户确认先发哪张单 ②旧单不做了就到【合同执行】关闭对应行，预警即消失")
 
     st.divider()
 
