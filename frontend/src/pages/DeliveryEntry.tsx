@@ -2,7 +2,7 @@
 // 选合同 → 未发明细带出(默认发全部未发) → 提交后回写合同已发数+状态联动
 import { useEffect, useState } from 'react'
 import {
-  Alert, App, Button, Card, Col, DatePicker, Input, InputNumber, Modal, Row, Select,
+  Alert, App, Button, Card, Checkbox, Col, DatePicker, Input, InputNumber, Modal, Row, Select,
   Space, Table, Tag, Typography,
 } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
@@ -34,6 +34,8 @@ export default function DeliveryEntry() {
   })
   const [rows, setRows] = useState<ShipRow[]>([])
   const [operator, setOperator] = useState('')
+  const [gapApproved, setGapApproved] = useState(false)
+  const [gapReason, setGapReason] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
@@ -90,6 +92,9 @@ export default function DeliveryEntry() {
         receiver: header.receiver, receiver_phone: header.receiver_phone,
         receiver_address: header.receiver_address, transport_no: header.transport_no,
         remark: header.remark,
+        ...(gapApproved && gapReason.trim()
+          ? { price_gap_approved: true, price_gap_reason: gapReason.trim() }
+          : {}),
       }, shipRows.map((r2) => ({
         contract_no: header.contract_no, contract_item_no: r2.item_no, quantity: r2.ship_qty,
       })), operator || 'frontend-react')
@@ -102,7 +107,7 @@ export default function DeliveryEntry() {
         setHeader((h) => ({ ...h, contract_no: null }))
         suggestNo()
       } else {
-        Modal.error({ title: '写入被拒绝（数据库未改动）', content: r.errors.join('\n') })
+        Modal.error({ title: '写入被拒绝（数据库未改动）', content: <div style={{ whiteSpace: 'pre-line' }}>{r.errors.join('\n')}</div> })
       }
     } catch (e) {
       message.error(`提交失败: ${(e as Error).message}`)
@@ -179,12 +184,31 @@ export default function DeliveryEntry() {
       </Card>
 
       <Card size="small" style={{ marginBottom: 24 }}>
+        {gapApproved && (
+          <Alert
+            type="warning" showIcon style={{ marginBottom: 12 }}
+            message="老板特批已开启：同客户同物料存在更高价旧合同未发完时，本单仍放行（原因留痕审计）"
+          />
+        )}
         <Row align="middle">
           <Col span={16}>
-            <Text type="secondary">
-              本次共发 {shipRows.reduce((s, r) => s + (r.ship_qty || 0), 0)} 卷 / {shipRows.length} 行；
-              发货量超过合同未发量会被后端整体拦截回滚。
-            </Text>
+            <Space direction="vertical" size={4}>
+              <Text type="secondary">
+                本次共发 {shipRows.reduce((s, r) => s + (r.ship_qty || 0), 0)} 卷 / {shipRows.length} 行；
+                发货量超过合同未发量会被后端整体拦截回滚。
+              </Text>
+              <Space>
+                <Checkbox checked={gapApproved} onChange={(e) => setGapApproved(e.target.checked)}>
+                  老板特批：允许低价先发货
+                </Checkbox>
+                {gapApproved && (
+                  <Input
+                    style={{ width: 320 }} placeholder="特批原因（必填，如：客户确认放弃旧单）"
+                    value={gapReason} onChange={(e) => setGapReason(e.target.value)}
+                  />
+                )}
+              </Space>
+            </Space>
           </Col>
           <Col span={8} style={{ textAlign: 'right' }}>
             <Space>

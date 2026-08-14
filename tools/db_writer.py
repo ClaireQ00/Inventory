@@ -1744,6 +1744,10 @@ def create_delivery(header: dict, items: list[dict], operator: str = "frontend-r
     delivery_no = (header.get("delivery_no") or "").strip()
     customer = (header.get("customer_code") or "").strip()
     delivery_date = (header.get("delivery_date") or "").strip()
+    # 老板特批低价先发货 (2026-08-14): 默认拦截, 仅当 price_gap_approved 为真
+    # 且填写 price_gap_reason 时放行 (原因随审计留痕)
+    price_gap_approved = bool(header.get("price_gap_approved"))
+    price_gap_reason = (header.get("price_gap_reason") or "").strip()
     if not delivery_no:
         errors.append("缺少发货单号 delivery_no")
     if not customer:
@@ -1801,8 +1805,9 @@ def create_delivery(header: dict, items: list[dict], operator: str = "frontend-r
                     errors.append(
                         f"第{i}行({ci['material_id']}): 发货 {int(qty)} 超合同未发 {pending} (合同 {cno}#{ino})")
                     continue
-                # 低价先发货预警 (2026-08-14 老板定): 同客户同物料, 旧合同还有未发且单价更高,
-                # 先发低价合同会造成价差损失。只警告不拦截 (业务上可能客户已协商)
+                # 低价先发货拦截 (2026-08-14 老板定, WARN 升级为 ERROR):
+                # 同客户同物料, 旧合同还有未发且单价更高, 先发低价合同会造成价差损失。
+                # 默认拦截; 客户已协商同意时由老板特批 (price_gap_approved + price_gap_reason) 放行
                 cur.execute(
                     """SELECT ci2.contract_no, ci2.item_no, ci2.unit_price,
                               (ci2.quantity - ci2.delivered_qty) AS remain
@@ -1816,14 +1821,23 @@ def create_delivery(header: dict, items: list[dict], operator: str = "frontend-r
                          AND ci2.unit_price > %s""",
                     (customer, ci["material_id"], cno, ino, ci["item_price"]),
                 )
+                gap_hit = False
                 for hi in cur.fetchall():
                     loss = round((float(hi["unit_price"]) - float(ci["item_price"])) * int(qty), 2)
-                    warnings.append(
+                    msg = (
                         f"第{i}行({ci['material_id']}): ⚠️ 高价旧合同 {hi['contract_no']}#{hi['item_no']} "
                         f"还有 {int(hi['remain'])} 卷未发 (单价 {hi['unit_price']} > 本单 {ci['item_price']}), "
                         f"本次先发低价 {int(qty)} 卷, 价差损失约 {loss} (原币/卷价差×卷数)。"
-                        f"确认客户已同意先发新单再提交"
                     )
+                    if price_gap_approved and price_gap_reason:
+                        warnings.append(msg + f"老板特批放行: {price_gap_reason}")
+                    else:
+                        errors.append(
+                            msg + "已拦截。如客户已协商同意, 由老板在发货单上加 "
+                            "price_gap_approved=true 并填写 price_gap_reason 后重试")
+                        gap_hit = True
+                if gap_hit:
+                    continue
                 p = _fetch_product(cur, ci["material_id"])
                 vol = _pos(p.get("volume")) if p else None
                 rows.append({

@@ -295,7 +295,8 @@ def page_dashboard():
             use_container_width=True,
             hide_index=True,
         )
-        st.caption("处置方式：①跟客户确认先发哪张单 ②旧单不做了就到【合同执行】关闭对应行，预警即消失")
+        st.caption("处置方式：①跟客户确认先发哪张单 ②旧单不做了就到【合同执行】关闭对应行，预警即消失。"
+                   "录入端会拦截此类发货，确需先发须老板特批（填 price_gap_approved + 原因，留痕审计）")
 
     st.divider()
 
