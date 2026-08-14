@@ -662,10 +662,80 @@ def page_reports():
             "未发完合同（已确认但还有未发数量）",
             "待处理差异（pending credit_notes）",
             "本月汇率",
+            "业务员提成基数（按客户汇总吨位/回款）",
         ],
     )
 
-    if report_type == "低库存预警（库存 < 30）":
+    if report_type == "业务员提成基数（按客户汇总吨位/回款）":
+        st.caption(
+            "提成规则说明：三种方式（按量·元/吨 ｜ 按价格 ｜ 按回款时间）各有系数，"
+            "系数未定前本表先出**基数**。坏账扣减规则：损失 ≤1% 不报警，超出部分等额扣提成（R13）。"
+        )
+        # 吨位基数 = Σ 合同明细数量 × 单重(products.weight 主数据) / 1000 (kg→吨)
+        # 回款基数 = receipts 实收 (已确认) 按合同汇总; 业务员 = 客户编码首字母 → salespersons
+        rows = run_query(
+            """
+            SELECT sp.code AS 业务员, sp.name AS 姓名,
+                   c.code AS 客户编码, c.name AS 客户名称,
+                   COUNT(DISTINCT sc.contract_no) AS 合同数,
+                   ROUND(SUM(sci.quantity * p.weight) / 1000, 3) AS 合同吨位,
+                   ROUND(SUM(sci.delivered_qty * p.weight) / 1000, 3) AS 已发吨位,
+                   ROUND(SUM(sci.subtotal), 2) AS 合同金额_原币,
+                   sc.currency AS 币种
+            FROM sales_contract_items sci
+            JOIN sales_contracts sc ON sci.contract_no = sc.contract_no
+            JOIN customers c ON sc.customer_code = c.code
+            JOIN products p ON sci.material_id = p.material_id
+            JOIN salespersons sp ON sp.code = LEFT(c.code, 1)
+            WHERE sc.status NOT IN ('cancelled')
+            GROUP BY sp.code, sp.name, c.code, c.name, sc.currency
+            ORDER BY sp.code, 合同吨位 DESC
+            """
+        )
+        if rows:
+            st.dataframe(rows, use_container_width=True, hide_index=True)
+            # 业务员小计
+            st.subheader("业务员小计")
+            summary = run_query(
+                """
+                SELECT sp.code AS 业务员, sp.name AS 姓名,
+                       COUNT(DISTINCT sc.contract_no) AS 合同数,
+                       COUNT(DISTINCT c.code) AS 客户数,
+                       ROUND(SUM(sci.quantity * p.weight) / 1000, 3) AS 合同吨位合计,
+                       ROUND(SUM(sci.delivered_qty * p.weight) / 1000, 3) AS 已发吨位合计
+                FROM sales_contract_items sci
+                JOIN sales_contracts sc ON sci.contract_no = sc.contract_no
+                JOIN customers c ON sc.customer_code = c.code
+                JOIN products p ON sci.material_id = p.material_id
+                JOIN salespersons sp ON sp.code = LEFT(c.code, 1)
+                WHERE sc.status NOT IN ('cancelled')
+                GROUP BY sp.code, sp.name
+                ORDER BY 合同吨位合计 DESC
+                """
+            )
+            st.dataframe(summary, use_container_width=True, hide_index=True)
+            # 回款口径
+            st.subheader("回款基数（按客户）")
+            receipts = run_query(
+                """
+                SELECT LEFT(r.customer_code, 1) AS 业务员, r.customer_code AS 客户编码,
+                       COUNT(*) AS 收款笔数,
+                       ROUND(SUM(r.amount), 2) AS 实收_原币, r.currency AS 币种,
+                       ROUND(SUM(r.amount_cny), 2) AS 实收_人民币
+                FROM receipts r
+                WHERE r.status = 'confirmed'
+                GROUP BY LEFT(r.customer_code, 1), r.customer_code, r.currency
+                ORDER BY 实收_人民币 DESC
+                """
+            )
+            if receipts:
+                st.dataframe(receipts, use_container_width=True, hide_index=True)
+            else:
+                st.info("暂无已确认收款")
+        else:
+            st.info("暂无合同数据")
+
+    elif report_type == "低库存预警（库存 < 30）":
         rows = run_query(
             """
             SELECT p.material_id, p.spec, w.name AS warehouse_name, i.quantity
