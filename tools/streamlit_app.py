@@ -307,6 +307,158 @@ def page_dashboard():
         else:
             st.info("暂无库存数据")
 
+    # ── 单据链路图: 一张合同从报价到收款的全生命周期 ──
+    st.divider()
+    st.subheader("🔗 单据链路图")
+    st.caption("选一张合同，看它从报价到收款的全链路单据。节点颜色：蓝=报价 金=合同 绿=入库 橙=出库 紫=发货 青=报关 红=收款")
+
+    all_contracts = run_query(
+        """
+        SELECT sc.contract_no, c.name AS customer_name
+        FROM sales_contracts sc JOIN customers c ON sc.customer_code = c.code
+        ORDER BY sc.sign_date DESC
+        """
+    )
+    if all_contracts:
+        chain_options = {
+            f"{r['contract_no']}（{r['customer_name']}）": r["contract_no"]
+            for r in all_contracts
+        }
+        picked = st.selectbox("选择合同", list(chain_options), key="chain_contract")
+        if picked:
+            render_doc_chain(chain_options[picked])
+    else:
+        st.info("暂无合同数据")
+
+
+def render_doc_chain(contract_no: str):
+    """把一张合同关联的所有单据画成 graphviz 流程图 (只读查询, 不写库)。"""
+    quotes = run_query(
+        "SELECT quote_no, quote_type, quote_date, status FROM quotations "
+        "WHERE converted_contract_no=%s OR parent_quote_no IN "
+        "(SELECT quote_no FROM quotations WHERE converted_contract_no=%s)",
+        (contract_no, contract_no),
+    )
+    contract = run_query(
+        "SELECT contract_no, sign_date, status, total_amount, currency "
+        "FROM sales_contracts WHERE contract_no=%s",
+        (contract_no,),
+    )
+    ins = run_query(
+        "SELECT DISTINCT si.in_no, si.in_date, si.in_type, si.status, si.transfer_ref "
+        "FROM stock_in si JOIN stock_in_items i ON si.in_no=i.in_no "
+        "WHERE i.contract_no=%s",
+        (contract_no,),
+    )
+    outs = run_query(
+        "SELECT DISTINCT so.out_no, so.out_date, so.out_type, so.status, "
+        "so.transfer_ref, so.delivery_no "
+        "FROM stock_out so JOIN stock_out_items i ON so.out_no=i.out_no "
+        "WHERE i.contract_no=%s",
+        (contract_no,),
+    )
+    deliveries = run_query(
+        "SELECT DISTINCT d.delivery_no, d.delivery_date, d.status "
+        "FROM delivery_orders d JOIN delivery_order_items i ON d.delivery_no=i.delivery_no "
+        "WHERE i.contract_no=%s",
+        (contract_no,),
+    )
+    shippings = run_query(
+        "SELECT s.shipping_no, s.shipping_date, s.status, s.delivery_no "
+        "FROM shipping_records s WHERE s.delivery_no IN "
+        "(SELECT DISTINCT delivery_no FROM delivery_order_items WHERE contract_no=%s)",
+        (contract_no,),
+    )
+    receipts = run_query(
+        "SELECT receipt_no, paid_date, amount, currency, status "
+        "FROM receipts WHERE contract_no=%s",
+        (contract_no,),
+    )
+
+    # 调拨配对补全: 一侧关联了合同的调拨单, 把 transfer_ref 配对的另一侧也拉进图
+    # (否则"本厂→临沂"这类中转链会只显示半条)
+    linked_refs = {r["transfer_ref"] for r in (ins + outs) if r.get("transfer_ref")}
+    known = {r["in_no"] for r in ins} | {r["out_no"] for r in outs}
+    missing = linked_refs - known
+    if missing:
+        ph = ",".join(["%s"] * len(missing))
+        ins += run_query(
+            f"SELECT in_no, in_date, in_type, status, transfer_ref "
+            f"FROM stock_in WHERE in_no IN ({ph})",
+            tuple(missing),
+        )
+        outs += run_query(
+            f"SELECT out_no, out_date, out_type, status, transfer_ref, delivery_no "
+            f"FROM stock_out WHERE out_no IN ({ph})",
+            tuple(missing),
+        )
+
+    # 节点颜色按单据类型
+    STYLE = {
+        "quote":    ("lightblue", "报价"),
+        "contract": ("gold",      "合同"),
+        "in":       ("palegreen", "入库"),
+        "out":      ("orange",    "出库"),
+        "delivery": ("plum",      "发货"),
+        "shipping": ("turquoise", "报关"),
+        "receipt":  ("lightcoral","收款"),
+    }
+
+    def node(nid, label, kind):
+        color, _ = STYLE[kind]
+        return f'  "{nid}" [label="{label}", style=filled, fillcolor="{color}"];'
+
+    lines = [
+        'digraph G {',
+        '  rankdir=LR; node [shape=box, fontname="Arial"]; edge [fontname="Arial"];',
+    ]
+    edges = []
+
+    for q in quotes:
+        tag = "简要" if q["quote_type"] == "brief" else "正式"
+        lines.append(node(q["quote_no"], f'报价 {q["quote_no"]}\\n{tag} | {q["quote_date"]} | {q["status"]}', "quote"))
+        edges.append(f'  "{q["quote_no"]}" -> "{contract_no}" [label="转合同"];')
+
+    if contract:
+        c = contract[0]
+        lines.append(node(contract_no,
+                          f'合同 {c["contract_no"]}\\n{c["sign_date"]} | {c["status"]}\\n{c["total_amount"]:,.2f} {c["currency"]}',
+                          "contract"))
+
+    for r in ins:
+        tag = {"purchase": "采购入库", "production": "生产入库", "transfer": "调拨入库", "adjust": "调整入库"}.get(r["in_type"], r["in_type"])
+        lines.append(node(r["in_no"], f'入库 {r["in_no"]}\\n{tag} | {r["in_date"]} | {r["status"]}', "in"))
+        if r["in_type"] == "transfer" and r["transfer_ref"]:
+            edges.append(f'  "{r["transfer_ref"]}" -> "{r["in_no"]}" [label="调拨到达"];')
+        else:
+            edges.append(f'  "{contract_no}" -> "{r["in_no"]}" [label="生产/采购"];')
+
+    for r in outs:
+        tag = {"sale": "销售出库", "transfer": "调拨发出", "adjust": "调整出库"}.get(r["out_type"], r["out_type"])
+        lines.append(node(r["out_no"], f'出库 {r["out_no"]}\\n{tag} | {r["out_date"]} | {r["status"]}', "out"))
+        if r["out_type"] == "transfer":
+            edges.append(f'  "{contract_no}" -> "{r["out_no"]}" [label="调拨发出"];')
+        elif r["delivery_no"]:
+            edges.append(f'  "{r["delivery_no"]}" -> "{r["out_no"]}" [label="装柜出库"];')
+
+    for d in deliveries:
+        lines.append(node(d["delivery_no"], f'发货 {d["delivery_no"]}\\n{d["delivery_date"]} | {d["status"]}', "delivery"))
+        edges.append(f'  "{contract_no}" -> "{d["delivery_no"]}" [label="下发货单"];')
+
+    for s in shippings:
+        lines.append(node(s["shipping_no"], f'报关 {s["shipping_no"]}\\n{s["shipping_date"]} | {s["status"]}', "shipping"))
+        edges.append(f'  "{s["delivery_no"]}" -> "{s["shipping_no"]}" [label="报关"];')
+
+    for r in receipts:
+        lines.append(node(r["receipt_no"],
+                          f'收款 {r["receipt_no"]}\\n{r["paid_date"]} | {r["amount"]:,.2f} {r["currency"]} | {r["status"]}',
+                          "receipt"))
+        edges.append(f'  "{contract_no}" -> "{r["receipt_no"]}" [label="回款"];')
+
+    lines.extend(edges)
+    lines.append("}")
+    st.graphviz_chart("\n".join(lines))
+
 
 # ──────────────────────────────────────────────────────────────
 # 库存查询
