@@ -199,6 +199,7 @@ CREATE TABLE IF NOT EXISTS sales_contract_items (
     subtotal REAL NOT NULL,
     volume_subtotal REAL DEFAULT 0,
     delivered_qty INTEGER DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'active',  -- active=执行中 / closed=客户放弃余量 (2026-08-14)
     remark TEXT DEFAULT '',
     FOREIGN KEY (contract_no) REFERENCES sales_contracts(contract_no) ON DELETE CASCADE,
     FOREIGN KEY (material_id) REFERENCES products(material_id),
@@ -801,6 +802,7 @@ def check_delivery_vs_contract(conn, report):
         """
         SELECT sci.id, sc.contract_no, p.material_id,
                sci.quantity AS contracted,
+               sci.status AS item_status,
                COALESCE(SUM(
                    CASE WHEN doi.actual_quantity > 0 THEN doi.actual_quantity
                         ELSE doi.quantity END
@@ -816,13 +818,14 @@ def check_delivery_vs_contract(conn, report):
         """
     )
     writeback = []  # (delivered, sci_id)
-    for sci_id, contract_no, material_id, contracted, delivered in cur.fetchall():
+    for sci_id, contract_no, material_id, contracted, item_status, delivered in cur.fetchall():
         writeback.append((delivered, sci_id))
         if delivered > contracted:
             report.error(
                 f"合同 {contract_no} / 物料 {material_id}: 发货 {delivered} > 合同 {contracted}"
             )
-        elif delivered < contracted:
+        elif delivered < contracted and item_status == "active":
+            # closed 行 = 客户放弃余量 (2026-08-14), 不再报"未发完"
             report.warn(
                 f"合同 {contract_no} / 物料 {material_id}: 已发 {delivered} < 合同 {contracted} (未发完)"
             )

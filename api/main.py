@@ -352,6 +352,15 @@ def customer_create(req: CustomerReq):
     return db_writer.create_customer(req.data, req.operator)
 
 
+@app.post("/api/contracts/{contract_no}/items/{item_no}/close")
+def contract_item_close(contract_no: str, item_no: str, req: CustomerReq):
+    """关闭合同明细行 (客户放弃该行余量): 行状态→closed, 备注留痕,
+    全部行了结则合同自动 completed。req.data.reason 填关闭原因。"""
+    return db_writer.close_contract_item(
+        contract_no, item_no, req.data.get("reason", ""), req.operator
+    )
+
+
 @app.post("/api/aux/materials/{aux_code}/attachments")
 async def aux_upload(aux_code: str, file: UploadFile, uploaded_by: str = "frontend-react"):
     """上传辅料附件 (pdf/doc/docx/jpg/png ≤10MB, sha256 去重)"""

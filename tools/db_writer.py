@@ -1774,7 +1774,8 @@ def create_delivery(header: dict, items: list[dict], operator: str = "frontend-r
                     errors.append(f"第{i}行: 必须关联合同号+合同行号")
                     continue
                 cur.execute(
-                    """SELECT ci.material_id, ci.quantity, ci.delivered_qty, sc.customer_code, sc.status
+                    """SELECT ci.material_id, ci.quantity, ci.delivered_qty, ci.status AS item_status,
+                              sc.customer_code, sc.status
                        FROM sales_contract_items ci
                        JOIN sales_contracts sc ON sc.contract_no = ci.contract_no
                        WHERE ci.contract_no=%s AND ci.item_no=%s""",
@@ -1788,6 +1789,8 @@ def create_delivery(header: dict, items: list[dict], operator: str = "frontend-r
                     errors.append(f"第{i}行: 合同 {cno} 属于客户 {ci['customer_code']}, 与发货单客户不一致")
                 if ci["status"] == "cancelled":
                     errors.append(f"第{i}行: 合同 {cno} 已取消")
+                if ci["item_status"] == "closed":
+                    errors.append(f"第{i}行: 合同行 {cno}#{ino} 已关闭(客户放弃余量), 不能再发货")
                 if qty is None:
                     errors.append(f"第{i}行({ci['material_id']}): 发货数量必须为正整数")
                     continue
@@ -1832,11 +1835,12 @@ def create_delivery(header: dict, items: list[dict], operator: str = "frontend-r
                        WHERE contract_no=%s AND item_no=%s""",
                     (r["actual_quantity"], r["contract_no"], r["contract_item_no"]),
                 )
-            # 合同状态联动: 全部发完 completed, 否则 delivering (不动 cancelled/draft)
+            # 合同状态联动: 全部发完或关闭 completed, 否则 delivering (不动 cancelled/draft)
+            # 2026-08-14 起: closed 行 (客户放弃余量) 不再算 pending
             for cno in touched_contracts:
                 cur.execute(
                     """SELECT SUM(quantity - delivered_qty) AS pending FROM sales_contract_items
-                       WHERE contract_no=%s""",
+                       WHERE contract_no=%s AND status='active'""",
                     (cno,),
                 )
                 left = int(cur.fetchone()["pending"] or 0)
@@ -1856,6 +1860,63 @@ def create_delivery(header: dict, items: list[dict], operator: str = "frontend-r
     except Exception as e:  # noqa: BLE001
         conn.rollback()
         return {"ok": False, "errors": [f"发货单落库失败: {e}"], "doc_no": None}
+    finally:
+        conn.close()
+
+
+# ──────────────────────────────────────────────────────────────
+# 合同明细行关闭 (2026-08-14 老板定: 客户可只放弃某一行, 不用整合同关单)
+# ──────────────────────────────────────────────────────────────
+def close_contract_item(contract_no: str, item_no: str, reason: str,
+                        operator: str) -> dict:
+    """关闭合同明细行: 客户放弃该行余量, 余量不再计入任何还欠/需求统计。
+
+    幂等: 已关闭的行再次调用直接返回成功。
+    联动: 该合同所有行都"发完或关闭"时, 合同自动 completed。
+    """
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, status, quantity, delivered_qty, remark "
+                "FROM sales_contract_items WHERE contract_no=%s AND item_no=%s",
+                (contract_no, item_no),
+            )
+            row = cur.fetchone()
+            if not row:
+                return {"ok": False, "errors": [f"合同 {contract_no} 没有行号 {item_no}"]}
+            if row["status"] == "closed":
+                return {"ok": True, "errors": [], "warnings": ["该行已是关闭状态, 无需重复操作"]}
+            remaining = int(row["quantity"]) - int(row["delivered_qty"])
+            stamp = f" | {date.today().isoformat()} {operator} 关闭(客户放弃余量 {remaining} 卷): {reason}"
+            cur.execute(
+                "UPDATE sales_contract_items SET status='closed', "
+                "remark=%s WHERE id=%s",
+                (((row["remark"] or "") + stamp)[:255], row["id"]),
+            )
+            # 合同状态联动: 剩余 active 行全部发完 → completed
+            cur.execute(
+                """SELECT SUM(quantity - delivered_qty) AS pending FROM sales_contract_items
+                   WHERE contract_no=%s AND status='active'""",
+                (contract_no,),
+            )
+            left = int(cur.fetchone()["pending"] or 0)
+            if left == 0:
+                cur.execute(
+                    """UPDATE sales_contracts SET status='completed'
+                       WHERE contract_no=%s AND status IN ('confirmed','delivering')""",
+                    (contract_no,),
+                )
+        write_audit(conn, "sales_contract_items", row["id"], "UPDATE",
+                    {"status": "active"}, {"status": "closed", "reason": reason},
+                    operator)
+        conn.commit()
+        return {"ok": True, "errors": [],
+                "warnings": [f"已关闭 {contract_no} 行 {item_no}, 放弃余量 {remaining} 卷"
+                             + ("; 合同已全部了结, 状态置 completed" if left == 0 else "")]}
+    except Exception as e:  # noqa: BLE001
+        conn.rollback()
+        return {"ok": False, "errors": [f"关闭合同行失败: {e}"]}
     finally:
         conn.close()
 

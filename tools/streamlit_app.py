@@ -645,6 +645,7 @@ def page_inventory():
         JOIN sales_contracts sc ON sci.contract_no = sc.contract_no
         JOIN products p ON sci.material_id = p.material_id
         WHERE sc.status NOT IN ('cancelled', 'completed')
+          AND sci.status = 'active'
         ORDER BY sci.material_id
         """
     )
@@ -665,6 +666,7 @@ def page_inventory():
                 JOIN sales_contracts sc ON sci.contract_no = sc.contract_no
                 JOIN customers c ON sc.customer_code = c.code
                 WHERE sci.material_id = %s AND sc.status NOT IN ('cancelled')
+                  AND sci.status = 'active'
                 ORDER BY sc.sign_date
                 """,
                 (mid,),
@@ -776,7 +778,7 @@ def page_contracts():
         items = run_query(
             """
             SELECT sci.item_no AS contract_item_no, p.material_id, p.spec,
-                   sci.quantity, sci.delivered_qty,
+                   sci.quantity, sci.delivered_qty, sci.status,
                    (sci.quantity - sci.delivered_qty) AS remaining,
                    sci.unit_price, sci.subtotal
             FROM sales_contract_items sci
@@ -796,6 +798,7 @@ def page_contracts():
                         "合同数": r["quantity"],
                         "已发": r["delivered_qty"],
                         "未发": r["remaining"],
+                        "行状态": "已关闭" if r["status"] == "closed" else "执行中",
                         "单价": r["unit_price"],
                         "小计": r["subtotal"],
                     }
@@ -831,6 +834,7 @@ def page_contracts():
                       FROM sales_contract_items sci2
                       JOIN sales_contracts sc2 ON sci2.contract_no=sc2.contract_no
                      WHERE sci2.material_id=sci.material_id AND sci2.contract_no<>sci.contract_no
+                       AND sci2.status='active'
                        AND sc2.status NOT IN ('cancelled','completed')) AS other_contracts_owe
             FROM sales_contract_items sci
             JOIN products p ON sci.material_id = p.material_id
@@ -878,6 +882,43 @@ def page_contracts():
 出库单管"仓库货架上少了多少"（库存口径，盘仓用它）。正常一单对一单，调拨中转时会错开。
 """
                 )
+
+        # ── 关闭合同行 (客户放弃该行余量; 走 db_writer 规则层 + 审计留痕)
+        st.subheader("⛔ 关闭合同行（客户不要余量了）")
+        st.caption(
+            "客户说某一行剩下的不要了：选行、填原因、点关闭。"
+            "关闭后这行的余量不再计入任何'还欠/未发完/缺口'统计；"
+            "所有行都发完或关闭时，合同自动变 completed。操作会留审计记录。"
+        )
+        active_rows = [r for r in (items or []) if r["status"] == "active"]
+        if not active_rows:
+            st.caption("该合同没有可关闭的行（都已关闭或不存在）")
+        else:
+            cc1, cc2 = st.columns(2)
+            with cc1:
+                close_opts = {
+                    f"行 {r['contract_item_no']} | {r['material_id']} | {r['spec']} | 未发 {r['remaining']} 卷": r["contract_item_no"]
+                    for r in active_rows
+                }
+                picked_close = st.selectbox("选择要关闭的行", list(close_opts), key="close_item")
+            with cc2:
+                close_reason = st.text_input("关闭原因（必填，留痕用）", key="close_reason",
+                                             placeholder="例: 客户 8/14 电话确认 1-3/4 寸余量不要了")
+            if st.button("确认关闭此行", type="primary", key="close_btn"):
+                if not close_reason.strip():
+                    st.error("必须填关闭原因（审计留痕要求）")
+                else:
+                    res = db_writer.close_contract_item(
+                        sel_contract, close_opts[picked_close],
+                        close_reason.strip(), "streamlit-8501",
+                    )
+                    if res.get("ok"):
+                        for w in res.get("warnings", []):
+                            st.success(w)
+                        st.rerun()
+                    else:
+                        for e in res.get("errors", []):
+                            st.error(e)
 
         # ── 标签纸需求提示 (M3a, 2026-08-01 辅料模块)
         # 规则: 每卷产品 1 张标签; 只提示不扣减, 生产领用出库才扣库存
@@ -1045,7 +1086,7 @@ def page_reports():
             rows = run_query(
                 """
                 SELECT sc.contract_no, sc.status AS contract_status,
-                       sci.item_no, sci.material_id, p.spec,
+                       sci.item_no, sci.material_id, p.spec, sci.status AS item_status,
                        sci.quantity AS contract_qty,
                        (SELECT COALESCE(SUM(i.quantity),0)
                           FROM stock_in_items i JOIN stock_in s ON i.in_no=s.in_no
@@ -1078,8 +1119,9 @@ def page_reports():
                             "已生产入库(卷)": r["produced_qty"],
                             "已发货(卷)": r["shipped_qty"],
                             "已发货(吨)": round(float(r["shipped_qty"]) * float(r["weight"]) / 1000, 3),
-                            "还欠(卷)": r["contract_qty"] - r["shipped_qty"],
-                            "发货进度": f"{round(float(r['shipped_qty']) / float(r['contract_qty']) * 100, 1)}%" if r["contract_qty"] else "-",
+                            "还欠(卷)": 0 if r["item_status"] == "closed" else r["contract_qty"] - r["shipped_qty"],
+                            "发货进度": ("已关闭(客户放弃余量)" if r["item_status"] == "closed"
+                                       else (f"{round(float(r['shipped_qty']) / float(r['contract_qty']) * 100, 1)}%" if r["contract_qty"] else "-")),
                         }
                         for r in rows
                     ],
@@ -1308,6 +1350,7 @@ def page_reports():
             JOIN products p ON sci.material_id = p.material_id
             WHERE sc.status IN ('confirmed', 'delivering')
               AND sci.delivered_qty < sci.quantity
+              AND sci.status = 'active'
             ORDER BY remaining DESC
             """
         )
