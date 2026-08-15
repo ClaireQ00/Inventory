@@ -810,7 +810,6 @@ def check_delivery_vs_contract(conn, report):
         FROM sales_contract_items sci
         JOIN sales_contracts sc ON sc.contract_no = sci.contract_no
         JOIN products p ON p.material_id = sci.material_id
-        LEFT JOIN delivery_orders d ON d.customer_code = sc.customer_code AND d.status='confirmed'
         LEFT JOIN delivery_order_items doi
                ON doi.contract_no = sci.contract_no
               AND doi.contract_item_no = sci.item_no
