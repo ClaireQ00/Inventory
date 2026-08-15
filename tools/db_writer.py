@@ -2083,7 +2083,11 @@ def cancel_delivery(delivery_no: str, reason: str, operator: str = "frontend-rea
             cur.execute(
                 """SELECT doi.id, doi.material_id, doi.actual_quantity,
                           doi.contract_no, doi.contract_item_no
-                   FROM delivery_order_items doi WHERE doi.delivery_no=%s FOR UPDATE""",
+                   FROM delivery_order_items doi
+                   LEFT JOIN sales_contract_items ci
+                          ON ci.contract_no = doi.contract_no
+                         AND ci.item_no = doi.contract_item_no
+                   WHERE doi.delivery_no=%s FOR UPDATE""",
                 (delivery_no,),
             )
             reversed_lines: dict = {}
