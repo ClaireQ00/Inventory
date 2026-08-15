@@ -819,6 +819,9 @@ def check_delivery_vs_contract(conn, report):
         LEFT JOIN delivery_order_items doi
                ON doi.contract_no = sci.contract_no
               AND doi.contract_item_no = sci.item_no
+              AND EXISTS (SELECT 1 FROM delivery_orders d2
+                          WHERE d2.delivery_no = doi.delivery_no
+                            AND d2.status != 'cancelled')
         GROUP BY sci.id
         """
     )
@@ -1163,62 +1166,68 @@ def check_credit_notes_balance(conn, report):
 
 def check_exchange_rates(conn, report):
     """
-    [新增 11/14] 汇率表完整性: 业务里用到的每个外币币种, 每月至少要有一条汇率
+    [新增 11/14] 汇率表完整性: 每笔外币业务的交易月必须录过当月汇率 (R2 汇率月固定)
 
-    规则:
-    - 系统里所有"非 CNY"业务(合同/收款/CI)涉及的币种, exchange_rates 必须有对应汇率
-    - 缺当月汇率 → ERROR (没法折算 CNY)
-    - 提前 7 天没下月汇率 → WARN (提醒月初别忘了录)
+    规则 (2026-08-15 第②批审查修复 🟡-8, 从"只看该币种最新一条"升级为逐表按交易月核对):
+    - 合同按 sign_date 月 / 报关按 shipping_date 月 / 收款按 paid_date 月
+    - 该月该币种在 exchange_rates 没有记录 → ERROR (折算 CNY 无依据)
+    - 前瞻提醒: 本月已过 25 号且下月已有业务日期或常见币种还没录下月汇率 → WARN (月初别忘录)
 
-    类比: 没有汇率就像出门不带钱包, 货再发出去也对不上账, 财务月底会炸。
+    类比: 汇率月固定就像每月的"换汇牌价", 5 月的生意拿 4 月的牌价入账,
+    月底财务对账必然对不上。
     """
     cur = conn.cursor()
 
-    # 收集所有业务里出现过的非 CNY 币种
-    cur.execute(
-        """
-        SELECT DISTINCT currency FROM sales_contracts WHERE currency IS NOT NULL AND currency != 'CNY'
-        UNION
-        SELECT DISTINCT currency FROM receipts       WHERE currency IS NOT NULL AND currency != 'CNY'
-        UNION
-        SELECT DISTINCT currency FROM shipping_records WHERE currency IS NOT NULL AND currency != 'CNY'
-        """
-    )
-    biz_currencies = {row[0] for row in cur.fetchall() if row[0]}
-
-    if not biz_currencies:
-        return  # 没有外币业务, 跳过
-
-    # 拿当前月份 (按今天算)
-    now = datetime.now()
-    this_month_start = now.date().replace(day=1)
-
-    for cur_code in sorted(biz_currencies):
+    # 逐表核对: 业务发生月 ↔ exchange_rates 当月记录
+    checks = [
+        ("sales_contracts", "sign_date", "合同"),
+        ("shipping_records", "shipping_date", "报关"),
+        ("receipts", "paid_date", "收款"),
+    ]
+    for table, date_col, label in checks:
         cur.execute(
+            f"""
+            SELECT DISTINCT substr({date_col}, 1, 7) AS mon, currency
+            FROM {table}
+            WHERE currency IS NOT NULL AND currency != 'CNY'
+              AND {date_col} IS NOT NULL AND {date_col} != ''
             """
-            SELECT MAX(effective_date) FROM exchange_rates
-            WHERE currency = ?
-            """,
-            (cur_code,),
         )
-        row = cur.fetchone()
-        last_effective = row[0] if row else None
-
-        if not last_effective:
-            report.error(
-                f"币种 {cur_code}: exchange_rates 表里一条记录都没有, "
-                f"没法折算 CNY 记账。请录一条 (effective_date 设为本月1号)"
+        used_months = [(mon, code) for mon, code in cur.fetchall() if mon and code]
+        for mon, code in sorted(set(used_months)):
+            cur.execute(
+                "SELECT COUNT(*) FROM exchange_rates "
+                "WHERE currency = ? AND substr(effective_date, 1, 7) = ?",
+                (code, mon),
             )
-            continue
+            if cur.fetchone()[0] == 0:
+                report.error(
+                    f"{label}表 {table}: {mon} 月的 {code} 业务缺少当月汇率 (R2 汇率月固定), "
+                    f"请到【录入中心→汇率】补录 {mon}-01 生效的 {code} 汇率"
+                )
 
-        # SQLite 把 DATE 存成字符串, 直接字符串比较即可 (YYYY-MM-DD 格式天然可比)
-        last_str = str(last_effective)[:10]
-        this_month_str = this_month_start.isoformat()
-        if last_str < this_month_str:
-            report.error(
-                f"币种 {cur_code}: 最近一条汇率是 {last_str}, 早于本月1号({this_month_str}), "
-                f"本月业务没法折算 CNY, 请补录当月汇率"
+    # 前瞻提醒: 25 号以后, 本月用过的外币币种还没有下月汇率 → WARN
+    now = datetime.now()
+    if now.day >= 25:
+        next_year = now.year + (1 if now.month == 12 else 0)
+        next_month = (now.month % 12) + 1
+        next_mon = f"{next_year:04d}-{next_month:02d}"
+        cur.execute(
+            "SELECT DISTINCT currency FROM exchange_rates "
+            "WHERE currency IS NOT NULL AND currency != 'CNY'"
+        )
+        for (code,) in cur.fetchall():
+            if not code:
+                continue
+            cur.execute(
+                "SELECT COUNT(*) FROM exchange_rates "
+                "WHERE currency = ? AND substr(effective_date, 1, 7) = ?",
+                (code, next_mon),
             )
+            if cur.fetchone()[0] == 0:
+                report.warn(
+                    f"币种 {code}: 下月({next_mon})汇率还没录, 月初别忘了 (R2 每月 1 日录一次)"
+                )
 
 
 def check_receipts_vs_contract(conn, report):

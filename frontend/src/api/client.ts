@@ -166,4 +166,11 @@ export const api = {
   createDoc: (kind: string, header: Record<string, unknown>, items: Record<string, unknown>[], operator: string) =>
     post<{ ok: boolean; errors: string[]; warnings: string[]; doc_no: string | null; total_amount?: number; total_amount_cny?: number; exchange_rate?: number }>(
       `/docs/${kind}`, { header, items, operator }),
+  // ── 发货单事后处理 (🔴-4 回填实发 / 🟡-7 作废) ──
+  deliveryActual: (deliveryNo: string, items: Record<string, unknown>[], operator: string) =>
+    post<{ ok: boolean; errors: string[]; warnings: string[]; doc_no: string | null; contracts_updated: string[] }>(
+      '/docs/delivery/actual', { data: { delivery_no: deliveryNo, items }, operator }),
+  deliveryCancel: (deliveryNo: string, reason: string, operator: string) =>
+    post<{ ok: boolean; errors: string[]; warnings: string[]; doc_no: string | null; contracts_updated: string[] }>(
+      '/docs/delivery/cancel', { data: { delivery_no: deliveryNo, reason }, operator }),
 }

@@ -281,14 +281,20 @@ def main():
     #      业务约定: 每月1日记录一次当月固定汇率
     #      [改 2026-08-01] effective_date 不再硬编码, 动态取"当前月1号",
     #      否则跨月后 check_exchange_rates 会报"本月汇率缺失"把 demo 卡死
+    #      [改 2026-08-15] check_exchange_rates 升级为逐月核对 (R2 汇率月固定) 后,
+    #      光有当前月不够: demo 的合同/报关/收款日期固定在 2026-07,
+    #      必须把 demo 业务月 (2026-07) 的月度汇率也补上, 否则 16 步校验卡在第 12 步
+    DEMO_BIZ_MONTH = "2026-07-01"  # demo 单据日期所在的业务月 1 号
     month_1st = date.today().replace(day=1).isoformat()
     month_label = f"{date.today().year}年{date.today().month}月"
     write_csv(
         "exchange_rates.csv",
         ["id", "currency", "rate_to_cny", "effective_date", "source", "remark"],
         [
-            [1, "USD", 7.15, month_1st, "manual", f"{month_label}美元固定汇率"],
-            [2, "EUR", 7.85, month_1st, "manual", f"{month_label}欧元固定汇率"],
+            [1, "USD", 7.15, DEMO_BIZ_MONTH, "manual", "2026年7月美元固定汇率 (demo 业务月)"],
+            [2, "EUR", 7.85, DEMO_BIZ_MONTH, "manual", "2026年7月欧元固定汇率 (demo 业务月)"],
+            [3, "USD", 7.15, month_1st, "manual", f"{month_label}美元固定汇率"],
+            [4, "EUR", 7.85, month_1st, "manual", f"{month_label}欧元固定汇率"],
         ],
     )
 

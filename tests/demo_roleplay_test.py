@@ -277,6 +277,74 @@ check("生产领用出库 40", r.get("ok"), str(r.get("errors", ""))[:50])
 aux_inv = sql("SELECT quantity FROM aux_inventory WHERE aux_code='LP-TEST01' AND warehouse_code='AUX'")
 check("辅料库存 200-40=160", aux_inv == "160", f"inv={aux_inv}")
 
+# ── S14 保管员: 装柜后回填实发数 (🔴-4) ────────────────────────
+print("\n【S14 保管员】回填 DN-TEST01 实发 38 (计划40, 短装2)")
+r = call("POST", "/api/docs/delivery/actual", {"operator": OP, "data": {
+    "delivery_no": "DN-TEST01",
+    "items": [{"contract_no": "SC-TEST01", "contract_item_no": "001", "actual_quantity": 200}]}})
+check("回填超合同量被拒", not r.get("ok"), str(r.get("errors", [""]))[:50])
+r = call("POST", "/api/docs/delivery/actual", {"operator": OP, "data": {
+    "delivery_no": "DN-TEST01",
+    "items": [{"contract_no": "SC-TEST01", "contract_item_no": "001", "actual_quantity": 0}]}})
+check("实发回填0给整行短装警告", r.get("ok") and any("短装" in w for w in r.get("warnings", [])),
+      str(r.get("warnings", ""))[:60])
+r = call("POST", "/api/docs/delivery/actual", {"operator": OP, "data": {
+    "delivery_no": "DN-TEST01",
+    "items": [{"contract_no": "SC-TEST01", "contract_item_no": "001", "actual_quantity": 38}]}})
+check("回填实发38落库", r.get("ok"), str(r.get("errors", ""))[:50])
+row = sql("""SELECT actual_quantity, short_qty FROM delivery_order_items
+             WHERE delivery_no='DN-TEST01' AND contract_no='SC-TEST01'""")
+check("实发38/短装2(生成列)", row == "38\t2", f"row={row!r}")
+dq = sql("SELECT delivered_qty FROM sales_contract_items WHERE contract_no='SC-TEST01' AND item_no='001'")
+check("合同已发数按差额修正 40→38", dq == "38", f"delivered={dq}")
+
+# ── S15 保管员: 销售出库累计闸门 (🟡-13) ───────────────────────
+print("\n【S15 保管员】DN-TEST01 实发38已出库40, 再出1卷应被累计闸门拒")
+r = doc("/api/docs/stock-out", {
+    "out_no": "OUT-TESTXZ", "out_type": "sale", "warehouse_code": "WH-01",
+    "out_date": "2026-08-14", "delivery_no": "DN-TEST01",
+}, [{"material_id": MAT1, "quantity": 1}])
+check("累计出库超实发被拒", not r.get("ok") and "超发" in r.get("errors", [""])[0],
+      str(r.get("errors", [""]))[:60])
+
+# ── S16 业务员: 发货单作废 (🟡-7) ──────────────────────────────
+print("\n【S16 业务员】DN-TEST04 发60卷 → 空原因作废拒 → 作废冲回已发数")
+r = doc("/api/docs/delivery", {
+    "delivery_no": "DN-TEST04", "customer_code": CUST, "delivery_date": "2026-08-14",
+}, [{"contract_no": "SC-TEST01", "contract_item_no": "001", "quantity": 60}])
+check("发货 DN-TEST04=60 落库", r.get("ok"), str(r.get("errors", ""))[:50])
+dq = sql("SELECT delivered_qty FROM sales_contract_items WHERE contract_no='SC-TEST01' AND item_no='001'")
+check("已发数累计 38+60=98", dq == "98", f"delivered={dq}")
+r = call("POST", "/api/docs/delivery/cancel", {"operator": OP, "data": {
+    "delivery_no": "DN-TEST04", "reason": ""}})
+check("空原因作废被拒", not r.get("ok"), str(r.get("errors", [""]))[:40])
+r = call("POST", "/api/docs/delivery/cancel", {"operator": OP, "data": {
+    "delivery_no": "DN-TEST04", "reason": "客户改单重开(e2e)"}})
+check("作废成功+冲回已发数", r.get("ok"), str(r.get("errors", ""))[:50])
+dq = sql("SELECT delivered_qty FROM sales_contract_items WHERE contract_no='SC-TEST01' AND item_no='001'")
+check("已发数冲回 98→38", dq == "38", f"delivered={dq}")
+st = sql("SELECT status FROM sales_contracts WHERE contract_no='SC-TEST01'")
+check("合同状态回到 delivering", st == "delivering", f"status={st}")
+r = call("POST", "/api/docs/delivery/cancel", {"operator": OP, "data": {
+    "delivery_no": "DN-TEST04", "reason": "再次作废"}})
+check("重复作废幂等成功", r.get("ok") and any("cancelled" in w for w in r.get("warnings", [])),
+      str(r.get("warnings", ""))[:50])
+r = doc("/api/docs/stock-out", {
+    "out_no": "OUT-TESTXW", "out_type": "sale", "warehouse_code": "WH-01",
+    "out_date": "2026-08-14", "delivery_no": "DN-TEST04",
+}, [{"material_id": MAT1, "quantity": 1}])
+check("作废发货单不再放出库额度", not r.get("ok"), str(r.get("errors", [""]))[:60])
+
+# ── S17 业务员: 借非交易月汇率给前端可见 WARN (🟡-8) ────────────
+print("\n【S17 业务员】收款 paid_date=2027-01 (无当月汇率) 应带汇率WARN")
+r = call("POST", "/api/insert", {"table": "receipts", "operator": OP, "data": {
+    "receipt_no": "RC-TEST02", "customer_code": CUST, "contract_no": "SC-TEST01",
+    "amount": 500.00, "currency": "USD", "paid_date": "2027-01-15", "status": "confirmed",
+}})
+check("非交易月汇率收款落库+WARN可见",
+      r.get("ok") and any("汇率提示" in w for w in r.get("warnings", [])),
+      f"ok={r.get('ok')} warnings={r.get('warnings')}")
+
 # ── 清理 (逐条执行, 单条失败不中断, 最后核对) ───────────────────
 print("\n【清理】删除全部 TEST 数据 (逐条执行)")
 for stmt in [

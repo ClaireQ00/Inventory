@@ -387,6 +387,9 @@ def insert_row(table: str, data: dict, operator: str = "frontend",
         checks = post_checks(table, conn, row)
         errors = [m for lv, m in checks if lv == "error"]
         warnings = [m for lv, m in checks if lv == "warn"]
+        # 🟡-8 (2026-08-15): 借用了非交易月汇率 (R2 汇率月固定) → 升级为前端可见 WARN
+        if "⚠️" in (pv.get("rate_note") or ""):
+            warnings.append(f"汇率提示: {pv['rate_note']}")
         if errors:
             # 写后校验出 ERROR → 回滚, 脏数据不进库 (跟 16 步校验 ERROR 同级语义)
             conn.rollback()
@@ -1928,6 +1931,211 @@ def create_delivery(header: dict, items: list[dict], operator: str = "frontend-r
 
 
 # ──────────────────────────────────────────────────────────────
+# 发货单装柜后回填实发数 / 作废冲减
+# (2026-08-15 审查修复第②批, docs/REVIEW_BY_CLAUDE_CODE.md 🔴-4 / 🟡-7)
+# ──────────────────────────────────────────────────────────────
+def update_delivery_actual(delivery_no: str, items: list[dict],
+                           operator: str = "frontend-react") -> dict:
+    """装柜后回填 actual_quantity (F5.2 保管员 SOP 动作, R13 提成"实发口径"的唯一数据源)。
+
+    - items: [{contract_no, contract_item_no, actual_quantity}] 按行定位
+    - short_qty 是 MySQL 生成列, 改 actual_quantity 自动跟新
+    - 按差额 delta 修正 sales_contract_items.delivered_qty (与 create 回写口径对称)
+    - 闸门: cancelled 单拒改; 回填后合同累计已发不得超合同量; 实发 ≥ 0
+    - 审计: old_values / new_values 记每行回填前后实发数
+    """
+    errors: list[str] = []
+    warnings: list[str] = []
+    delivery_no = (delivery_no or "").strip()
+    if not delivery_no:
+        return {"ok": False, "errors": ["缺少发货单号 delivery_no"], "doc_no": None}
+    if not items:
+        return {"ok": False, "errors": ["至少需要一行回填明细"], "doc_no": None}
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, status FROM delivery_orders WHERE delivery_no=%s FOR UPDATE",
+                (delivery_no,),
+            )
+            head = cur.fetchone()
+            if not head:
+                return {"ok": False, "errors": [f"发货单不存在: {delivery_no}"], "doc_no": None}
+            if head["status"] == "cancelled":
+                return {"ok": False, "errors": [f"发货单 {delivery_no} 已取消, 不能回填实发数"],
+                        "doc_no": None}
+            old_values: dict = {}
+            new_values: dict = {}
+            touched_contracts: set[str] = set()
+            for i, it in enumerate(items, 1):
+                cno = (it.get("contract_no") or "").strip()
+                ino = (it.get("contract_item_no") or "").strip()
+                raw = it.get("actual_quantity")
+                if not cno or not ino:
+                    errors.append(f"第{i}行: 必须带 contract_no + contract_item_no 定位发货行")
+                    continue
+                try:
+                    new_actual = int(raw)
+                except (TypeError, ValueError):
+                    errors.append(f"第{i}行: actual_quantity 必须是整数, 收到 {raw!r}")
+                    continue
+                cur.execute(
+                    """SELECT doi.id, doi.material_id, doi.quantity, doi.actual_quantity,
+                              ci.quantity AS contract_qty, ci.delivered_qty
+                       FROM delivery_order_items doi
+                       JOIN sales_contract_items ci
+                         ON ci.contract_no = doi.contract_no AND ci.item_no = doi.contract_item_no
+                       WHERE doi.delivery_no=%s AND doi.contract_no=%s AND doi.contract_item_no=%s
+                       FOR UPDATE""",
+                    (delivery_no, cno, ino),
+                )
+                row = cur.fetchone()
+                if not row:
+                    errors.append(f"第{i}行: 发货单 {delivery_no} 没有 {cno}#{ino} 这行")
+                    continue
+                old_actual = int(row["actual_quantity"] or 0)
+                # 闸门: 回填后合同累计已发 ≤ 合同量 (cap = 合同量 - 其余已发 + 本行旧值)
+                cap = int(row["contract_qty"]) - int(row["delivered_qty"]) + old_actual
+                if new_actual < 0:
+                    errors.append(f"第{i}行({row['material_id']}): 实发数不能为负")
+                    continue
+                if new_actual > cap:
+                    errors.append(
+                        f"第{i}行({row['material_id']}): 回填实发 {new_actual} 会使合同 {cno}#{ino} "
+                        f"累计已发超合同量 (最多可填 {cap})")
+                    continue
+                if new_actual == 0:
+                    warnings.append(f"⚠️ {cno}#{ino} 实发回填为 0 (整行短装), 请与客户确认")
+                delta = new_actual - old_actual
+                cur.execute(
+                    "UPDATE delivery_order_items SET actual_quantity=%s WHERE id=%s",
+                    (new_actual, row["id"]),
+                )
+                if delta:
+                    cur.execute(
+                        """UPDATE sales_contract_items SET delivered_qty = delivered_qty + %s
+                           WHERE contract_no=%s AND item_no=%s""",
+                        (delta, cno, ino),
+                    )
+                old_values[f"{cno}#{ino}"] = old_actual
+                new_values[f"{cno}#{ino}"] = new_actual
+                touched_contracts.add(cno)
+            if errors:
+                conn.rollback()
+                return {"ok": False, "errors": errors, "doc_no": None, "warnings": warnings}
+            # 合同状态联动 (与 create_delivery 同口径; completed 也纳入, 短装回抽后要能重开)
+            for cno in touched_contracts:
+                cur.execute(
+                    """SELECT SUM(quantity - delivered_qty) AS pending FROM sales_contract_items
+                       WHERE contract_no=%s AND status='active'""",
+                    (cno,),
+                )
+                left = int(cur.fetchone()["pending"] or 0)
+                cur.execute(
+                    """UPDATE sales_contracts SET status=%s
+                       WHERE contract_no=%s AND status IN ('confirmed','delivering','completed')""",
+                    ("completed" if left == 0 else "delivering", cno),
+                )
+        write_audit(conn, "delivery_orders", head["id"], "UPDATE",
+                    {"action": "回填实发数", "lines": old_values},
+                    {"action": "回填实发数", "lines": new_values}, operator)
+        conn.commit()
+        warnings.append(f"已回填 {len(new_values)} 行实发数, 合同 {sorted(touched_contracts)} 已按差额修正")
+        return {"ok": True, "errors": [], "doc_no": delivery_no,
+                "contracts_updated": sorted(touched_contracts), "warnings": warnings}
+    except Exception as e:  # noqa: BLE001
+        conn.rollback()
+        return {"ok": False, "errors": [f"回填实发数失败: {e}"], "doc_no": None}
+    finally:
+        conn.close()
+
+
+def cancel_delivery(delivery_no: str, reason: str, operator: str = "frontend-react") -> dict:
+    """作废发货单: 置 cancelled + 反向冲减 delivered_qty + 合同状态重算 + 审计留痕。
+
+    - 仅 draft/confirmed 可作废 (shipped 后涉及报关/收款, 不许一键作废, 走 credit_note)
+    - 冲减口径: 每行按 actual_quantity 反向冲回, 与 create/update 回写口径对称
+    - 合同联动: 全部行冲回(合同 delivered 归 0) → confirmed; 否则按余量 delivering/completed
+    """
+    delivery_no = (delivery_no or "").strip()
+    reason = (reason or "").strip()
+    if not delivery_no:
+        return {"ok": False, "errors": ["缺少发货单号 delivery_no"], "doc_no": None}
+    if not reason:
+        return {"ok": False, "errors": ["作废原因必填 (如: 客户改单/录错重开), 无原因无法追溯"]}
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, status FROM delivery_orders WHERE delivery_no=%s FOR UPDATE",
+                (delivery_no,),
+            )
+            head = cur.fetchone()
+            if not head:
+                return {"ok": False, "errors": [f"发货单不存在: {delivery_no}"], "doc_no": None}
+            if head["status"] == "cancelled":
+                return {"ok": True, "errors": [], "doc_no": delivery_no,
+                        "warnings": ["该单已是 cancelled, 无需重复作废"]}
+            if head["status"] not in ("draft", "confirmed"):
+                return {"ok": False, "errors": [
+                    f"发货单 {delivery_no} 状态为 {head['status']}, 已进入报关/签收流程, "
+                    "不能作废 (差异请走 credit_note 红字流程)"], "doc_no": None}
+            cur.execute(
+                """SELECT doi.id, doi.material_id, doi.actual_quantity,
+                          doi.contract_no, doi.contract_item_no
+                   FROM delivery_order_items doi WHERE doi.delivery_no=%s FOR UPDATE""",
+                (delivery_no,),
+            )
+            reversed_lines: dict = {}
+            touched: set[str] = set()
+            for ln in cur.fetchall():
+                actual = int(ln["actual_quantity"] or 0)
+                if actual:
+                    cur.execute(
+                        """UPDATE sales_contract_items SET delivered_qty = delivered_qty - %s
+                           WHERE contract_no=%s AND item_no=%s""",
+                        (actual, ln["contract_no"], ln["contract_item_no"]),
+                    )
+                reversed_lines[f"{ln['contract_no']}#{ln['contract_item_no']}"] = actual
+                touched.add(ln["contract_no"])
+            cur.execute("UPDATE delivery_orders SET status='cancelled' WHERE id=%s", (head["id"],))
+            # 合同状态重算: active 行余量=0 → completed; 合同已发归 0 → confirmed; 否则 delivering
+            for cno in touched:
+                cur.execute(
+                    """SELECT COALESCE(SUM(CASE WHEN status='active'
+                                                THEN quantity - delivered_qty ELSE 0 END), 0) AS pending,
+                              COALESCE(SUM(delivered_qty), 0) AS delivered
+                       FROM sales_contract_items WHERE contract_no=%s""",
+                    (cno,),
+                )
+                agg = cur.fetchone()
+                if int(agg["pending"] or 0) == 0:
+                    new_status = "completed"
+                elif int(agg["delivered"] or 0) == 0:
+                    new_status = "confirmed"
+                else:
+                    new_status = "delivering"
+                cur.execute(
+                    """UPDATE sales_contracts SET status=%s
+                       WHERE contract_no=%s AND status IN ('confirmed','delivering','completed')""",
+                    (new_status, cno),
+                )
+        write_audit(conn, "delivery_orders", head["id"], "UPDATE",
+                    {"status": head["status"]},
+                    {"status": "cancelled", "reason": reason, "reversed_lines": reversed_lines},
+                    operator)
+        conn.commit()
+        return {"ok": True, "errors": [], "doc_no": delivery_no,
+                "contracts_updated": sorted(touched),
+                "warnings": [f"已作废 {delivery_no} 并冲减 {len(reversed_lines)} 行已发数; 原因: {reason}"]}
+    except Exception as e:  # noqa: BLE001
+        conn.rollback()
+        return {"ok": False, "errors": [f"作废发货单失败: {e}"], "doc_no": None}
+    finally:
+        conn.close()
+
+
+# ──────────────────────────────────────────────────────────────
 # 合同明细行关闭 (2026-08-14 老板定: 客户可只放弃某一行, 不用整合同关单)
 # ──────────────────────────────────────────────────────────────
 def close_contract_item(contract_no: str, item_no: str, reason: str,
@@ -2261,6 +2469,37 @@ def create_stock_out(header: dict, items: list[dict], operator: str = "frontend-
                         errors.append(f"物料 {r['material_id']} 不在发货单 {delivery_no} 的明细里")
                     else:
                         resolved_contracts[r["material_id"]] = cno
+            # 🟡-13 销售出库累计闸门 (2026-08-15): 按 (发货单, 物料) 累计校验
+            # 口径与 R13 一致: 允许出库量 = 发货实发数 (actual>0 用 actual, 否则 quantity)
+            # Σ已出库(未作废出库单) + 本次 ≤ 允许量, 超出即 ERROR, 杜绝同一发货单重复超额出库
+            if delivery_no and not errors:
+                for r in rows:
+                    mid = r["material_id"]
+                    cur.execute(
+                        """SELECT COALESCE(SUM(CASE WHEN doi.actual_quantity > 0
+                                                   THEN doi.actual_quantity ELSE doi.quantity END), 0) AS allowed
+                           FROM delivery_order_items doi
+                           JOIN delivery_orders d ON d.delivery_no = doi.delivery_no
+                           WHERE doi.delivery_no=%s AND doi.material_id=%s
+                             AND d.status != 'cancelled'""",
+                        (delivery_no, mid),
+                    )
+                    allowed = int(cur.fetchone()["allowed"] or 0)
+                    cur.execute(
+                        """SELECT COALESCE(SUM(soi.quantity), 0) AS already
+                           FROM stock_out_items soi
+                           JOIN stock_out so ON so.out_no = soi.out_no
+                           WHERE so.delivery_no=%s AND soi.material_id=%s
+                             AND so.status != 'cancelled'""",
+                        (delivery_no, mid),
+                    )
+                    already = int(cur.fetchone()["already"] or 0)
+                    if already + r["quantity"] > allowed:
+                        errors.append(
+                            f"物料 {mid}: 发货单 {delivery_no} 实发 {allowed}, 已出库 {already}, "
+                            f"本次 {r['quantity']} 将超发 {already + r['quantity'] - allowed} "
+                            f"(同一发货单不允许累计超额出库)"
+                        )
             if errors:
                 conn.rollback()
                 return {"ok": False, "errors": errors, "doc_no": None}
@@ -2305,9 +2544,10 @@ def list_contract_materials(contract_no: str) -> list[dict]:
 
 
 def list_delivery_materials(delivery_no: str) -> list[dict]:
-    """发货单明细物料 picker (销售出库选发货单后, 物料下拉过滤)"""
+    """发货单明细物料 picker (销售出库选发货单后物料过滤; 也供回填实发数页带出行)"""
     return list_options(
-        """SELECT di.material_id, p.spec, p.brand, di.contract_no, di.quantity AS delivery_qty
+        """SELECT di.material_id, p.spec, p.brand, di.contract_no, di.contract_item_no,
+                  di.quantity AS delivery_qty, di.actual_quantity
            FROM delivery_order_items di
            LEFT JOIN products p ON p.material_id = di.material_id
            WHERE di.delivery_no=%s ORDER BY di.contract_item_no""",

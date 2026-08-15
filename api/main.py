@@ -458,6 +458,24 @@ def doc_create_delivery(req: DocReq):
     return db_writer.create_delivery(req.header, req.items, req.operator)
 
 
+@app.post("/api/docs/delivery/actual")
+def doc_update_delivery_actual(req: CustomerReq):
+    """装柜后回填实发数 (保管员 SOP): req.data={delivery_no, items:[{contract_no,
+    contract_item_no, actual_quantity}]}; short_qty 自动重算, 合同已发数按差额修正"""
+    return db_writer.update_delivery_actual(
+        req.data.get("delivery_no", ""), req.data.get("items", []), req.operator
+    )
+
+
+@app.post("/api/docs/delivery/cancel")
+def doc_cancel_delivery(req: CustomerReq):
+    """作废发货单 (仅 draft/confirmed): req.data={delivery_no, reason};
+    反向冲减合同已发数 + 合同状态重算 + 审计留痕"""
+    return db_writer.cancel_delivery(
+        req.data.get("delivery_no", ""), req.data.get("reason", ""), req.operator
+    )
+
+
 @app.post("/api/docs/stock-in")
 def doc_create_stock_in(req: DocReq):
     """成品入库单 (生产完工/采购/退货): 头+明细+库存+流水 单事务, 直接 confirmed"""
