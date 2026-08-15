@@ -1784,7 +1784,8 @@ def create_delivery(header: dict, items: list[dict], operator: str = "frontend-r
                               sc.customer_code, sc.status
                        FROM sales_contract_items ci
                        JOIN sales_contracts sc ON sc.contract_no = ci.contract_no
-                       WHERE ci.contract_no=%s AND ci.item_no=%s""",
+                       WHERE ci.contract_no=%s AND ci.item_no=%s
+                       FOR UPDATE""",
                     (cno, ino),
                 )
                 ci = cur.fetchone()
