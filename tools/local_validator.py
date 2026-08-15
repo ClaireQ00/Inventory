@@ -242,7 +242,8 @@ CREATE TABLE IF NOT EXISTS stock_in_items (
     quantity INTEGER NOT NULL,
     remark TEXT DEFAULT '',
     FOREIGN KEY (in_no) REFERENCES stock_in(in_no) ON DELETE CASCADE,
-    FOREIGN KEY (material_id) REFERENCES products(material_id)
+    FOREIGN KEY (material_id) REFERENCES products(material_id),
+    UNIQUE (in_no, material_id)
 );
 
 CREATE TABLE IF NOT EXISTS stock_out (
@@ -268,7 +269,8 @@ CREATE TABLE IF NOT EXISTS stock_out_items (
     quantity INTEGER NOT NULL,
     remark TEXT DEFAULT '',
     FOREIGN KEY (out_no) REFERENCES stock_out(out_no) ON DELETE CASCADE,
-    FOREIGN KEY (material_id) REFERENCES products(material_id)
+    FOREIGN KEY (material_id) REFERENCES products(material_id),
+    UNIQUE (out_no, material_id)
 );
 
 CREATE TABLE IF NOT EXISTS stock_logs (
@@ -321,7 +323,8 @@ CREATE TABLE IF NOT EXISTS delivery_order_items (
     remark TEXT DEFAULT '',
     FOREIGN KEY (delivery_no) REFERENCES delivery_orders(delivery_no) ON DELETE CASCADE,
     FOREIGN KEY (contract_no, contract_item_no) REFERENCES sales_contract_items(contract_no, item_no),
-    FOREIGN KEY (material_id) REFERENCES products(material_id)
+    FOREIGN KEY (material_id) REFERENCES products(material_id),
+    UNIQUE (delivery_no, contract_no, contract_item_no)
 );
 
 -- ------------------------------------------------------------
@@ -370,7 +373,8 @@ CREATE TABLE IF NOT EXISTS shipping_record_items (
     subtotal_usd REAL DEFAULT 0,
     remark TEXT DEFAULT '',
     FOREIGN KEY (shipping_no) REFERENCES shipping_records(shipping_no) ON DELETE CASCADE,
-    FOREIGN KEY (material_id) REFERENCES products(material_id)
+    FOREIGN KEY (material_id) REFERENCES products(material_id),
+    UNIQUE (shipping_no, material_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_sri_shipping ON shipping_record_items(shipping_no);
