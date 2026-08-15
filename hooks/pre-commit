@@ -46,4 +46,15 @@ if [ "$fail" -eq 1 ]; then
     echo "提交已取消。确属误判请先和负责人确认, 不要直接 --no-verify。"
     exit 1
 fi
+
+# 3) 质量门槛 (2026-08-15 加): 暂存区含 Python 改动 → 秒级语法门 make lint
+#    (docs/CSV-only 提交不触发; 完整双回归在 pre-push 的 make check)
+STAGED_PY=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.py$' || true)
+if [ -n "$STAGED_PY" ] && [ -f "$(git rev-parse --show-toplevel)/Makefile" ]; then
+    if ! (cd "$(git rev-parse --show-toplevel)" && make lint); then
+        echo ""
+        echo "❌ make lint 未过: 修好代码再提交 (Claude 修复或回滚, 不用 --no-verify)。"
+        exit 1
+    fi
+fi
 exit 0
