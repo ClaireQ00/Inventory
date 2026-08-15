@@ -1838,6 +1838,22 @@ def create_delivery(header: dict, items: list[dict], operator: str = "frontend-r
                         gap_hit = True
                 if gap_hit:
                     continue
+                # actual_quantity 闸门: 未显式传默认=quantity; 显式传必须 1<=actual<=pending
+                raw_actual = it.get("actual_quantity")
+                if raw_actual is None or (isinstance(raw_actual, str) and raw_actual.strip() == ""):
+                    actual = int(qty)
+                else:
+                    try:
+                        actual = int(raw_actual)
+                    except (TypeError, ValueError):
+                        errors.append(f"第{i}行({ci['material_id']}): actual_quantity 必须是整数")
+                        continue
+                    if actual < 1 or actual > pending:
+                        errors.append(
+                            f"第{i}行({ci['material_id']}): 实际发货 {actual} 超合同未发 {pending} "
+                            f"或小于 1 (合同 {cno}#{ino})"
+                        )
+                        continue
                 p = _fetch_product(cur, ci["material_id"])
                 vol = _pos(p.get("volume")) if p else None
                 rows.append({
@@ -1846,7 +1862,7 @@ def create_delivery(header: dict, items: list[dict], operator: str = "frontend-r
                     "contract_item_no": ino,
                     "material_id": ci["material_id"],
                     "quantity": int(qty),
-                    "actual_quantity": int(_pos(it.get("actual_quantity"), 0) or qty),
+                    "actual_quantity": actual,
                     "volume_subtotal": round((vol or 0.0) * int(qty), 2),
                     "remark": (it.get("remark") or "").strip(),
                 })
