@@ -1879,6 +1879,8 @@ def create_delivery(header: dict, items: list[dict], operator: str = "frontend-r
                 "receiver_address": header.get("receiver_address") or "",
                 "transport_no": header.get("transport_no") or "",
                 "total_volume": round(sum(r["volume_subtotal"] for r in rows), 2),
+                "price_gap_approved": 1 if price_gap_approved else 0,
+                "price_gap_reason": price_gap_reason if price_gap_approved else "",
                 "status": header.get("status") or "confirmed",
                 "remark": header.get("remark") or "",
             }
@@ -1907,7 +1909,9 @@ def create_delivery(header: dict, items: list[dict], operator: str = "frontend-r
             record_id = cur.lastrowid
         write_audit(conn, "delivery_orders", record_id, "INSERT", None,
                     {"delivery_no": delivery_no, "items": len(rows),
-                     "contracts": sorted(touched_contracts)}, operator)
+                     "contracts": sorted(touched_contracts),
+                     "price_gap_approved": price_gap_approved,
+                     "price_gap_reason": price_gap_reason if price_gap_approved else None}, operator)
         conn.commit()
         return {"ok": True, "errors": [], "doc_no": delivery_no,
                 "total_volume": head_row["total_volume"],

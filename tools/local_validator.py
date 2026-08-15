@@ -297,6 +297,8 @@ CREATE TABLE IF NOT EXISTS delivery_orders (
     receiver_address TEXT DEFAULT '',
     transport_no TEXT DEFAULT '',
     total_volume REAL DEFAULT 0,
+    price_gap_approved INTEGER DEFAULT 0,
+    price_gap_reason TEXT DEFAULT '',
     status TEXT DEFAULT 'draft',
     remark TEXT DEFAULT '',
     FOREIGN KEY (customer_code) REFERENCES customers(code)

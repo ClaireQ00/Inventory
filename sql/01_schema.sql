@@ -517,10 +517,12 @@ CREATE TABLE delivery_orders (
     receiver_phone  VARCHAR(32)  DEFAULT ''         COMMENT '收货电话',
     receiver_address VARCHAR(255) DEFAULT ''        COMMENT '收货地址',
     transport_no    VARCHAR(64)  DEFAULT ''         COMMENT '物流单号',
-    total_volume    DECIMAL(10,2) NOT NULL DEFAULT 0.00 COMMENT '发货单总体积(CBM, 展示统计) = Σ delivery_order_items.volume_subtotal 精度0.01',
-    status          ENUM('draft','confirmed','shipped','delivered','cancelled')
-                                NOT NULL DEFAULT 'draft' COMMENT '状态: 草稿/已确认/已装船/客户已签收/已取消',
-    remark          VARCHAR(512) DEFAULT ''         COMMENT '备注',
+    total_volume       DECIMAL(10,2) NOT NULL DEFAULT 0.00 COMMENT '发货单总体积(CBM, 展示统计) = Σ delivery_order_items.volume_subtotal 精度0.01',
+    price_gap_approved TINYINT      NOT NULL DEFAULT 0    COMMENT '老板特批低价先发货(0=否,1=是) (2026-08-15)',
+    price_gap_reason   VARCHAR(255) DEFAULT ''            COMMENT '低价特批原因(留痕) (2026-08-15)',
+    status             ENUM('draft','confirmed','shipped','delivered','cancelled')
+                                   NOT NULL DEFAULT 'draft' COMMENT '状态: 草稿/已确认/已装船/客户已签收/已取消',
+    remark             VARCHAR(512) DEFAULT ''         COMMENT '备注',
     created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     updated_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
                                  ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
