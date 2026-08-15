@@ -1794,8 +1794,11 @@ def create_delivery(header: dict, items: list[dict], operator: str = "frontend-r
                     continue
                 if ci["customer_code"] != customer:
                     errors.append(f"第{i}行: 合同 {cno} 属于客户 {ci['customer_code']}, 与发货单客户不一致")
-                if ci["status"] == "cancelled":
-                    errors.append(f"第{i}行: 合同 {cno} 已取消")
+                if ci["status"] not in ("confirmed", "delivering", "completed"):
+                    errors.append(
+                        f"第{i}行: 合同 {cno} 状态为 '{ci['status']}'，"
+                        f"仅 confirmed/delivering/completed 可发货"
+                    )
                 if ci["item_status"] == "closed":
                     errors.append(f"第{i}行: 合同行 {cno}#{ino} 已关闭(客户放弃余量), 不能再发货")
                 if qty is None:
