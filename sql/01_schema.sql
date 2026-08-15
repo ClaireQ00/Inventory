@@ -411,7 +411,10 @@ CREATE TABLE stock_in_items (
 
     CONSTRAINT fk_sii_si      FOREIGN KEY (in_no)      REFERENCES stock_in(in_no) ON DELETE CASCADE,
     CONSTRAINT fk_sii_product FOREIGN KEY (material_id) REFERENCES products(material_id),
-    CONSTRAINT fk_sii_contract FOREIGN KEY (contract_no) REFERENCES sales_contracts(contract_no)
+    CONSTRAINT fk_sii_contract FOREIGN KEY (contract_no) REFERENCES sales_contracts(contract_no),
+
+    -- 自然唯一键 (R14, 与迁移 2026-08-14_dedupe_natural_keys.sql 一致, 让 REPLACE INTO 幂等)
+    UNIQUE KEY uk_sii_doc_material (in_no, material_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='入库单明细';
 
 CREATE INDEX idx_sii_si      ON stock_in_items(in_no);
@@ -464,7 +467,10 @@ CREATE TABLE stock_out_items (
 
     CONSTRAINT fk_soi_so      FOREIGN KEY (out_no)      REFERENCES stock_out(out_no) ON DELETE CASCADE,
     CONSTRAINT fk_soi_product FOREIGN KEY (material_id) REFERENCES products(material_id),
-    CONSTRAINT fk_soi_contract FOREIGN KEY (contract_no) REFERENCES sales_contracts(contract_no)
+    CONSTRAINT fk_soi_contract FOREIGN KEY (contract_no) REFERENCES sales_contracts(contract_no),
+
+    -- 自然唯一键 (R14, 与迁移 2026-08-14_dedupe_natural_keys.sql 一致, 让 REPLACE INTO 幂等)
+    UNIQUE KEY uk_soi_doc_material (out_no, material_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='出库单明细';
 
 CREATE INDEX idx_soi_so      ON stock_out_items(out_no);
@@ -573,7 +579,10 @@ CREATE TABLE delivery_order_items (
 
     CONSTRAINT fk_doi_delivery     FOREIGN KEY (delivery_no)                          REFERENCES delivery_orders(delivery_no) ON DELETE CASCADE,
     CONSTRAINT fk_doi_contract_item FOREIGN KEY (contract_no, contract_item_no)       REFERENCES sales_contract_items(contract_no, item_no),
-    CONSTRAINT fk_doi_product      FOREIGN KEY (material_id)                          REFERENCES products(material_id)
+    CONSTRAINT fk_doi_product      FOREIGN KEY (material_id)                          REFERENCES products(material_id),
+
+    -- 自然唯一键 (R14, 与迁移 2026-08-14_dedupe_natural_keys.sql 一致, 让 REPLACE INTO 幂等)
+    UNIQUE KEY uk_doi_doc_item (delivery_no, contract_no, contract_item_no)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='发货单明细';
 
 CREATE INDEX idx_doi_delivery      ON delivery_order_items(delivery_no);
@@ -653,7 +662,10 @@ CREATE TABLE shipping_record_items (
     remark           VARCHAR(255) DEFAULT ''        COMMENT '备注',
 
     CONSTRAINT fk_sri_shipping FOREIGN KEY (shipping_no) REFERENCES shipping_records(shipping_no) ON DELETE CASCADE,
-    CONSTRAINT fk_sri_product  FOREIGN KEY (material_id)  REFERENCES products(material_id)
+    CONSTRAINT fk_sri_product  FOREIGN KEY (material_id)  REFERENCES products(material_id),
+
+    -- 自然唯一键 (R14, 与迁移 2026-08-14_dedupe_natural_keys.sql 一致, 让 REPLACE INTO 幂等)
+    UNIQUE KEY uk_sri_doc_material (shipping_no, material_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='报关单据明细(Packing List + CI 数据源)';
 
 CREATE INDEX idx_sri_shipping ON shipping_record_items(shipping_no);
