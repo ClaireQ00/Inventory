@@ -173,4 +173,8 @@ export const api = {
   deliveryCancel: (deliveryNo: string, reason: string, operator: string) =>
     post<{ ok: boolean; errors: string[]; warnings: string[]; doc_no: string | null; contracts_updated: string[] }>(
       '/docs/delivery/cancel', { data: { delivery_no: deliveryNo, reason }, operator }),
+  // ── 贷记单 (🟡-10 差异闭环: 报关后短装/超装挂具体报关单+合同行) ──
+  shippingRecords: () => req<Record<string, unknown>[]>('/options/shipping-records'),
+  shippingItems: (shippingNo: string) =>
+    req<Record<string, unknown>[]>(`/options/shipping-items?shipping_no=${encodeURIComponent(shippingNo)}`),
 }

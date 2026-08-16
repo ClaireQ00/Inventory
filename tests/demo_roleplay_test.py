@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """演示测试: 四角色多场景全链路 e2e (2026-08-14)
 
-角色: 业务员(客户/物料/报价/合同/发货/关行/收款) · 生产调度(生产入库)
+角色: 业务员(客户/物料/报价/合同/发货/关行/收款/贷记单) · 生产调度(生产入库)
       保管员(调拨/销售出库/辅料收发) · 老板(特批/复核)
 测试数据专用编码段: 客户 Z9999 / 物料 M-Z9999-* / 单据 *-TEST*,
 跑前做冲突预检(撞上任何现存数据立即中止), 跑完逐条清理, 不碰真实数据。
@@ -63,6 +63,8 @@ clash = sql(f"""SELECT (SELECT COUNT(*) FROM customers WHERE code='{CUST}')
  + (SELECT COUNT(*) FROM stock_in WHERE in_no LIKE '%-TEST%')
  + (SELECT COUNT(*) FROM stock_out WHERE out_no LIKE '%-TEST%')
  + (SELECT COUNT(*) FROM receipts WHERE receipt_no LIKE '%-TEST%')
+ + (SELECT COUNT(*) FROM shipping_records WHERE shipping_no LIKE '%-TEST%')
+ + (SELECT COUNT(*) FROM credit_notes WHERE cn_no LIKE '%-TEST%')
  + (SELECT COUNT(*) FROM aux_materials WHERE aux_code='LP-TEST01')""")
 if clash != "0":
     print(f"❌ 预检失败: 测试编码段与现存数据冲突 ({clash} 条), 中止以保护数据")
@@ -345,18 +347,57 @@ check("非交易月汇率收款落库+WARN可见",
       r.get("ok") and any("汇率提示" in w for w in r.get("warnings", [])),
       f"ok={r.get('ok')} warnings={r.get('warnings')}")
 
+# ── S18 业务员: 贷记单录入 (🟡-10) ─────────────────────────────
+print("\n【S18 业务员】贷记单 CN-TEST01: 报关短装 2 卷挂 SH-TEST01 / SC-TEST01#001")
+sql("INSERT INTO shipping_records (shipping_no, delivery_no, shipping_date, currency, status, remark) "
+    "VALUES ('SH-TEST01', 'DN-TEST01', '2026-08-14', 'USD', 'customs_cleared', '演示测试报关单')")
+sql(f"INSERT INTO shipping_record_items (shipping_no, material_id, planned_qty, actual_qty, unit_price_usd, subtotal_usd) "
+    f"VALUES ('SH-TEST01', '{MAT1}', 38, 36, 71.17, 142.34)")
+r = call("POST", "/api/insert", {"table": "credit_notes", "operator": OP, "data": {
+    "cn_no": "CN-TEST01", "shipping_no": "SH-TEST01", "contract_no": "SC-TEST01",
+    "contract_item_no": "001", "material_id": MAT1,
+    "diff_qty": 2, "diff_amount": 142.34, "currency": "USD", "resolution": "pending",
+}})
+check("贷记单落库", r.get("ok"), str(r.get("errors"))[:60])
+row = sql("SELECT ROUND(diff_amount_cny,2), ROUND(diff_amount*exchange_rate,2), exchange_rate IS NOT NULL "
+          "FROM credit_notes WHERE cn_no='CN-TEST01'")
+parts = row.split("\t")
+check("汇率按报关月带出+diff_amount_cny派生正确",
+      len(parts) == 3 and parts[0] == parts[1] and parts[2] == "1", f"row={row!r}")
+r = call("POST", "/api/insert", {"table": "credit_notes", "operator": OP, "data": {
+    "cn_no": "CN-TESTXX", "shipping_no": "SH-TEST01", "contract_no": "SC-TEST01",
+    "contract_item_no": "999", "material_id": MAT1,
+    "diff_qty": 2, "diff_amount": 142.34, "currency": "USD", "resolution": "pending",
+}})
+check("合同明细行不存在被拒(复合外键)",
+      not r.get("ok") and any("合同明细行不存在" in e for e in r.get("errors", [])),
+      str(r.get("errors"))[:60])
+r = call("POST", "/api/insert", {"table": "credit_notes", "operator": OP, "data": {
+    "cn_no": "CN-TESTXY", "shipping_no": "SH-TEST01", "contract_no": "SC-TEST01",
+    "contract_item_no": "001", "material_id": MAT1,
+    "diff_qty": 2.5, "diff_amount": 142.34, "currency": "USD", "resolution": "pending",
+}})
+check("差异数量非整数被拒",
+      not r.get("ok") and any("整数" in e for e in r.get("errors", [])),
+      str(r.get("errors"))[:60])
+
 # ── 清理 (逐条执行, 单条失败不中断, 最后核对) ───────────────────
 print("\n【清理】删除全部 TEST 数据 (逐条执行)")
 for stmt in [
+    # 删除顺序按外键依赖: 子表先删, 父表后删
+    # (receipts/credit_notes → shipping_records → delivery_orders → customers)
     "DELETE FROM quotation_items WHERE quote_no LIKE '%-TEST%'",
     "DELETE FROM quotations WHERE quote_no LIKE '%-TEST%'",
+    "DELETE FROM receipts WHERE receipt_no LIKE '%-TEST%'",
+    "DELETE FROM credit_notes WHERE cn_no LIKE '%-TEST%'",
+    "DELETE FROM shipping_record_items WHERE shipping_no LIKE '%-TEST%'",
+    "DELETE FROM shipping_records WHERE shipping_no LIKE '%-TEST%'",
     "DELETE FROM stock_out_items WHERE out_no LIKE '%-TEST%'",
     "DELETE FROM stock_out WHERE out_no LIKE '%-TEST%'",
     "DELETE FROM stock_in_items WHERE in_no LIKE '%-TEST%'",
     "DELETE FROM stock_in WHERE in_no LIKE '%-TEST%'",
     "DELETE FROM delivery_order_items WHERE delivery_no LIKE '%-TEST%'",
     "DELETE FROM delivery_orders WHERE delivery_no LIKE '%-TEST%'",
-    "DELETE FROM receipts WHERE receipt_no LIKE '%-TEST%'",
     "DELETE FROM sales_contract_items WHERE contract_no LIKE '%-TEST%'",
     "DELETE FROM sales_contracts WHERE contract_no LIKE '%-TEST%'",
     "DELETE FROM inventory WHERE material_id LIKE 'M-Z9999-%'",
@@ -378,6 +419,8 @@ leftover = sql("""SELECT (SELECT COUNT(*) FROM sales_contracts WHERE contract_no
   + (SELECT COUNT(*) FROM stock_in WHERE in_no LIKE '%-TEST%')
   + (SELECT COUNT(*) FROM stock_out WHERE out_no LIKE '%-TEST%')
   + (SELECT COUNT(*) FROM receipts WHERE receipt_no LIKE '%-TEST%')
+  + (SELECT COUNT(*) FROM shipping_records WHERE shipping_no LIKE '%-TEST%')
+  + (SELECT COUNT(*) FROM credit_notes WHERE cn_no LIKE '%-TEST%')
   + (SELECT COUNT(*) FROM stock_logs WHERE material_id LIKE 'M-Z9999-%')
   + (SELECT COUNT(*) FROM audit_logs WHERE operator='demo-test')""")
 check("测试数据已清零", leftover == "0", f"leftover={leftover}")

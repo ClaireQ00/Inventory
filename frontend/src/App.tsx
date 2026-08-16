@@ -11,6 +11,7 @@ import StockInEntry from './pages/StockInEntry'
 import StockOutEntry from './pages/StockOutEntry'
 import ProductEntry from './pages/ProductEntry'
 import ReceiptEntry from './pages/ReceiptEntry'
+import CreditNoteEntry from './pages/CreditNoteEntry'
 import RateEntry from './pages/RateEntry'
 import QuotationEntry from './pages/QuotationEntry'
 import ContractEntry from './pages/ContractEntry'
@@ -56,6 +57,7 @@ export default function App() {
                       { key: '/entry/delivery', label: <Link to="/entry/delivery">🚚 发货</Link> },
                       { key: '/entry/delivery-actual', label: <Link to="/entry/delivery-actual">🚢 发货处理</Link> },
                       { key: '/entry/receipt', label: <Link to="/entry/receipt">💰 收款</Link> },
+                      { key: '/entry/credit-note', label: <Link to="/entry/credit-note">🧾 贷记单</Link> },
                       { key: '/entry/rate', label: <Link to="/entry/rate">💱 汇率</Link> },
                     ],
                   },
@@ -82,6 +84,7 @@ export default function App() {
                 <Route path="/entry/delivery" element={<DeliveryEntry />} />
                 <Route path="/entry/delivery-actual" element={<DeliveryActual />} />
                 <Route path="/entry/receipt" element={<ReceiptEntry />} />
+                <Route path="/entry/credit-note" element={<CreditNoteEntry />} />
                 <Route path="/entry/rate" element={<RateEntry />} />
                 <Route path="/aux/materials" element={<AuxMaterials />} />
                 <Route path="/aux/stock" element={<AuxStock />} />

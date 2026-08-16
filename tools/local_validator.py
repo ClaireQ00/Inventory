@@ -1251,7 +1251,10 @@ def check_receipts_vs_contract(conn, report):
         FROM sales_contracts sc
         LEFT JOIN receipts r
              ON r.contract_no = sc.contract_no
-            AND r.status = 'confirmed'
+            -- 🔵-15 (2026-08-15): 口径与录入端统一为"非 cancelled"。
+            -- 原来只数 confirmed, draft 收款被漏算; 录入端拦截用 != 'cancelled',
+            -- 两边不一致会出现"录入端放行、校验器报警"互相矛盾
+            AND r.status != 'cancelled'
         GROUP BY sc.id, r.currency
         """
     )
@@ -1713,8 +1716,8 @@ def main():
     print(f"CSV 目录: {args.csv_dir}")
     print("=" * 60)
 
-    # 1. 重建库
-    print("\n[0/15] 重建 SQLite 验证库...")
+    # 1. 重建库 (🔵-17: 不再硬编码总步数, 步号从 CHECK_STEPS 自动推导)
+    print("\n[0] 重建 SQLite 验证库...")
     conn = setup_db(args.db)
     print(f"  库已重建: {args.db}")
 

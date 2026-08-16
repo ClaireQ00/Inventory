@@ -30,13 +30,18 @@ import db_writer  # noqa: E402
 
 app = FastAPI(title="Inventory API", version="2.0")
 
-# 开发期 Vite (任意端口) + NAS 局域网访问; 生产由 Nginx 同源反代
+# CORS 白名单 (🟡-11 收紧, 2026-08-15): 默认只放前端自己的源。
+# 生产 8082 走 Nginx 同源反代根本不经过 CORS; 开发期 Vite (5173) 需要显式放行。
+# 本系统无登录鉴权, 放 * 等于任何外部网页都能驱动员工浏览器直接写内网库;
+# 要接其他源时用环境变量 CORS_ORIGINS=http://a,http://b (逗号分隔) 覆盖。
+DEFAULT_CORS_ORIGINS = "http://localhost:5173,http://127.0.0.1:5173"
+_origins = [o.strip() for o in os.getenv("CORS_ORIGINS", DEFAULT_CORS_ORIGINS).split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.getenv("CORS_ORIGINS", "*").split(","),
+    allow_origins=_origins,
     allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "OPTIONS"],
+    allow_headers=["Content-Type"],
 )
 
 CSV_DIR = Path(os.getenv("CSV_DIR", "/app/data/csv"))
@@ -365,14 +370,28 @@ def contract_item_close(contract_no: str, item_no: str, req: CustomerReq):
 async def aux_upload(aux_code: str, file: UploadFile, uploaded_by: str = "frontend-react"):
     """上传辅料附件 (pdf/doc/docx/jpg/png ≤10MB, sha256 去重)"""
     import hashlib
+    import re
     import uuid as _uuid
 
+    # 🟡-12 (2026-08-15): aux_code 会拼进落盘路径, 白名单校验 ——
+    # 只放字母/数字/下划线/连字符, 不再依赖路由参数不匹配 "/" 这种框架隐式防御
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", aux_code):
+        raise HTTPException(400, f"aux_code 含非法字符: {aux_code!r} (仅允许字母/数字/下划线/连字符)")
     ext = (file.filename or "").rsplit(".", 1)[-1].lower() if "." in (file.filename or "") else ""
     if ext not in AUX_FILE_TYPES:
         raise HTTPException(400, f"不支持的文件类型: .{ext} (允许: {sorted(AUX_FILE_TYPES)})")
-    content = await file.read()
-    if len(content) > AUX_MAX_FILE_SIZE:
-        raise HTTPException(400, f"文件超过 10MB ({len(content) / 1024 / 1024:.1f}MB)")
+    # 🟡-12: 分块流式读取, 累计超 10MB 立刻中止 —— 不再先把整个文件吞进内存再验大小
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(1024 * 1024)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > AUX_MAX_FILE_SIZE:
+            raise HTTPException(400, f"文件超过 10MB (读到 {total / 1024 / 1024:.1f}MB 时已中止)")
+        chunks.append(chunk)
+    content = b"".join(chunks)
     sha = hashlib.sha256(content).hexdigest()
     rel_path = f"aux/{aux_code}/{_uuid.uuid4().hex[:12]}.{ext}"
     abs_path = ATTACH_DIR / rel_path
@@ -491,6 +510,31 @@ def doc_create_stock_out(req: DocReq):
 @app.get("/api/options/deliveries")
 def opt_deliveries():
     return db_writer.list_deliveries()
+
+
+@app.get("/api/options/shipping-records")
+def opt_shipping_records():
+    """报关单下拉 (贷记单录入选差异来源), 新的在前"""
+    return db_writer.list_options(
+        "SELECT shipping_no, delivery_no, shipping_date, currency, total_amount, status "
+        "FROM shipping_records ORDER BY shipping_date DESC, shipping_no DESC LIMIT 200"
+    )
+
+
+@app.get("/api/options/shipping-items")
+def opt_shipping_items(shipping_no: str):
+    """报关单明细 (贷记单录入参照): 计划/实发/单价 + 反解的合同行, 帮助算差异数量与金额"""
+    return db_writer.list_options(
+        """SELECT sri.material_id, sri.planned_qty, sri.actual_qty, sri.unit_price_usd,
+                  doi.contract_no, doi.contract_item_no
+           FROM shipping_record_items sri
+           JOIN shipping_records sr ON sr.shipping_no = sri.shipping_no
+           LEFT JOIN delivery_order_items doi
+                  ON doi.delivery_no = sr.delivery_no AND doi.material_id = sri.material_id
+           WHERE sri.shipping_no=%s
+           ORDER BY sri.material_id, doi.id""",
+        (shipping_no,),
+    )
 
 
 @app.get("/api/options/purchase-orders")

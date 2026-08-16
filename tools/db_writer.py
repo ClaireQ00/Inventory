@@ -113,6 +113,22 @@ FIELD_RULES = {
         "meter_mark_count": {"kind": "posnum"},
         "remark": {"kind": "str", "max": 512},
     },
+    # 贷记单 (R3 差异闭环; 🟡-10 2026-08-15 开放录入):
+    # 短装/超装差异挂到 具体报关单 + 合同明细行, diff_amount_cny 由派生引擎自动算
+    "credit_notes": {
+        "cn_no": {"required": True, "kind": "str", "max": 32},
+        "shipping_no": {"required": True, "kind": "str", "fk": ("shipping_records", "shipping_no", "报关单")},
+        "contract_no": {"required": True, "kind": "str", "fk": ("sales_contracts", "contract_no", "合同")},
+        "contract_item_no": {"required": True, "kind": "str", "max": 32},  # 与 contract_no 组合校验见 validate_fields
+        "material_id": {"required": True, "kind": "str", "fk": ("products", "material_id", "物料")},
+        "diff_qty": {"required": True, "kind": "int"},   # 正=短装, 负=超装
+        "diff_amount": {"required": True, "kind": "num"},  # 差异金额(原币), 超装为负
+        "currency": {"required": True, "kind": "str", "max": 3},
+        "exchange_rate": {"kind": "posnum"},  # 不填按报关单 shipping_date 所在月自动带出 (R2)
+        "resolution": {"kind": "enum", "values": ["pending", "replenish", "refund", "writeoff"]},
+        "resolved_at": {"kind": "date"},
+        "remark": {"kind": "str", "max": 512},
+    },
 }
 
 # 各表的唯一键 (录入前查重, 比撞 UNIQUE KEY 报错友好)
@@ -120,6 +136,7 @@ UNIQUE_KEYS = {
     "exchange_rates": ["currency", "effective_date"],
     "receipts": ["receipt_no"],
     "products": ["material_id"],
+    "credit_notes": ["cn_no"],
 }
 
 ALLOWED_TABLES = tuple(FIELD_RULES.keys())
@@ -157,6 +174,17 @@ def validate_fields(table: str, data: dict, conn=None) -> list[str]:
                     errors.append(f"{field} 必须是正数, 收到: {v}")
             except (TypeError, ValueError):
                 errors.append(f"{field} 必须是数字, 收到: {v}")
+        elif kind == "int":  # 可为负 (贷记单 diff_qty: 正=短装 负=超装)
+            try:
+                if float(str(v).strip()) != int(float(str(v).strip())):
+                    errors.append(f"{field} 必须是整数, 收到: {v}")
+            except (TypeError, ValueError):
+                errors.append(f"{field} 必须是整数, 收到: {v}")
+        elif kind == "num":  # 可为负/零 (贷记单 diff_amount: 超装为负)
+            try:
+                float(str(v).strip())
+            except (TypeError, ValueError):
+                errors.append(f"{field} 必须是数字, 收到: {v}")
         elif kind == "date" and not _is_date(v):
             errors.append(f"{field} 必须是日期 (YYYY-MM-DD), 收到: {v}")
         elif kind == "enum" and v not in rule["values"]:
@@ -170,6 +198,18 @@ def validate_fields(table: str, data: dict, conn=None) -> list[str]:
                 cur.execute(f"SELECT 1 FROM {fk_table} WHERE {fk_col}=%s LIMIT 1", (v,))
                 if not cur.fetchone():
                     errors.append(f"{field}={v}: {fk_label}不存在 (请先维护基础资料)")
+    # 复合外键: credit_notes 的 (contract_no, contract_item_no) 必须命中真实合同明细行
+    if table == "credit_notes" and conn is not None:
+        cno = str(data.get("contract_no") or "").strip()
+        ino = str(data.get("contract_item_no") or "").strip()
+        if cno and ino:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT 1 FROM sales_contract_items WHERE contract_no=%s AND item_no=%s LIMIT 1",
+                    (cno, ino),
+                )
+                if not cur.fetchone():
+                    errors.append(f"合同明细行不存在: {cno}#{ino} (贷记单必须挂到真实合同行)")
     # 查重
     if conn is not None:
         keys = UNIQUE_KEYS[table]
@@ -345,6 +385,26 @@ def preview_insert(table: str, data: dict) -> dict:
                     row["exchange_rate"] = rate
                     row, more = apply_derived(table, row)  # 重算 amount_cny
                     engine_msgs += more
+        if table == "credit_notes" and not errors:
+            # 汇率自动带出 (R2 汇率月固定, 🟡-10 2026-08-15): 没填 exchange_rate
+            # 就按报关单 shipping_date 所在月查表; 借到非当月汇率由 insert_row 升级 WARN
+            if not row.get("exchange_rate"):
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT shipping_date, currency FROM shipping_records WHERE shipping_no=%s LIMIT 1",
+                        (row["shipping_no"],),
+                    )
+                    sr = cur.fetchone()
+                if sr:
+                    rate, rate_note = lookup_exchange_rate(
+                        conn, row.get("currency") or str(sr["currency"]),
+                        str(sr["shipping_date"])[:10])
+                    if rate is None:
+                        errors.append(rate_note)
+                    else:
+                        row["exchange_rate"] = rate
+                        row, more = apply_derived(table, row)  # 重算 diff_amount_cny
+                        engine_msgs += more
         return {
             "ok": not errors,
             "errors": errors,
@@ -1891,7 +1951,7 @@ def create_delivery(header: dict, items: list[dict], operator: str = "frontend-r
                 "status": header.get("status") or "confirmed",
                 "remark": header.get("remark") or "",
             }
-            _doc_insert(cur, "delivery_orders", head_row)
+            head_id = _doc_insert(cur, "delivery_orders", head_row)
             for r in rows:
                 _doc_insert(cur, "delivery_order_items", r)
                 cur.execute(
@@ -1913,8 +1973,10 @@ def create_delivery(header: dict, items: list[dict], operator: str = "frontend-r
                        WHERE contract_no=%s AND status IN ('confirmed','delivering')""",
                     ("completed" if left == 0 else "delivering", cno),
                 )
-            record_id = cur.lastrowid
-        write_audit(conn, "delivery_orders", record_id, "INSERT", None,
+            # 🔵-16 (2026-08-15): 审计 record_id 用头表 id (head_id)。
+            # 原写法取 cur.lastrowid 会拿到最后一条 delivery_order_items 的 id,
+            # 按 (table_name, record_id) 反查审计会定位到明细行
+        write_audit(conn, "delivery_orders", head_id, "INSERT", None,
                     {"delivery_no": delivery_no, "items": len(rows),
                      "contracts": sorted(touched_contracts),
                      "price_gap_approved": price_gap_approved,
@@ -2168,11 +2230,19 @@ def close_contract_item(contract_no: str, item_no: str, reason: str,
             if row["status"] == "closed":
                 return {"ok": True, "errors": [], "warnings": ["该行已是关闭状态, 无需重复操作"]}
             remaining = int(row["quantity"]) - int(row["delivered_qty"])
-            stamp = f" | {date.today().isoformat()} {operator} 关闭(客户放弃余量 {remaining} 卷): {reason}"
+            # 🔵-24 (2026-08-15): 超长截头留尾 —— 关行留痕 (时间/操作人/原因) 必须完整,
+            # 消费方 streamlit 复核卡取 remark.split("|")[-1], stamp 永远保持是最后一段
+            reason_txt = reason.strip()
+            if len(reason_txt) > 120:
+                reason_txt = reason_txt[:120] + "…"
+            stamp = f" | {date.today().isoformat()} {operator} 关闭(客户放弃余量 {remaining} 卷): {reason_txt}"
+            combined = (row["remark"] or "") + stamp
+            if len(combined) > 255:
+                combined = "…" + combined[-254:]  # 截掉旧备注开头, 留痕信息一字不丢
             cur.execute(
                 "UPDATE sales_contract_items SET status='closed', "
                 "remark=%s WHERE id=%s",
-                (((row["remark"] or "") + stamp)[:255], row["id"]),
+                (combined, row["id"]),
             )
             # 合同状态联动: 剩余 active 行全部发完 → completed
             cur.execute(
