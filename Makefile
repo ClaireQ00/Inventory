@@ -26,6 +26,7 @@ lint:
 
 test:
 	python3 tests/demo_roleplay_test.py
+	python3 tests/run_tests.py
 
 validate:
 	bash scripts/run_local_validation.sh --demo

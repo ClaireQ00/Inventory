@@ -176,19 +176,31 @@ def test_short_shipment_and_credit_note():
 def test_missing_exchange_rate():
     """④ 外币业务存在但汇率只录到上月 -> ERROR (缺当月汇率)"""
     fixture = build_fixture("missing_exchange_rate")
-    this_month_start = datetime.now().replace(day=1)
-    first_prev_month = (this_month_start - timedelta(days=1)).replace(day=1)
+    # 从 demo 生成的单据里取业务月 (合同/报关/收款, 取最大月, 如 2026-07),
+    # 只给"业务月的前一个月"录汇率 → 业务月本身缺当月汇率, 触发 R2 逐月核对 ERROR。
+    # 注意不能用"当前月"推算: 校验器 2026-08-15 升级为逐表按交易月核对 (🟡-8),
+    # 测试跑在 8 月以后时, "上月汇率"会恰好覆盖 demo 的 7 月业务, 假绿。
+    tx_months = []
+    for fname, col in [("sales_contracts.csv", "sign_date"),
+                       ("shipping_records.csv", "shipping_date"),
+                       ("receipts.csv", "paid_date")]:
+        for r in read_csv(os.path.join(fixture, fname)):
+            if r.get(col):
+                tx_months.append(r[col][:7])
+    biz_month = max(tx_months)
+    prev_month = (datetime.strptime(biz_month + "-01", "%Y-%m-%d")
+                  - timedelta(days=1)).replace(day=1)
     write_csv(os.path.join(fixture, "exchange_rates.csv"), [{
         "id": "1", "currency": "USD", "rate_to_cny": "7.15",
-        "effective_date": first_prev_month.isoformat(),
-        "source": "manual", "remark": "测试: 只录到上月",
+        "effective_date": prev_month.isoformat(),
+        "source": "manual", "remark": "测试: 只录到业务月的前一个月",
     }])
 
     db_path = os.path.join(fixture, "validation.db")
     conn = build_db(fixture, db_path)
     report = run_validation(conn)
     summary = report.summary()
-    assert any("早于本月1号" in e for e in report.errors), \
+    assert any("缺少当月汇率" in e for e in report.errors), \
         f"应有汇率缺失 ERROR, 实际:\n{summary}"
     conn.close()
     return "④ 跨月汇率缺失 -> ERROR"
